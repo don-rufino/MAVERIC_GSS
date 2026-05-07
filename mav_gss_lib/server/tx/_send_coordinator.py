@@ -367,7 +367,7 @@ class _SendCoordinator:
                     "instance_id": instance.instance_id,
                     "stage": "released",
                     "verifier_id": "",
-                    "outcome": "pass",
+                    "outcome": "passed",
                     "elapsed_ms": 0,
                     "match_event_id": None,
                 })

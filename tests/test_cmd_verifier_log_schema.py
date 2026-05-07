@@ -29,7 +29,7 @@ class CmdVerifierWrites(unittest.TestCase):
             log.write_cmd_verifier({
                 "cmd_event_id": "c1", "instance_id": "i1",
                 "stage": "received", "verifier_id": "uppm_ack",
-                "outcome": "pass", "elapsed_ms": 445,
+                "outcome": "passed", "elapsed_ms": 445,
                 "match_event_id": "e9", "seq": 1,
             })
             log.close()
