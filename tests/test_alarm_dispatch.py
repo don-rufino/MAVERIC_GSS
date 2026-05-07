@@ -1,9 +1,10 @@
-"""AlarmDispatch audit throttling and broadcast behavior."""
+"""AlarmDispatch transition-only audit and broadcast behavior."""
 from __future__ import annotations
 
 import asyncio
 import json
 import unittest
+from dataclasses import replace
 
 from mav_gss_lib.platform.alarms.contract import (
     AlarmChange,
@@ -63,24 +64,42 @@ def _change(
 
 
 class TestAlarmDispatch(unittest.TestCase):
-    def test_throttles_detail_only_audit_churn(self) -> None:
-        sink = _Sink()
-        dispatch = AlarmDispatch(
-            audit_sink=sink,
-            broadcast_target=_Target(),
+    def test_no_audit_write_on_detail_only_change(self) -> None:
+        writes: list[tuple[str, int]] = []
+
+        class _DetailSink:
+            def write_alarm(self, change: AlarmChange, ts_ms: int) -> None:
+                writes.append((change.event.detail, ts_ms))
+
+        class _NullBroadcast:
+            async def broadcast_text(self, text: str) -> None:
+                return None
+
+        d = AlarmDispatch(
+            audit_sink=_DetailSink(),
+            broadcast_target=_NullBroadcast(),
             loop=None,
         )
-
-        dispatch.emit(_change(
-            detail="no packet for 200s",
-            now_ms=1000,
-            prev_state=None,
-            prev_severity=None,
-        ), 1000)
-        dispatch.emit(_change(detail="no packet for 201s", now_ms=2000), 2000)
-        dispatch.emit(_change(detail="no packet for 260s", now_ms=62_000), 62_000)
-
-        self.assertEqual([ts for _, ts in sink.records], [1000, 62_000])
+        ev_a = AlarmEvent(
+            id="container.eps_hk.stale",
+            source=AlarmSource.CONTAINER,
+            label="EPS HK STALE",
+            detail="no packet for 30m",
+            severity=Severity.WARNING,
+            state=AlarmState.UNACKED_ACTIVE,
+            first_seen_ms=0,
+            last_eval_ms=0,
+            last_transition_ms=0,
+            context={},
+        )
+        ev_b = replace(ev_a, detail="no packet for 31m", last_eval_ms=60_000)
+        d.emit(AlarmChange(event=ev_a, prev_state=None, prev_severity=None,
+                           removed=False, operator=""), now_ms=0)
+        d.emit(AlarmChange(event=ev_b, prev_state=AlarmState.UNACKED_ACTIVE,
+                           prev_severity=Severity.WARNING,
+                           removed=False, operator=""), now_ms=60_000)
+        # First emit writes (initial transition); second must not.
+        self.assertEqual(len(writes), 1)
 
     def test_state_transition_audits_inside_detail_throttle_window(self) -> None:
         sink = _Sink()

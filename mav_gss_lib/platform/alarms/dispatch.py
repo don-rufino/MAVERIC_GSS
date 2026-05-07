@@ -31,9 +31,6 @@ class BroadcastTarget(Protocol):
     def broadcast_text(self, text: str) -> Awaitable[None]: ...
 
 
-AUDIT_DETAIL_THROTTLE_MS = 60_000
-
-
 @dataclass(frozen=True, slots=True)
 class _AuditMark:
     state: AlarmState
@@ -47,7 +44,6 @@ class AlarmDispatch:
     audit_sink: AuditSink
     broadcast_target: BroadcastTarget
     loop: asyncio.AbstractEventLoop | None  # None disables broadcast (test mode)
-    audit_detail_throttle_ms: int = AUDIT_DETAIL_THROTTLE_MS
     _last_audit: dict[str, _AuditMark] = field(
         default_factory=dict, init=False, repr=False, compare=False,
     )
@@ -78,12 +74,7 @@ class AlarmDispatch:
                 or bool(change.operator)
                 or previous.state != event.state
                 or previous.severity != event.severity
-                or (
-                    event.detail != previous.detail
-                    and now_ms - previous.written_ms >= self.audit_detail_throttle_ms
-                )
             )
-
             if not should_write:
                 return False
             if change.removed:
