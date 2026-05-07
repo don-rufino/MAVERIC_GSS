@@ -28,7 +28,7 @@ class UiSpecParserTests(unittest.TestCase):
                     "value_icons": {"CMD": "command", "TLM": "telemetry"},
                     "default_icon": "unknown",
                 },
-                {"id": "cmd", "label": "cmd", "flex": True, "path": "header.cmd_id"},
+                {"id": "cmd", "label": "cmd", "flex": True, "kind": "cmd_id"},
             ],
         })
         self.assertEqual(len(spec.rx_columns), 4)
@@ -50,6 +50,7 @@ class UiSpecParserTests(unittest.TestCase):
 
         cmd = spec.rx_columns[3]
         self.assertTrue(cmd.flex)
+        self.assertEqual(cmd.kind, "cmd_id")
 
     def test_to_json_strips_defaults(self):
         spec = parse_ui_section({
