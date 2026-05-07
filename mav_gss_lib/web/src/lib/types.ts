@@ -20,6 +20,7 @@ export interface RxPacket {
 
 export interface MissionFacts {
   id: string
+  cmd_id?: string
   facts?: Record<string, unknown>
 }
 
@@ -52,7 +53,7 @@ export interface ColumnDef {
   flex?: boolean
   toggle?: string
   path?: string
-  kind?: 'value' | 'verifiers'
+  kind?: 'value' | 'verifiers' | 'cmd_id'
   badge?: boolean
   truncate?: boolean
   value_icons?: Record<string, string>

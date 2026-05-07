@@ -63,9 +63,9 @@ class TestCorrelationKeyNormalization(unittest.TestCase):
         w._codec = _StubCodec()
         from mav_gss_lib.platform.contract import EncodedCommand
 
-        sym = EncodedCommand(raw=b"", cmd_id="mtq_set_1", src="GS", guard=False,
+        sym = EncodedCommand(raw=b"", cmd_id="mtq_set_1", src="GS",
                              mission_facts={"header": {"dest": "LPPM"}}, parameters=())
-        num = EncodedCommand(raw=b"", cmd_id="mtq_set_1", src="GS", guard=False,
+        num = EncodedCommand(raw=b"", cmd_id="mtq_set_1", src="GS",
                              mission_facts={"header": {"dest": 1}}, parameters=())
         self.assertEqual(w.correlation_key(sym), w.correlation_key(num))
         self.assertEqual(w.correlation_key(sym), ("mtq_set_1", "LPPM"))
@@ -103,6 +103,39 @@ class TestNoCrossInstanceMisattribution(unittest.TestCase):
         self.assertEqual(len(result), 1)
         instance_id, _, _ = result[0]
         self.assertEqual(instance_id, "i_lppm")
+
+
+class TestTlmAcrossSources(unittest.TestCase):
+    """TLM emissions can originate from any subsystem, not just the
+    instance's destination. The matcher's TLM branch filters by cmd_id
+    only (no dest filter) — this regression test pins that semantic so a
+    future "tighten everything to full-key" refactor doesn't silently
+    break TLM matching.
+    """
+
+    def test_tlm_matches_when_src_differs_from_original_dest(self):
+        # Instance for `eps_hk` originally sent to LPPM (the routing
+        # peer). The TLM beacon for eps_hk arrives from EPS itself, not
+        # LPPM — TLM must still match.
+        spec = VerifierSpec(
+            "tlm_eps_hk", "complete", CheckWindow(0, 60_000),
+            "TLM", "success",
+        )
+        inst = CommandInstance(
+            instance_id="i_eps", correlation_key=("eps_hk", "LPPM"),
+            t0_ms=0, cmd_event_id="cmd1",
+            verifier_set=VerifierSet(verifiers=(spec,)),
+            outcomes={"tlm_eps_hk": VerifierOutcome.pending()},
+            stage="released",
+        )
+        result = match_verifiers(
+            _envelope("eps_hk", "EPS", "TLM"),  # src=EPS, original dest=LPPM
+            [inst], now_ms=1000, rx_event_id="rx_tlm",
+        )
+        self.assertEqual(len(result), 1)
+        instance_id, verifier_id, _ = result[0]
+        self.assertEqual(instance_id, "i_eps")
+        self.assertEqual(verifier_id, "tlm_eps_hk")
 
 
 if __name__ == "__main__":

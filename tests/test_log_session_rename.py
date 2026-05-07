@@ -78,5 +78,30 @@ class TestSessionRenameRollback(unittest.TestCase):
                 self.assertEqual(rec["session_id"], original_sid)
 
 
+class TestRollbackRespectsPostCommitRecovery(unittest.TestCase):
+    """If commit_rename's recovery branch removed the old file before
+    failing — leaving new_jsonl as the canonical log on disk — the
+    orchestrator's rollback_rename must NOT delete new_jsonl. Doing so
+    would silently destroy operator session data.
+    """
+
+    def test_rollback_skips_delete_when_log_already_swapped_to_new(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = SessionLog(d, zmq_addr="tcp://127.0.0.1:0",
+                             station="GS-1", operator="irfan")
+            original_sid = _write_one(log)
+            prepared = log.prepare_rename("test_tag")
+            # Simulate commit_rename's recovery-branch end state: old is
+            # gone, sidecar is canonical, log handle + session_id swapped.
+            os.remove(prepared["old_jsonl_path"])
+            log.jsonl_path = prepared["new_jsonl_path"]
+            log.session_id = prepared["new_session_id"]
+            # Rollback should detect the swapped state and refuse to delete.
+            log.rollback_rename(prepared)
+            self.assertTrue(os.path.exists(prepared["new_jsonl_path"]),
+                            "rollback must not delete the live log file")
+            log.close()
+
+
 if __name__ == "__main__":
     unittest.main()

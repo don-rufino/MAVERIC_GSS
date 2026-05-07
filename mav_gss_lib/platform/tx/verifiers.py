@@ -176,9 +176,11 @@ class VerifierRegistry:
     negligible overhead (microseconds) and makes the code robust to callers
     that forget the architectural invariant.
 
-    Terminal instances remain in `open_instances()` until `finalize_terminals()`
-    is called — lets the UI observe the final state before the row becomes a
-    pure history entry. The sweeper calls finalize at end of its pass.
+    Terminal-but-unsettled instances (stage in {complete, failed, timed_out}
+    while a NACK / TLM window is still pending) remain in `open_instances()`
+    until `finalize_settled()` is called — late-NACK semantics require the
+    row to stay reachable until every window closes. The sweep loop calls
+    `finalize_settled()` at end of its pass.
     """
 
     def __init__(self) -> None:
@@ -212,11 +214,6 @@ class VerifierRegistry:
                     return inst
             return None
 
-    def finalize_terminals(self) -> list[CommandInstance]:
-        """Drop and return terminal instances. Caller logs them."""
-        with self._lock:
-            terminal_ids = [i.instance_id for i in self._by_id.values() if i.stage in _TERMINAL]
-            return [self._by_id.pop(i) for i in terminal_ids]
 
     def finalize_settled(self) -> list[CommandInstance]:
         """Drop instances where ``is_settled(inst)`` holds.

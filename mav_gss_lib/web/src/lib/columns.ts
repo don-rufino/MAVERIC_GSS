@@ -76,20 +76,31 @@ export function buildTxRow(
   item: TxQueueCmd | TxHistoryItem, columns: ColumnDef[],
 ): Record<string, RenderCell> {
   const facts = item.mission?.facts as Record<string, unknown> | undefined
+  const cmdId = item.mission?.cmd_id as string | undefined
   const row: Record<string, RenderCell> = {}
   for (const c of columns) {
-    row[c.id] = missionCell(c, facts)
+    row[c.id] = missionCell(c, facts, cmdId)
   }
   return row
 }
 
 function missionCell(
   c: ColumnDef, facts: Record<string, unknown> | undefined,
+  cmdId?: string,
 ): RenderCell {
   if (c.kind === 'verifiers') {
     // CellValue dispatches on `c.kind` to render the verifier tick strip
     // from the per-row CommandInstance map. No path lookup.
     return { value: null }
+  }
+  if (c.kind === 'cmd_id') {
+    // cmd_id is canonical at the envelope level (mission.cmd_id), not
+    // under mission.facts — the codec deliberately avoids duplicating it
+    // under header.cmd_id. Resolve from the envelope directly.
+    return {
+      value: formatCellValue(cmdId),
+      monospace: true,
+    }
   }
   const path = c.path ?? ''
   const value = path ? resolvePath(facts, path) : undefined

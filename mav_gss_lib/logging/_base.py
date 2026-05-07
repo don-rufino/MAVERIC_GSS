@@ -411,8 +411,16 @@ class _BaseLog:
 
         Safe to call without ever calling commit_rename; idempotent if the
         sidecar is already gone.
+
+        Guard against the post-commit-recovery state: if commit_rename's
+        recovery branch swapped state to new_jsonl (because the old file
+        was already removed by the time the failure landed), the new file
+        is now the canonical log on disk. Deleting it here would destroy
+        live data — detect and skip.
         """
         new_jsonl = prepared["new_jsonl_path"]
+        if self.jsonl_path == new_jsonl:
+            return
         try: os.remove(new_jsonl)
         except FileNotFoundError: pass
 

@@ -187,15 +187,6 @@ class TerminalDropsFromOpen(unittest.TestCase):
         self.assertEqual(inst.stage, "complete")
         self.assertEqual(len(reg.open_instances()), 1)
 
-    def test_finalize_drops_terminals(self):
-        reg = VerifierRegistry()
-        inst = _instance()
-        reg.register(inst)
-        reg.apply("i1", "res_from_lppm", VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
-        reg.finalize_terminals()
-        self.assertEqual(len(reg.open_instances()), 0)
-
-
 class Sweeper(unittest.TestCase):
     def test_sweep_marks_expired_verifiers(self):
         """At t=11000ms, the uppm_ack window (0-10000ms) is expired."""

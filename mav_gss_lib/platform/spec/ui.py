@@ -33,7 +33,7 @@ from typing import Any, Mapping
 
 
 _VALID_ALIGN = ("left", "right")
-_VALID_KINDS = ("value", "verifiers")
+_VALID_KINDS = ("value", "verifiers", "cmd_id")
 _VALID_ICON_TOKENS = frozenset((
     "command",
     "request",
