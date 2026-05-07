@@ -233,12 +233,16 @@ def match_verifiers(envelope, open_instances, *, now_ms: int, rx_event_id: str =
     else:
         return []
     for inst in candidates:
-        if any(v.verifier_id == expected for v in inst.verifier_set.verifiers):
-            return [(
-                inst.instance_id,
-                expected,
-                VerifierOutcome.passed(matched_at_ms=now_ms, match_event_id=rx_event_id),
-            )]
+        if not any(v.verifier_id == expected for v in inst.verifier_set.verifiers):
+            continue
+        existing = inst.outcomes.get(expected)
+        if existing is not None and existing.state != "pending":
+            continue
+        return [(
+            inst.instance_id,
+            expected,
+            VerifierOutcome.passed(matched_at_ms=now_ms, match_event_id=rx_event_id),
+        )]
     return []
 
 
