@@ -346,14 +346,13 @@ export interface PlatformConfig {
 }
 
 export interface MissionConfig {
+  // Generic mission-config fields the platform shell knows about.
+  // Mission-specific fields (e.g. MAVERIC's nodes / ptypes / gs_node)
+  // are accessed via the index signature by mission-side plugin code,
+  // never typed at this layer.
   mission_name?: string
   rx_title?: string
   tx_title?: string
-  gs_node?: string
-  nodes?: Record<string, unknown>
-  ptypes?: Record<string, unknown>
-  node_descriptions?: Record<string, unknown>
-  imaging?: Record<string, unknown>
   [key: string]: unknown
 }
 
