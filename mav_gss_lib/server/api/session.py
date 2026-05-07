@@ -186,33 +186,50 @@ async def api_session_rename(body: dict[str, Any], request: Request) -> dict[str
     except (FileExistsError, ValueError) as exc:
         return JSONResponse(status_code=409, content={"error": str(exc)})
 
-    # Save original path for rollback
     logs = _active_logs(runtime)
-    old_paths = [(log, log.jsonl_path) for log in logs]
     old_journal_session_id = runtime.rx.log.session_id if runtime.rx.log is not None else ""
 
-    # Rename active session logs
+    # Phase 1: prepare every log. On any failure, rollback all previously
+    # prepared, return error — file system stays at the old state.
+    prepared: list[tuple[Any, dict[str, Any]]] = []
     try:
         for log in logs:
-            log.rename(session_tag)
+            prepared.append((log, log.prepare_rename(session_tag)))
+    except Exception as exc:
+        for log, p in prepared:
+            try:
+                log.rollback_rename(p)
+            except Exception as rb_exc:
+                logging.error("rollback_rename failed: %s", rb_exc)
+        return JSONResponse(status_code=500,
+                            content={"error": f"session prepare failed: {exc}"})
+
+    # Phase 2: commit all. If any commit fails after at least one succeeded
+    # the file system is in a partially-renamed state — log loudly.
+    committed: list[tuple[Any, dict[str, Any]]] = []
+    try:
+        for log, p in prepared:
+            log.commit_rename(p)
+            committed.append((log, p))
         if runtime.rx.log is not None:
             runtime.rx.rename_journal(runtime.rx.log.session_id)
     except Exception as exc:
-        logging.error("Session rename failed: %s, rolling back", exc)
-        for log, old_jsonl in old_paths:
+        logging.error("Session rename commit failed mid-flight: %s; "
+                      "%d log(s) committed, %d remaining. Manual cleanup may be required.",
+                      exc, len(committed), len(prepared) - len(committed))
+        # Roll back uncommitted phases.
+        for log, p in prepared[len(committed):]:
             try:
-                if log.jsonl_path != old_jsonl and os.path.exists(log.jsonl_path):
-                    os.rename(log.jsonl_path, old_jsonl)
-                log.jsonl_path = old_jsonl
-                log.session_id = os.path.splitext(os.path.basename(old_jsonl))[0]
+                log.rollback_rename(p)
             except Exception as rb_exc:
-                logging.error("Session rollback also failed: %s", rb_exc)
+                logging.error("rollback_rename failed: %s", rb_exc)
         if old_journal_session_id:
             try:
                 runtime.rx.rename_journal(old_journal_session_id)
             except Exception as rb_exc:
-                logging.error("RX journal rollback also failed: %s", rb_exc)
-        return JSONResponse(status_code=500, content={"error": f"session rename failed: {exc}"})
+                logging.error("RX journal rollback failed: %s", rb_exc)
+        return JSONResponse(status_code=500,
+                            content={"error": f"session commit failed: {exc}"})
 
     # Update session tag
     runtime.session.session_tag = session_tag

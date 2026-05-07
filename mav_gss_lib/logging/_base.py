@@ -147,14 +147,6 @@ class _BaseLog:
         kind, data = item
         if kind == "jsonl":
             self._jsonl_f.write(data)
-        elif kind == "rename":
-            new_jsonl = data
-            self._flush_handles()
-            self._jsonl_f.close()
-            os.rename(self.jsonl_path, new_jsonl)
-            self.jsonl_path = new_jsonl
-            self.session_id = os.path.splitext(os.path.basename(new_jsonl))[0]
-            self._jsonl_f = open(new_jsonl, "a")
 
     def write_jsonl(self, record: dict[str, Any]) -> None:
         """Queue one pre-built envelope dict for the writer thread to persist.
@@ -268,19 +260,168 @@ class _BaseLog:
             raise FileExistsError(f"target already exists: {new_jsonl}")
         return new_jsonl
 
-    def rename(self, tag: str) -> None:
-        """Rename log file by appending a sanitized tag before the extension."""
+    def prepare_rename(self, tag: str) -> dict[str, Any]:
+        """Phase 1: write the rewritten content to a sidecar file at the
+        new path. Old file and writer state are untouched. Returns a dict
+        the caller passes verbatim to ``commit_rename`` or ``rollback_rename``.
+
+        On any IOError the sidecar is cleaned up and the exception
+        propagates; the log remains fully functional with the old path.
+        """
         tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_')
         if not tag:
-            return
-        base, ext = os.path.splitext(self.jsonl_path)
+            raise ValueError("empty tag after sanitization")
+        old_jsonl = self.jsonl_path
+        base, ext = os.path.splitext(old_jsonl)
         new_jsonl = f"{base}_{tag}{ext}"
-        if sys.platform == "win32":
-            self._q.put(("rename", new_jsonl))
-        else:
-            os.rename(self.jsonl_path, new_jsonl)
-            self.jsonl_path = new_jsonl
-            self.session_id = os.path.splitext(os.path.basename(new_jsonl))[0]
+        if os.path.exists(new_jsonl):
+            raise FileExistsError(new_jsonl)
+        new_session_id = os.path.splitext(os.path.basename(new_jsonl))[0]
+
+        # Drain the writer so old_jsonl reflects every accepted write.
+        # Hold _q_lock so no concurrent write_jsonl slips a record in
+        # after the sentinel.
+        with self._q_lock:
+            self._q.put(self._SENTINEL)
+            self._writer.join(timeout=5.0)
+            if self._writer.is_alive():
+                # Writer is genuinely hung — we can't safely cancel a
+                # Python thread. Mark the log fatally closed so future
+                # write_jsonl calls become silent no-ops (matches the
+                # post-close() semantics already in _BaseLog) and
+                # surface the failure to the caller.
+                self._closed = True
+                try: self._jsonl_f.close()
+                except Exception: pass
+                raise RuntimeError("writer did not stop within timeout — log marked closed")
+            self._jsonl_f.close()
+
+            try:
+                # Stream-rewrite old_jsonl → new_jsonl with replaced session_id.
+                with open(old_jsonl, "r") as src, open(new_jsonl, "w") as dst:
+                    for line in src:
+                        line = line.rstrip("\n")
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                            if isinstance(rec, dict) and "session_id" in rec:
+                                rec["session_id"] = new_session_id
+                            dst.write(json.dumps(rec) + "\n")
+                        except Exception:
+                            dst.write(line + "\n")
+            except Exception:
+                # Sidecar incomplete — clean up, restart writer on old file,
+                # let the caller see the exception.
+                try: os.remove(new_jsonl)
+                except FileNotFoundError: pass
+                self._jsonl_f = open(old_jsonl, "a")
+                self._restart_writer_locked()
+                raise
+
+            # Restart the writer on the OLD file — until commit_rename runs
+            # the old file is still canonical.
+            self._jsonl_f = open(old_jsonl, "a")
+            self._restart_writer_locked()
+
+        return {
+            "old_jsonl_path": old_jsonl,
+            "new_jsonl_path": new_jsonl,
+            "old_session_id": self.session_id,
+            "new_session_id": new_session_id,
+        }
+
+    def commit_rename(self, prepared: dict[str, Any]) -> None:
+        """Phase 2: swap to the new file. Re-runs the content rewrite to
+        capture any records written between prepare and commit, then
+        atomically replaces the sidecar with the merged content, opens
+        the new writer handle, and only THEN deletes the old file.
+
+        Failure handling: normal IO failures recover to a live writer on
+        whichever file still exists (preferring old). Writer-stop timeout
+        is fatal — log marked _closed; future write_jsonl is no-op.
+        """
+        old_jsonl = prepared["old_jsonl_path"]
+        new_jsonl = prepared["new_jsonl_path"]
+        new_session_id = prepared["new_session_id"]
+        tmp_path = new_jsonl + ".tmp"
+
+        with self._q_lock:
+            self._q.put(self._SENTINEL)
+            self._writer.join(timeout=5.0)
+            if self._writer.is_alive():
+                self._closed = True
+                try: self._jsonl_f.close()
+                except Exception: pass
+                raise RuntimeError("writer did not stop within timeout — log marked closed")
+            self._jsonl_f.close()
+
+            new_handle = None
+            try:
+                # 1. Re-rewrite into a temp, atomic-replace.
+                with open(old_jsonl, "r") as src, open(tmp_path, "w") as dst:
+                    for line in src:
+                        line = line.rstrip("\n")
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                            if isinstance(rec, dict) and "session_id" in rec:
+                                rec["session_id"] = new_session_id
+                            dst.write(json.dumps(rec) + "\n")
+                        except Exception:
+                            dst.write(line + "\n")
+                os.replace(tmp_path, new_jsonl)
+
+                # 2. Prove the new handle is openable BEFORE deleting old.
+                new_handle = open(new_jsonl, "a")
+
+                # 3. Now safe to remove the old file — new handle is live.
+                try:
+                    os.remove(old_jsonl)
+                except FileNotFoundError:
+                    pass
+
+                # 4. Commit: swap state + start writer on new handle.
+                self.jsonl_path = new_jsonl
+                self.session_id = new_session_id
+                self._jsonl_f = new_handle
+                new_handle = None  # ownership transferred
+                self._restart_writer_locked()
+            except Exception:
+                # Recovery: prefer old (it isn't removed unless step 3 succeeded).
+                try: os.remove(tmp_path)
+                except FileNotFoundError: pass
+                if new_handle is not None:
+                    try: new_handle.close()
+                    except Exception: pass
+                if os.path.exists(old_jsonl):
+                    canonical = old_jsonl
+                    # Leave self.jsonl_path / session_id pointing at old.
+                else:
+                    canonical = new_jsonl
+                    self.jsonl_path = new_jsonl
+                    self.session_id = new_session_id
+                self._jsonl_f = open(canonical, "a")
+                self._restart_writer_locked()
+                raise
+
+    def rollback_rename(self, prepared: dict[str, Any]) -> None:
+        """Phase 2 (failure path): delete the sidecar. Old file/state intact.
+
+        Safe to call without ever calling commit_rename; idempotent if the
+        sidecar is already gone.
+        """
+        new_jsonl = prepared["new_jsonl_path"]
+        try: os.remove(new_jsonl)
+        except FileNotFoundError: pass
+
+    def _restart_writer_locked(self) -> None:
+        """Caller holds ``self._q_lock``. Replaces the queue + worker."""
+        self._q = queue.Queue()
+        self._writer = threading.Thread(target=self._writer_loop,
+                                        name="log-writer", daemon=True)
+        self._writer.start()
 
     def close(self) -> None:
         """Stop the writer thread and close the file handle.
