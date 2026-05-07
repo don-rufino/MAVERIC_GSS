@@ -226,19 +226,99 @@ async def _shutdown_runtime(runtime: "WebRuntime") -> None:
 async def _verifier_sweep_loop(runtime: "WebRuntime") -> None:
     """Fire the verifier registry's sweep() once per second.
 
-    Inside the sweep, any pending verifier whose CheckWindow has elapsed
-    transitions to window_expired; stage is re-derived and may advance to
-    timed_out. Dirty instances get broadcast to /ws/tx clients so the UI
-    rail + tick strip update promptly even with zero inbound packets.
+    Each tick:
+      1. sweep() — mark expired-window verifiers as window_expired.
+      2. consume_dirty() — broadcast every changed instance over /ws/tx so
+         the UI sees the transition (including the final stage).
+      3. finalize_settled() — pop instances where is_settled(inst). Emit
+         one closing cmd_verifier record per instance and rewrite
+         .pending_instances.jsonl.
     """
     import time as _time
+    from pathlib import Path
+    from mav_gss_lib.platform.tx.verifiers import write_instances
+
+    # Stage-derived outcome string. Internal verifier outcomes can disagree
+    # with the instance's overall stage (e.g. NACK windows may have
+    # window_expired on a successful command), so the closing record
+    # reports the *instance* outcome — the value the operator cares about.
+    stage_outcome = {
+        "complete":  "passed",
+        "failed":    "failed",
+        "timed_out": "window_expired",
+    }
+
     while True:
         try:
             await asyncio.sleep(1.0)
             now_ms = int(_time.time() * 1000)
-            runtime.platform.verifiers.sweep(now_ms=now_ms)
-            for inst in runtime.platform.verifiers.consume_dirty():
+            registry = runtime.platform.verifiers
+
+            registry.sweep(now_ms=now_ms)
+
+            # Step 2: collect + broadcast dirty (transitions matter for UI).
+            # Do this BEFORE finalize so the UI sees the terminal stage on
+            # the row while it still exists in the registry. Capture the
+            # list — we also use it to decide whether to persist below.
+            dirty = list(registry.consume_dirty())
+            for inst in dirty:
                 asyncio.create_task(runtime.tx.broadcast_verifier_instance(inst))
+
+            # Step 3: drain settled instances, emit one closing record each.
+            finalized = registry.finalize_settled()
+            tx_log = getattr(getattr(runtime, "tx", None), "log", None)
+            for inst in finalized:
+                if tx_log is None:
+                    continue
+                # Pick a representative match_event_id: the verifier that
+                # decided the stage (passed-complete or passed-failed). Falls
+                # back to None for pure timeouts.
+                deciding = None
+                if inst.stage == "complete":
+                    for spec in inst.verifier_set.verifiers:
+                        if spec.stage == "complete":
+                            o = inst.outcomes.get(spec.verifier_id)
+                            if o is not None and o.state == "passed":
+                                deciding = o
+                                break
+                elif inst.stage == "failed":
+                    for spec in inst.verifier_set.verifiers:
+                        if spec.stage == "failed":
+                            o = inst.outcomes.get(spec.verifier_id)
+                            if o is not None and o.state == "passed":
+                                deciding = o
+                                break
+                elapsed_ms = (deciding.matched_at_ms - inst.t0_ms) if deciding and deciding.matched_at_ms else (now_ms - inst.t0_ms)
+                match_event_id = deciding.match_event_id if deciding else None
+                try:
+                    tx_log.write_cmd_verifier({
+                        "seq": 0,  # closing record is out-of-band w.r.t. RX seq
+                        "cmd_event_id": inst.cmd_event_id,
+                        "instance_id": inst.instance_id,
+                        "stage": inst.stage,        # complete | failed | timed_out
+                        "verifier_id": "",          # closing record (no specific verifier)
+                        "outcome": stage_outcome.get(inst.stage, "unknown"),
+                        "elapsed_ms": elapsed_ms,
+                        "match_event_id": match_event_id,
+                    })
+                except Exception as exc:
+                    logging.warning("cmd_verifier finalize log failed: %s", exc)
+
+            # Persist the open-instances snapshot whenever something
+            # changed: dirty transitions OR settled drains. The previous
+            # design persisted only on settle, which lost in-flight
+            # transitions across crashes (e.g., complete-but-NACK-pending
+            # instances would not survive a restart unless they later
+            # settled).
+            if dirty or finalized:
+                try:
+                    write_instances(
+                        Path(runtime.log_dir) / ".pending_instances.jsonl",
+                        registry.open_instances(),
+                    )
+                except Exception as exc:
+                    logging.warning("pending_instances persist failed: %s", exc)
+
         except asyncio.CancelledError:
             raise
         except Exception as exc:

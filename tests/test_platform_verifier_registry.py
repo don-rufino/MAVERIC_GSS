@@ -257,5 +257,52 @@ class IsSettled(unittest.TestCase):
         self.assertTrue(is_settled(inst))
 
 
+class FinalizeSettled(unittest.TestCase):
+    def test_terminal_with_pending_verifier_does_not_finalize(self):
+        """Late-NACK semantics: stage=complete but NACK still pending must
+        stay open so a late NACK can override."""
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        # Pass the complete verifier; NACK + ACKs still pending.
+        reg.apply("i1", "res_from_lppm",
+                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
+        self.assertEqual(inst.stage, "complete")
+        # finalize_settled should NOT pop because nack_uppm/nack_lppm
+        # outcomes are still pending (windows still open).
+        finalized = reg.finalize_settled()
+        self.assertEqual(finalized, [])
+        self.assertEqual(len(reg.open_instances()), 1)
+
+    def test_all_settled_finalizes(self):
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        # Drive every verifier out of pending: pass complete + ack, expire NACKs/LPPM ack.
+        reg.apply("i1", "res_from_lppm",
+                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
+        reg.apply("i1", "uppm_ack",
+                  VerifierOutcome.passed(matched_at_ms=500, match_event_id="e1"))
+        reg.apply("i1", "lppm_ack", VerifierOutcome.window_expired())
+        reg.apply("i1", "nack_uppm", VerifierOutcome.window_expired())
+        reg.apply("i1", "nack_lppm", VerifierOutcome.window_expired())
+        finalized = reg.finalize_settled()
+        self.assertEqual(len(finalized), 1)
+        self.assertEqual(finalized[0].instance_id, "i1")
+        self.assertEqual(finalized[0].stage, "complete")
+        self.assertEqual(reg.open_instances(), [])
+
+    def test_sweep_then_settle_for_pure_timeout(self):
+        """A command that gets nothing back: sweep expires every window,
+        derive_stage returns timed_out, finalize_settled pops it."""
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        reg.sweep(now_ms=10**6)  # well past every check_window.stop_ms
+        finalized = reg.finalize_settled()
+        self.assertEqual(len(finalized), 1)
+        self.assertEqual(finalized[0].stage, "timed_out")
+
+
 if __name__ == "__main__":
     unittest.main()

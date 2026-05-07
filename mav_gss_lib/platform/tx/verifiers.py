@@ -218,6 +218,15 @@ class VerifierRegistry:
             terminal_ids = [i.instance_id for i in self._by_id.values() if i.stage in _TERMINAL]
             return [self._by_id.pop(i) for i in terminal_ids]
 
+    def finalize_settled(self) -> list[CommandInstance]:
+        """Drop instances where ``is_settled(inst)`` holds.
+
+        Returns the dropped instances so the caller can log + persist.
+        """
+        with self._lock:
+            settled_ids = [i for i, inst in self._by_id.items() if is_settled(inst)]
+            return [self._by_id.pop(i) for i in settled_ids]
+
     def sweep(self, *, now_ms: int) -> None:
         """Mark every pending verifier whose window has closed as window_expired.
 
