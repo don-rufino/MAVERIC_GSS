@@ -1,6 +1,6 @@
 """Ephemeral mode — redirect every server-side disk-write path to a tempdir.
 
-Activated by ``MAVERIC_EPHEMERAL=1`` (or ``MAV_WEB.py --ephemeral``).
+Activated by ``GSS_EPHEMERAL=1`` (or ``MAV_WEB.py --ephemeral``).
 Used when an operator wants to drive a fake_flight test session through
 the live UI without leaving session logs, downloaded files, queue
 persistence, parameter cache, or accidental config edits in real
@@ -33,8 +33,8 @@ from typing import Callable
 
 
 def is_active() -> bool:
-    """``True`` iff ``MAVERIC_EPHEMERAL`` is set to a truthy value."""
-    return os.environ.get("MAVERIC_EPHEMERAL", "").strip().lower() in (
+    """``True`` iff ``GSS_EPHEMERAL`` is set to a truthy value."""
+    return os.environ.get("GSS_EPHEMERAL", "").strip().lower() in (
         "1", "true", "yes", "on",
     )
 
@@ -50,7 +50,7 @@ def apply(platform_cfg: dict) -> tuple[Path, Callable[[], None]]:
     so the redirected paths aren't written into the real ``gss.yml``
     on the next ``/api/config`` save.
     """
-    tmp_root = Path(tempfile.mkdtemp(prefix="maveric-ephemeral-"))
+    tmp_root = Path(tempfile.mkdtemp(prefix="gss-ephemeral-"))
     general = platform_cfg.setdefault("general", {})
     general["log_dir"] = str(tmp_root / "logs")
     general["generated_commands_dir"] = str(tmp_root / "generated")

@@ -1,4 +1,4 @@
-"""Tests for ephemeral mode (MAVERIC_EPHEMERAL=1)."""
+"""Tests for ephemeral mode (GSS_EPHEMERAL=1)."""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ class IsActiveTests(unittest.TestCase):
 
     def test_truthy_values_activate(self) -> None:
         for value in ("1", "true", "TRUE", "yes", "on", "On"):
-            with mock.patch.dict(os.environ, {"MAVERIC_EPHEMERAL": value}):
+            with mock.patch.dict(os.environ, {"GSS_EPHEMERAL": value}):
                 self.assertTrue(ephemeral.is_active(),
                                 f"{value!r} should activate")
 
     def test_falsy_values_dont_activate(self) -> None:
         for value in ("", "0", "false", "no", "off", " "):
-            with mock.patch.dict(os.environ, {"MAVERIC_EPHEMERAL": value}):
+            with mock.patch.dict(os.environ, {"GSS_EPHEMERAL": value}):
                 self.assertFalse(ephemeral.is_active(),
                                  f"{value!r} should NOT activate")
 
@@ -36,7 +36,7 @@ class ApplyTests(unittest.TestCase):
         try:
             self.assertTrue(tmp_root.exists())
             self.assertTrue(tmp_root.is_dir())
-            self.assertTrue(tmp_root.name.startswith("maveric-ephemeral-"))
+            self.assertTrue(tmp_root.name.startswith("gss-ephemeral-"))
             self.assertEqual(cfg["general"]["log_dir"],
                              str(tmp_root / "logs"))
             self.assertEqual(cfg["general"]["generated_commands_dir"],
@@ -91,7 +91,7 @@ class WebRuntimeIntegrationTests(unittest.TestCase):
 
     def test_runtime_redirects_log_dir_when_env_set(self) -> None:
         from mav_gss_lib.server.state import WebRuntime
-        with mock.patch.dict(os.environ, {"MAVERIC_EPHEMERAL": "1"}):
+        with mock.patch.dict(os.environ, {"GSS_EPHEMERAL": "1"}):
             try:
                 runtime = WebRuntime()
             except Exception:
@@ -116,7 +116,7 @@ class WebRuntimeIntegrationTests(unittest.TestCase):
     def test_runtime_uses_real_log_dir_without_env(self) -> None:
         from mav_gss_lib.server.state import WebRuntime
         with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("MAVERIC_EPHEMERAL", None)
+            os.environ.pop("GSS_EPHEMERAL", None)
             try:
                 runtime = WebRuntime()
             except Exception:

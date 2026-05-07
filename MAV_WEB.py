@@ -26,7 +26,7 @@ def _parse_cli_into_env() -> None:
     )
     args, _ = parser.parse_known_args()
     if args.ephemeral:
-        os.environ["MAVERIC_EPHEMERAL"] = "1"
+        os.environ["GSS_EPHEMERAL"] = "1"
 
 
 _parse_cli_into_env()

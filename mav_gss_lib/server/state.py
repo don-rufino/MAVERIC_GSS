@@ -93,7 +93,7 @@ class WebRuntime:
         # Ephemeral mode: redirect every disk-write path to a tempdir
         # BEFORE the platform runtime resolves log_dir / data_dir, and
         # block the gss.yml / mission.yml save-back. Operator opt-in via
-        # MAVERIC_EPHEMERAL=1 or `MAV_WEB.py --ephemeral`.
+        # GSS_EPHEMERAL=1 or `MAV_WEB.py --ephemeral`.
         from mav_gss_lib.server import ephemeral as _ephemeral
         self.config_save_disabled: bool = False
         self._ephemeral_root = None
