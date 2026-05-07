@@ -32,7 +32,7 @@ class VerifierSpec:
     verifier_id: str          # opaque mission-assigned
     stage: VerifierStage
     check_window: CheckWindow
-    display_label: str        # e.g. "UPPM" — mission-provided
+    display_label: str        # short label shown in UI — mission-provided
     display_tone: str         # 'info' | 'success' | 'warning' | 'danger'
 
 

@@ -35,10 +35,10 @@ function nearExpiry(spec: VerifierSpec, now_ms: number, t0_ms: number): boolean 
 }
 
 /**
- * Collapse multiple received-stage ACK verifiers (e.g. uppm_ack + lppm_ack)
+ * Collapse multiple received-stage ACK verifiers (e.g. ack_a + ack_b)
  * into a single aggregate dot. Operationally, "did we get ACK coverage?"
- * is one signal; which specific link (gateway vs destination) is in the
- * detail block. Aggregation rule:
+ * is one signal; which specific link is in the detail block.
+ * Aggregation rule:
  *
  *   - all passed          → passed
  *   - all window_expired  → window_expired

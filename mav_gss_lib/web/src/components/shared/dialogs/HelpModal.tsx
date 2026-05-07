@@ -57,7 +57,7 @@ const sections: { title: string; items: ShortcutRow[] }[] = [
       { keys: 'HEX pill', desc: 'Toggle hex display' },
       { keys: 'UL pill', desc: 'Toggle uplink echo visibility' },
       { keys: 'FRAME pill', desc: 'Toggle frame type column' },
-      { keys: 'WRAP pill', desc: 'Toggle CRC / CSP headers' },
+      { keys: 'WRAP pill', desc: 'Toggle frame wrapper headers' },
     ],
   },
 ]

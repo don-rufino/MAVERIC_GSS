@@ -139,7 +139,7 @@ export function CommandPalette({ open, onOpenChange, navigationTabs, onNavigate,
                   </CommandItem>
                   <CommandItem onSelect={() => run(actions.toggleWrapper)}>
                     <Shield className="size-4" />
-                    <span>Toggle CRC/CSP</span>
+                    <span>Toggle frame wrapper</span>
                   </CommandItem>
                 </CommandGroup>
 

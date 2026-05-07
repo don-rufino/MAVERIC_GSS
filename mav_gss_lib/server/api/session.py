@@ -169,8 +169,18 @@ async def api_session_new(body: dict[str, Any], request: Request) -> dict[str, A
 async def api_session_rename(body: dict[str, Any], request: Request) -> dict[str, Any] | JSONResponse:
     """Rename the current session tag and log files.
 
-    Rollback is supported on POSIX (synchronous rename). On Windows,
-    rename is queued to the writer thread so rollback is not reliable.
+    Two-phase orchestration: preflight every active log →
+    ``prepare_rename`` per log (writes a sidecar with the new
+    session_id; old file stays canonical) → ``commit_rename`` per log
+    (atomic swap to the sidecar). Per-file rename is atomic on every
+    platform. Cross-file orchestration is best-effort: if a commit
+    fails after another file has already committed, the file system
+    stays in a partial state with loud logging.
+
+    Status codes: 200 on success, 403 if the request lacks a valid
+    session token, 409 if any log's preflight rejects the tag (target
+    filename already exists), 500 if any prepare or commit phase
+    raises.
     """
     runtime = get_runtime(request)
     denied = require_api_token(request)
