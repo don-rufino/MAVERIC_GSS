@@ -43,7 +43,7 @@
 
 ## Overview
 
-MAVERIC GSS is the ground station software for the MAVERIC CubeSat mission, developed at the University of Southern California Space Engineering Research Center (SERC). The software and radio stack are full-duplex capable — a single USRP B210 driven by GNU Radio handles both uplink and downlink channels — and the operational ground station runs half-duplex over a single UHF antenna using a coax switch to alternate between transmit and receive. The platform presents a web-based operator console for command composition, live telemetry, imaging, and GNC monitoring.
+MAVERIC GSS is the ground station software for the MAVERIC CubeSat mission, developed at the University of Southern California Space Engineering Research Center (SERC). The software and radio stack are full-duplex capable — a single USRP B210 driven by GNU Radio handles both uplink and downlink channels — and the operational ground station runs half-duplex over a single UHF antenna using a coax switch to alternate between transmit and receive. The platform presents a web-based operator console for command composition, live telemetry, downlink-file reassembly (image / AII / MAG), and GNC monitoring.
 
 The platform is mission-agnostic. Transport, queueing, logging, protocol primitives, the XTCE-lite runtime, alarms, and the web UI shell are reusable. Mission packages under `mav_gss_lib/missions/` provide packet parsing, command encoding/framing, mission facts, event sources, HTTP routers, and optional plugin pages. MAVERIC is the default mission package; fixture missions (`echo_v2`, `balloon_v2`) exercise the boundary.
 
@@ -58,7 +58,8 @@ The platform is mission-agnostic. Transport, queueing, logging, protocol primiti
 - **Log browser** — browse past session JSONL files, filter RX/TX entries, and fetch parameter rows without replaying RF.
 - **Telemetry dashboards** — EPS and GNC plugin pages consume values decoded by the declarative XTCE-lite walker and stored in the platform `ParameterCache`.
 - **Unified alarm bus** — platform health, container freshness, and parameter-rule alarms in a single 4-state machine (`/ws/alarms`), with audit trail in the session log.
-- **Imaging plugin** — source-scoped chunked downlink reassembly, paired full/thumbnail progress, previews, and delete.
+- **Files plugin** — source-scoped chunked downlink reassembly through a generic `ChunkFileStore` plus per-kind `FileKindAdapter`s (image / AII / MAG), paired full/thumbnail progress, previews, and delete. Mounts at `/api/plugins/files`.
+- **Tracking subsystem** — Skyfield-driven pass prediction, station catalog, TLE block, and 1 Hz Doppler tick streamed over `/ws/tracking`. A swappable `DopplerSink` (`ZmqDopplerSink` when engaged, `NullDopplerSink` otherwise) hands tuner offsets to GNU Radio.
 - **Plugin system** — mission packages can register their own FastAPI routers and React plugin pages.
 - **HFDS-informed console design** — dark operator theme, semantic color redundancy, alarm flash-rate targets, and an 11 px minimum text target for new UI work.
 - **Preflight screen** — dependencies, GNU Radio, config, web build, and ZMQ connectivity verified before operator launch.
@@ -87,7 +88,7 @@ For live uplink and downlink, either start the `MAV_DUO` GNU Radio flowgraph you
 | Radio | — | Ettus USRP B210 | Required for live RF; simulation and log browsing do not need hardware |
 | Browser | Any modern Chromium/Firefox | Chrome / Edge | The dashboard is pure SPA; no extensions needed |
 
-Python packages (`requirements.txt`): `fastapi`, `uvicorn`, `websockets`, `PyYAML`, `pyzmq`, `crcmod`, `Pillow`, and `pydantic>=2,<3`. `pmt` is provided by the local GNU Radio install.
+Python packages (`requirements.txt`): `fastapi`, `uvicorn`, `websockets`, `PyYAML`, `pyzmq`, `crcmod`, `Pillow`, `pydantic>=2,<3`, `skyfield`, and `numpy`. `pmt` is provided by the local GNU Radio install.
 
 ## Run
 
@@ -106,8 +107,10 @@ The web runtime and GNU Radio exchange PMT PDUs over two ZMQ sockets. GNU Radio 
 |-----------|---------|-------------------------|--------------------------------------|
 | RX        | ZMQ SUB | `tcp://127.0.0.1:52001` | Receives decoded PDUs from GNU Radio |
 | TX        | ZMQ PUB | `tcp://127.0.0.1:52002` | Publishes mission-framed uplink payloads |
+| Doppler RX | ZMQ PUB | `tcp://127.0.0.1:52003` | Tuner offsets for the receive chain (engage-time only) |
+| Doppler TX | ZMQ PUB | `tcp://127.0.0.1:52004` | Tuner offsets for the transmit chain (engage-time only) |
 
-Both addresses are editable in `gss.yml`. The Radio tab reports process state, the configured script, PID, uptime, ZMQ status, and captured stdout/stderr.
+All four addresses are editable in `gss.yml` (`platform.tx`, `platform.rx`, `platform.tracking.control`). The Radio tab reports process state, the configured script, PID, uptime, ZMQ status, and captured stdout/stderr; Doppler engagement controls live in the same tab.
 
 A quick runtime probe once the server is up:
 
@@ -170,6 +173,10 @@ Web runtime (`mav_gss_lib/server/`):
 | `rx/journal.py`       | Accepted-RX binary ingest journal (`RXJ1`) before decode/projection.  |
 | `rx/projections.py`   | Applies decoded-packet side effects: parameters, freshness, verifier matches, logs, mission events. |
 | `radio/service.py`    | Optional GNU Radio child-process supervisor and log capture.          |
+| `tracking/service.py` | `TrackingService`: pass prediction, doppler computation, engage / disengage of `DopplerSink` (`NullDopplerSink` ↔ `ZmqDopplerSink`). |
+| `tracking/_tick.py`   | 1 Hz doppler tick loop and `DopplerBroadcaster` for `/ws/tracking`.   |
+| `tracking/sink_zmq.py`| `ZmqDopplerSink`: publishes `{rx_offset_hz, tx_offset_hz}` tuner deltas on the doppler ZMQ sockets. |
+| `ephemeral.py`        | `--ephemeral` / `GSS_EPHEMERAL=1` redirect of every disk-write path to a tempdir. |
 | `tx/service.py`       | TX queue, send loop facade, history, persistence, guard/checkpoint confirmation; calls mission `CommandOps.frame(encoded)` for wire bytes. |
 | `tx/_send_coordinator.py` | Serialized send-loop implementation, blackout arming, verifier wait, checkpoint pause. |
 | `tx/queue.py`         | Pure queue helpers (build, validate, sanitize, save/load/import/export JSONL). |
@@ -182,7 +189,7 @@ Web runtime (`mav_gss_lib/server/`):
 | `ws/alarms.py`        | `/ws/alarms` snapshot + change stream + ack endpoint.                 |
 | `ws/_utils.py`        | Shared WebSocket helpers.                                             |
 | `security.py`         | CORS / CSP headers / API-token check.                                 |
-| `api/`                | REST routers: `config.py`, `schema.py`, `logs.py`, `queue_io.py`, `session.py`, `identity.py`, `parameters.py`, `radio.py`, `rx.py`. |
+| `api/`                | REST routers: `config.py`, `schema.py`, `logs.py`, `queue_io.py`, `session.py`, `identity.py`, `parameters.py`, `radio.py`, `rx.py`, `tracking.py`, `tracking_ws.py`. |
 | `_atomics.py`         | `AtomicStatus` primitive.                                             |
 | `_broadcast.py`       | `broadcast_safe` WebSocket helper.                                    |
 | `_task_utils.py`      | Task exception logging.                                               |
@@ -286,10 +293,11 @@ mav_gss_lib/
     platform/                       Mission/platform boundary + runners
         runtime.py                  PlatformRuntime.from_split(...)
         loader.py                   load_mission_spec_from_split
-        log_records.py              RX/TX/parameter/radio event record builders
+        log_records.py              RX/TX/parameter/radio/tracking event record builders
         json_safety.py              Strict-JSON value coercion helper
         parameter_cache.py          Flat live-parameter store persisted to parameters.json
         _log_envelope.py            event_id + timestamp helpers
+        tracking/                   Skyfield-driven pass + doppler math (config, models, propagation)
         contract/                   What missions implement (Protocols + types)
             mission.py              MissionSpec, MissionContext, MissionConfigSpec
             http.py                 HttpOps
@@ -335,11 +343,13 @@ mav_gss_lib/
             codec.py                MaverPacketCodec (PacketCodec impl, node/ptype tables)
             packets.py              DeclarativePacketsAdapter + MaverMissionPayload
             calibrators.py          CALIBRATORS — parameter-type calibrator plugins
+            schema_types.py         Mission-specific declarative schema types
+            tracking_defaults.py    seed_tracking_defaults — MAVERIC TLE / station / freq seeds
             alarm_predicates.py     Mission-side alarm predicate plugins
             plugin_tx_builder.py    /api/plugins/maveric/identity router
             preflight.py            Mission preflight factory (mission.yml + libfec)
             errors.py               Declarative-pipeline error types
-            imaging/                ImageAssembler + /api/plugins/imaging + EventOps
+            files/                  ChunkFileStore + FileKindAdapter + /api/plugins/files + EventOps
         echo_v2/                    Minimal fixture mission (round-trip echo)
         balloon_v2/                 Telemetry-only fixture mission
 
@@ -347,6 +357,7 @@ mav_gss_lib/
         app.py                      create_app + lifespan + alarm wiring
         state.py                    WebRuntime container
         shutdown.py, security.py    Lifecycle + auth middleware
+        ephemeral.py                --ephemeral / GSS_EPHEMERAL=1 disk-write redirector
         ws/                         All WebSocket handlers
             rx.py, tx.py, radio.py, session.py, preflight.py, update.py, alarms.py
         rx/                         Ingest queue, journal, projection, detail store
@@ -357,15 +368,19 @@ mav_gss_lib/
             queueing.py             Drop-oldest overload policy
         radio/                      GNU Radio process supervisor
             service.py              start/stop/restart + stdout capture
+        tracking/                   Pass + Doppler service, 1 Hz tick, ZMQ doppler sink
+            service.py              TrackingService (engage / disengage)
+            _tick.py                doppler_tick_loop + DopplerBroadcaster (/ws/tracking)
+            sink_zmq.py             ZmqDopplerSink (tuner-offset publisher)
         tx/                         Service, send coordinator, queue, actions
         api/                        REST endpoints (config, schema, logs,
                                     queue_io, session, identity, parameters,
-                                    radio, rx detail)
+                                    radio, rx detail, tracking, tracking_ws)
 
     web/                            React + Vite + TypeScript frontend
         src/                        UI source (components/, hooks/, state/, lib/, plugins/)
         src/components/radio/       GNU Radio process-control tab
-        src/plugins/maveric/        MAVERIC TX builder, Imaging, GNC, EPS plugins
+        src/plugins/maveric/        MAVERIC TX builder, Files, GNC, EPS plugins
         dist/                       Production build (committed)
         package.json                Frontend deps + version (single source of truth)
         vitest.config.ts            Frontend unit-test config
@@ -392,6 +407,7 @@ Current event kinds:
 - `cmd_verifier` — command verification stage/outcome transitions.
 - `alarm` — alarm state transitions from the unified alarm engine.
 - `radio` — GNU Radio supervisor lifecycle events: start, stop, exit, crash, and control failures.
+- `tracking` — operator-initiated Doppler engage / disengage transitions (the `Connect` / `Disconnect` actions in the Radio tab).
 
 ## Configuration
 
@@ -402,7 +418,7 @@ Two config inputs drive the runtime:
 
 Mission identity constants such as nodes, ptypes, node descriptions, and the ground-station node live as extensions inside `mission.yml`; mission name, command catalog, verifier rules, framing, and UI columns live in top-level mission database sections. The mission's own `build(ctx)` seeds operator-overridable defaults (e.g. CSP placeholders, imaging thumb prefix) into `mission_cfg`. Operator values in `gss.yml` always win.
 
-Platform config updates are allowlisted by `PlatformConfigSpec`: `tx`, `rx`, and `radio` sections can be edited by the UI, while only `general.log_dir` and `general.generated_commands_dir` persist from `platform.general`. `stations`, `general.version`, and `general.build_sha` are runtime/install-time state and are stripped on save.
+Platform config updates are allowlisted by `PlatformConfigSpec`: `tx`, `rx`, `radio`, and `tracking` sections can be edited by the UI, while only `general.log_dir` and `general.generated_commands_dir` persist from `platform.general`. `stations`, `general.version`, and `general.build_sha` are runtime/install-time state and are stripped on save.
 
 Version is single-sourced from `mav_gss_lib/web/package.json` via `config.py::_read_version()`. Build SHA is resolved from git at backend import time. `gss.yml` cannot pin either value — the `/api/config` save path strips client-supplied runtime-derived fields.
 

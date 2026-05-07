@@ -9,7 +9,7 @@ MAVERIC runs on the platform's declarative XTCE-lite pipeline. `mission.yml` is
 the single source of truth for parameter types, parameters, sequence
 containers, meta-commands, verifier rules, UI columns, and wire framing.
 Mission Python is the wiring layer around that database: codec, command grammar,
-calibrators, alarm predicates, imaging side effects, and HTTP routers.
+calibrators, alarm predicates, file-chunk side effects, and HTTP routers.
 
 ## Layout
 
@@ -23,15 +23,20 @@ maveric/
 ├── codec.py               MaverPacketCodec (PacketCodec) — owns node/ptype tables
 ├── packets.py             DeclarativePacketsAdapter + MaverMissionPayload + mission facts
 ├── calibrators.py         Calibrator registry (CALIBRATORS) — raw→engineering decoders
+├── schema_types.py        Mission-specific declarative schema types
+├── tracking_defaults.py   seed_tracking_defaults — MAVERIC TLE / station / freq seeds
 ├── alarm_predicates.py    Alarm predicate registry (norm checks, eclipse-aware SV)
 ├── plugin_tx_builder.py   FastAPI route feeding the TX builder frontend plugin
 ├── errors.py              Declarative-pipeline error types
 ├── preflight.py           Mission preflight-check factory (mission.yml + libfec)
 │
-└── imaging/               Imaging frontend plugin (REST + event source)
-    ├── assembler.py       ImageAssembler (chunk reassembly, restart recovery)
-    ├── router.py          /api/plugins/imaging FastAPI router
-    └── events.py          MavericImagingEvents (EventOps source)
+└── files/                 Downlink-file plugin (REST + event source)
+    ├── store.py           ChunkFileStore (chunk reassembly, restart recovery)
+    ├── adapters.py        FileKindAdapter implementations (image / AII / MAG)
+    ├── registry.py        build_file_kind_adapters — wires adapters from mission_cfg
+    ├── repair.py          Stream-repair helpers (e.g. JPEG EOI for partial previews)
+    ├── router.py          /api/plugins/files FastAPI router
+    └── events.py          MavericFileChunkEvents (EventOps source)
 ```
 
 ## What this package owns
@@ -71,15 +76,21 @@ maveric/
 - **RX mission facts** (`packets.py`) — structured MAVERIC header/protocol/
   integrity fields under `mission.facts`; the frontend derives rows and detail
   panes from those facts plus platform parameter updates.
-- **Imaging plugin** (`imaging/`) — source-scoped chunk reassembly, paired
-  full/thumbnail status, REST endpoints, and the packet event source that
-  drives the assembler from inbound imaging commands. HoloNav and Astroboard
-  files are keyed by `(source, filename)` so equal spacecraft filenames do not
-  overwrite. Chunk state survives restart via `.chunks/` data and `.meta.json`
-  sidecars, and partial JPEGs get a safety EOI marker so previews remain
-  viewable during transfer.
-- **Frontend plugin surface** — TX builder + imaging page + GNC page under
-  `mav_gss_lib/web/src/plugins/maveric/`.
+- **Files plugin** (`files/`) — source-scoped chunk reassembly through the
+  generic `ChunkFileStore`, plus per-kind logic in `FileKindAdapter`s for
+  image, AII, and MAG downlinks. `MavericFileChunkEvents` drives the store
+  from inbound file-chunk commands and broadcasts `file_progress`. Files are
+  keyed by `(source, filename)` so equal spacecraft filenames do not overwrite.
+  Chunk state survives restart via `.chunks/` data and `.meta.json` sidecars,
+  and partial JPEGs get a safety EOI marker so previews remain viewable during
+  transfer. The router mounts at `/api/plugins/files`; on-disk artifacts live
+  under `<log_dir>/files/`.
+- **Tracking seeds** (`tracking_defaults.py`) — `seed_tracking_defaults`
+  populates `platform.tracking.{stations,tle,frequencies,display}` with
+  MAVERIC's actual values at mission build time so a fresh checkout works
+  without the operator writing a `gss.yml` first.
+- **Frontend plugin surface** — TX builder + Files page + GNC page + EPS page
+  under `mav_gss_lib/web/src/plugins/maveric/`.
 
 ## MAVERIC-specific behavior (not platform-level)
 
@@ -108,11 +119,11 @@ maveric/
 | Route prefix | Owner | Purpose |
 |--------------|-------|---------|
 | `/api/plugins/maveric/identity` | `plugin_tx_builder.py` | Read-only node / ptype / GS-node data for `web/src/plugins/maveric/TxBuilder.tsx`. |
-| `/api/plugins/imaging` | `imaging/router.py` | Imaging status, file listing, chunk listing, preview, and delete endpoints. |
+| `/api/plugins/files` | `files/router.py` | Status, file listing, chunk listing, preview, delete, and per-client UI state for image / AII / MAG downlinks. |
 
-`MavericImagingEvents` is the mission `EventOps` source. It watches decoded
-`img_cnt_chunks`, `img_get_chunks`, and `cam_capture` packets, updates the
-`ImageAssembler`, broadcasts `imaging_progress`, and replays known progress to
+`MavericFileChunkEvents` is the mission `EventOps` source. It watches decoded
+file-chunk packets, drives the `ChunkFileStore` through the active
+`FileKindAdapter`s, broadcasts `file_progress`, and replays known progress to
 new `/ws/rx` clients.
 
 ## Config shape
@@ -130,8 +141,11 @@ extensions. The codec is the runtime protection — there is no separate
 
 Mission-declared RX/TX defaults (`rx.frequency`, `tx.frequency`) are seeded on
 `platform_cfg` at build time and can be overridden in `gss.yml`.
-The imaging output directory is read at mission build time from
-`mission.config.imaging.dir`, legacy `mission.config.image_dir`, or `images`.
+Mission-declared tracking defaults (station catalog, TLE, frequencies, day/night
+map flag) are seeded by `tracking_defaults.seed_tracking_defaults` into
+`platform.tracking.*`; operator overrides in `gss.yml` win.
+The downlink-file output directory is fixed at `<log_dir>/files/` and is built
+from `ctx.data_dir` at mission build time (no separate operator-editable knob).
 
 ## Warning: do not copy as-is
 

@@ -9,10 +9,10 @@ development proxies `/api` and `/ws` to the backend on port 8080.
 
 - RX packet monitoring, detail inspection, packet replay, and live parameter cache views.
 - TX command builder, drag-to-reorder queue, delays, notes, checkpoints, guard prompts, sent history, and verifier status.
-- GNU Radio process-control tab for `platform.radio.script`, including start/stop/restart and stdout/stderr tailing.
+- GNU Radio process-control tab for `platform.radio.script`, with start/stop/restart, stdout/stderr tailing, and the embedded Doppler engagement controls.
 - Runtime config editor, log browser, command palette, help modal, alarm strip, status toasts, and session controls.
 - Preflight and updater screens shown before the operator launches into the console.
-- Mission plugin pages and providers, currently MAVERIC Imaging, GNC, and EPS.
+- Mission plugin pages and providers, currently MAVERIC Files, GNC, and EPS.
 
 ## Tech stack
 
@@ -80,6 +80,8 @@ src/
     TxProvider.tsx         TX socket, queue, history, verification map
     RxProvider.tsx         RX socket, status, packet stats, display toggles
     ParametersProvider.tsx /api/parameters snapshot plus live freshness/cache updates
+    RadioProvider.tsx      /ws/radio status + log fan-out for the Radio tab
+    TrackingProvider.tsx   /ws/tracking + /api/tracking/* state for the Doppler section
     *Contexts.ts           Context objects split from provider components
     *Hooks.ts              Provider selectors and convenience hooks
   lib/
@@ -97,10 +99,10 @@ src/
     missionRuntime.tsx     Mission provider discovery and composition
     maveric/
       TxBuilder.tsx        MAVERIC command builder
-      plugins.ts           Imaging, GNC, EPS page manifest
+      plugins.ts           Files, GNC, EPS page manifest
       providers.ts         Mission provider manifest
-      ImagingPage.tsx      Imaging downlink viewer
-      imaging/             Imaging page subcomponents
+      preview/             Files page (DownlinkPreview.tsx — image / AII / MAG)
+      files/               Files-page chunk hooks, adapters, and inline previews
       gnc/                 GNC dashboard, registers, 3D viewer, shared widgets
       eps/                 EPS dashboard, live cards, field panes
 
@@ -119,8 +121,10 @@ socket state helpers. Keep that split when adding new app-wide state.
 2. `TxProvider`
 3. `RxProvider`
 4. `ParametersProvider`
-5. `MissionProviders`
-6. `AppShell` plus `PreflightOverlay`
+5. `RadioProvider`
+6. `TrackingProvider`
+7. `MissionProviders`
+8. `AppShell` plus `PreflightOverlay`
 
 `AppShell` renders `GlobalHeader`, `RenameSessionDialog`, `RxCrcToastSentinel`,
 `AlarmStrip`, `TabViewport`, lazy-loaded `ConfigSidebar`, `LogViewer`,
@@ -137,8 +141,8 @@ Routing is query-param based and handled in `App.tsx`:
 | URL | Renders |
 |---|---|
 | `/` | Dashboard tab (`MainDashboard`) |
-| `/?page=__radio__` | Radio tab (`components/radio/RadioPage`) |
-| `/?page=imaging` | MAVERIC Imaging plugin |
+| `/?page=__radio__` | Radio tab (`components/radio/RadioPage`, includes `DopplerSection`) |
+| `/?page=files` | MAVERIC Files plugin (image / AII / MAG downlink workbench) |
 | `/?page=gnc` | MAVERIC GNC plugin |
 | `/?page=gnc&tab=registers` | GNC registers sub-tab |
 | `/?page=eps` | MAVERIC EPS plugin |
@@ -159,6 +163,7 @@ WebSocket endpoints:
 | `/ws/rx` | RX packets, RX batches, replay events, parameter snapshots, blackout messages, mission plugin events |
 | `/ws/tx` | Queue updates, history, send progress, guard/checkpoint prompts, verifier restore/update |
 | `/ws/radio` | GNU Radio process status and captured stdout/stderr |
+| `/ws/tracking` | 1 Hz Doppler ticks, engagement-mode transitions, station/pass status |
 | `/ws/session` | Session identity, new-session, rename, and traffic-status events |
 | `/ws/preflight` | Preflight checks and updater progress |
 | `/ws/alarms` | Alarm snapshot, changes, removals, and ack flow |
@@ -176,6 +181,12 @@ HTTP endpoints used by the UI:
 | `GET /api/rx/packets/{event_id}` | In-memory decoded RX packet detail by event id |
 | `GET /api/radio/status`, `GET /api/radio/logs` | Radio supervisor snapshots |
 | `POST /api/radio/start`, `POST /api/radio/stop`, `POST /api/radio/restart` | Radio supervisor control actions |
+| `GET /api/tracking/config` | Active tracking config (station catalog, TLE, frequencies, display) |
+| `GET /api/tracking/state` | Live tracking snapshot at `at_ms` (defaults to now), with up to 20 upcoming passes |
+| `GET /api/tracking/passes` | Pass-prediction window (`from_ms`, `count` 1-30) |
+| `GET /api/tracking/pass/{id}` | Detail for a specific pass id |
+| `GET /api/tracking/doppler` | Doppler shift at `at_ms` (defaults to now) |
+| `POST /api/tracking/doppler/connection/{connect\|disconnect}` | Engage / disengage the live Doppler sink |
 | `GET /api/logs`, `GET /api/logs/{session_id}` | Log session list and RX/TX record pages |
 | `GET /api/logs/{session_id}/parameters` | Parameter rows for one log session |
 | `GET /api/parameters`, `DELETE /api/parameters/group/{group}` | Parameter spec/freshness and group clear |
@@ -185,7 +196,7 @@ HTTP endpoints used by the UI:
 | `POST /api/export-queue`, `POST /api/tx/clear-sent` | Queue export and sent-history clear |
 
 Mission routers add their own endpoints. MAVERIC currently mounts
-`/api/plugins/maveric/identity` and `/api/plugins/imaging/*`.
+`/api/plugins/maveric/identity` and `/api/plugins/files/*`.
 
 ## Development guidance
 
