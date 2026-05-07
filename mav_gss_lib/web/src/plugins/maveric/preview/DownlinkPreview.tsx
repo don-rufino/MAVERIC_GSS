@@ -475,14 +475,25 @@ export default function DownlinkPreview() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [activityExpanded, setActivityExpanded] = useState(false);
   const [pickerCollapsed, setPickerCollapsed] = useState(false);
-  // Per-file cnt chunk_size memory — engages the lock as soon as the
-  // operator stages a `*_cnt_chunks` command, before any chunks land.
-  // Backend doesn't track the cnt's chunk_size in the file store
-  // (only feed_chunk populates `chunk_sizes[ref]`), so the cache is
-  // a frontend artifact keyed by `(kind, source, filename)`. For
-  // image pairs, both leaves get the same entry written so toggling
-  // FULL ↔ THUMB after a cnt keeps the lock engaged.
+  // Per-file cnt chunk_size memory. Written at stage time with the
+  // operator's typed chunk_size, but the lock only ENGAGES once the
+  // corresponding cnt RES has been processed — i.e. once liveFiles
+  // shows the leaf with `total > 0`. Backend doesn't echo chunk_size
+  // in the cnt RES (only num_chunks via `set_total`) and doesn't fill
+  // `chunk_sizes[ref]` until `feed_chunk`, so the frontend cache is
+  // the only place the operator's intended slicing lives until chunks
+  // start flowing. Keyed by `(kind, source, filename)`. For image
+  // pairs, both leaves get the same entry so toggling FULL ↔ THUMB
+  // after a cnt keeps the lock engaged.
   const [cntChunkSizes, setCntChunkSizes] = useState<Record<string, string>>({});
+  // "Have we ever seen this key in liveFiles?" Used by the GC effect
+  // to distinguish in-flight cnts (entry written but RES hasn't
+  // landed yet, so the file isn't in liveFiles) from forgotten files
+  // (entry was confirmed once and the file is now gone). Without this,
+  // a freshly staged cnt gets pruned within 250ms — well before the
+  // RF round-trip — and the lock falls through to the chunk-arrival
+  // path, defeating the cnt-RES-driven lock.
+  const everSeenCntKeysRef = useRef<Set<string>>(new Set());
   // Two-scope delete: 'local' forgets accumulated GS-side chunks via
   // HTTP DELETE; 'spacecraft' uplinks the mission's *_delete command.
   // Picker row trash → local (matches legacy FilesPage semantics).
@@ -547,13 +558,15 @@ export default function DownlinkPreview() {
 
   // Save-on-change with a small debounce so rapid kind chip clicks
   // and bulk cnt staging don't hammer the endpoint. Last write wins.
-  // GC: prune cnt-tracked entries whose file is no longer in the live
-  // list before persisting AND in memory. Without the in-memory prune,
-  // a stale `cntChunkSizes` key whose filename matches a future file
-  // (same stem, fresh delivery) would silently engage the lock at the
-  // old chunk size on the new file. Skipping the prune entirely when
-  // `liveFiles` is empty guards against the transient gap during a
-  // refetch, when wiping everything would just clear the entire cache.
+  // GC: prune cnt-tracked entries that were once confirmed (their key
+  // appeared in liveFiles at some point this session) but no longer
+  // resolve to a live file — typically a server-side delete or a
+  // cleared store. In-flight cnts (entry written but file not yet in
+  // liveFiles, because the RES hasn't landed) are protected: their
+  // keys won't be in `everSeenCntKeysRef` yet, so the prune leaves
+  // them alone until the RES lands and confirms them, OR the operator
+  // clears them via local-delete. Skipping prune on empty liveFiles
+  // also guards against the transient gap during a refetch.
   useEffect(() => {
     if (!uiHydrated) return;
     const t = setTimeout(() => {
@@ -573,11 +586,20 @@ export default function DownlinkPreview() {
           liveKeys.add(cntKey(f.kind, f.source, f.filename));
         }
       }
+      // Promote currently-live keys to "seen" — once a cnt RES has
+      // confirmed a file, future disappearances are real cleanup, not
+      // pre-RES transients.
+      const seen = everSeenCntKeysRef.current;
+      for (const k of liveKeys) seen.add(k);
       const pruned: Record<string, string> = {};
       let anyDropped = false;
       for (const [k, v] of Object.entries(cntChunkSizes)) {
-        if (liveKeys.has(k)) pruned[k] = v;
-        else anyDropped = true;
+        if (liveKeys.has(k) || !seen.has(k)) {
+          // Either currently live, or never seen yet (in-flight cnt).
+          pruned[k] = v;
+        } else {
+          anyDropped = true;
+        }
       }
       // Sync the in-memory map too so `lockedChunkSize` doesn't latch
       // on stale keys that were just pruned from disk.
@@ -692,11 +714,12 @@ export default function DownlinkPreview() {
     const target = dest ?? 'HLNV'; // default node — operator can override per kind
     // Snapshot the operator's typed chunk_size on every cnt — this is
     // the value the backend's slicing was committed to (img_cnt_chunks
-    // / aii_cnt_chunks / mag_cnt_chunks all carry chunk_size). Used by
-    // `lockedChunkSize` so the lock engages right after cnt rather than
-    // waiting for the first chunk to arrive (legacy waited; this matches
-    // operator expectation that "I told the spacecraft 150B → don't let
-    // me re-issue at 200B").
+    // / aii_cnt_chunks / mag_cnt_chunks all carry chunk_size). Stored
+    // here at stage time so the value is available later, but the lock
+    // only engages once the cnt RES has been processed (see
+    // `lockedChunkSize` — gates on `leaf.total > 0`). Stage-time write
+    // is just a parking spot; the lock visibly flips when the
+    // spacecraft acknowledges the count, not when the cmd is queued.
     const cntMatch = cmd_id.match(/^(img|aii|mag)_cnt_chunks$/);
     if (cntMatch && args.filename && args.chunk_size) {
       const kind: Kind = cntMatch[1] === 'img' ? 'image' : (cntMatch[1] as Kind);
@@ -848,29 +871,41 @@ export default function DownlinkPreview() {
     // Resolve the on-disk filename for this leaf so we can look up the
     // operator's last cnt chunk_size for it.
     let lookupFilename: string;
+    let leafTotal: number;
+    let leafReceived: number;
+    let leafChunkSize: number;
     if (resolvedFile.kind === 'image') {
-      lookupFilename = (resolvedLeaf === 'thumb' && hasRealThumb(resolvedFile))
-        ? `tn_${resolvedFile.stem}`
-        : resolvedFile.stem;
+      const useThumb = resolvedLeaf === 'thumb' && hasRealThumb(resolvedFile);
+      lookupFilename = useThumb ? `tn_${resolvedFile.stem}` : resolvedFile.stem;
+      const leaf = useThumb ? resolvedFile.thumb! : resolvedFile.full;
+      leafTotal = leaf.total;
+      leafReceived = leaf.received;
+      leafChunkSize = leaf.chunkSize;
     } else {
       lookupFilename = resolvedFile.filename;
+      leafTotal = resolvedFile.total;
+      leafReceived = resolvedFile.received;
+      leafChunkSize = resolvedFile.chunkSize;
     }
-    // 1) Cnt-tracked: operator just staged a cnt at this size — lock
-    //    engages immediately, no wait for chunks to flow.
-    const tracked = cntChunkSizes[cntKey(resolvedFile.kind, resolvedFile.source, lookupFilename)];
-    if (tracked) {
-      const n = parseInt(tracked, 10);
-      if (Number.isFinite(n) && n > 0) return n;
+    // 1) Cnt-tracked: operator's typed chunk_size. Only engage once
+    //    the cnt RES has been processed for this leaf — i.e. backend
+    //    `set_total` has run and propagated through `liveFiles`. The
+    //    `liveLeaf` adapter coerces backend `total: null` to 0, so
+    //    `leafTotal > 0` is the signal "RES received". Without this
+    //    gate the lock would engage at stage time, before the
+    //    spacecraft has acknowledged the cnt.
+    if (leafTotal > 0) {
+      const tracked = cntChunkSizes[cntKey(resolvedFile.kind, resolvedFile.source, lookupFilename)];
+      if (tracked) {
+        const n = parseInt(tracked, 10);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
     }
     // 2) Backend-confirmed: feed_chunk has populated `chunk_sizes[ref]`,
-    //    surfaced as `leaf.chunkSize`. Engages once the first chunk is in.
-    if (resolvedFile.kind === 'image') {
-      const leaf = resolvedLeaf === 'thumb' && hasRealThumb(resolvedFile)
-        ? resolvedFile.thumb!
-        : resolvedFile.full;
-      return leaf.received > 0 ? leaf.chunkSize : null;
-    }
-    return resolvedFile.received > 0 ? resolvedFile.chunkSize : null;
+    //    surfaced as `leaf.chunkSize`. Strictly stronger than #1 — chunks
+    //    can't have flowed without the RES first — kept as a fallback for
+    //    files restored from disk where `cntChunkSizes` was never written.
+    return leafReceived > 0 ? leafChunkSize : null;
   })();
 
   // Mirrors legacy FilesTxControls: while the lock is engaged, force the
@@ -2519,8 +2554,9 @@ function ChunkSizeRow({
 }: {
   value: string;
   onChange: (v: string) => void;
-  /** Non-null when the resolved file's active leaf has received >0
-   *  chunks: input is forced to this value and disabled. */
+  /** Non-null when the resolved file's active leaf has been confirmed
+   *  by a cnt RES (or when chunks have already flowed): input is forced
+   *  to this value and disabled. */
   lockedSize: number | null;
 }) {
   const locked = lockedSize != null;
@@ -2558,7 +2594,7 @@ function ChunkSizeRow({
         <span
           className="ml-auto font-mono text-[11px] italic"
           style={{ color: colors.dim }}
-          title="No chunks received yet — operator can set any size for the first count"
+          title="No cnt response yet — operator can set any size; lock engages when the spacecraft acknowledges the count"
         >
           unlocked
         </span>
