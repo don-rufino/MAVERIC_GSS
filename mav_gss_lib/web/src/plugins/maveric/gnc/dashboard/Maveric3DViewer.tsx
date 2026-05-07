@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import maveric3DModelUrl from '@/assets/maveric.stl?url'
+import { useTabActive } from '@/state/TabActiveContext'
 
 interface Maveric3DViewerProps {
   /** Scalar-first attitude quaternion [q0, q1, q2, q3]. null → identity. */
@@ -14,6 +15,7 @@ export function Maveric3DViewer({ q }: Maveric3DViewerProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
+  const tabActive = useTabActive()
 
   useEffect(() => {
     const mount = mountRef.current
@@ -186,6 +188,26 @@ export function Maveric3DViewer({ q }: Maveric3DViewerProps) {
     }
     r.render(s, c)
   }, [q])
+
+  // Tab keep-alive: when GNC is hidden via display:none and re-shown, the
+  // WebGL drawing buffer can be reclaimed (no preserveDrawingBuffer) and
+  // ResizeObserver doesn't fire if the box returns to the same W×H. Re-fit
+  // and force a render whenever this subtree becomes active again.
+  useEffect(() => {
+    if (!tabActive) return
+    const mount = mountRef.current
+    const r = rendererRef.current
+    const s = sceneRef.current
+    const c = cameraRef.current
+    if (!mount || !r || !s || !c) return
+    const w = mount.clientWidth
+    const h = mount.clientHeight
+    if (w <= 0 || h <= 0) return
+    r.setSize(w, h)
+    c.aspect = w / h
+    c.updateProjectionMatrix()
+    r.render(s, c)
+  }, [tabActive])
 
   return (
     <div
