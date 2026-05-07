@@ -91,27 +91,20 @@ def _hhmm_to_ms(hhmm: str, base_ms: int) -> Optional[int]:
 def _entry_labels(entry: dict) -> list[str]:
     """Return generic searchable labels for a log entry.
 
-    Packet identity lives under mission facts so the persisted envelope stays
-    generic. TX records use ``mission.cmd_id``; RX records usually use
-    ``mission.facts.header.cmd_id``.
+    Reads only ``mission.cmd_id`` — the canonical envelope field, populated
+    symmetrically by both RX and TX record builders. The older fallback
+    into ``mission.facts.header.cmd_id`` was MAVERIC-shape-specific
+    reach-through and is no longer needed: ``build_mission_facts`` emits
+    ``cmd_id`` at the top level for RX, mirroring what the codec emits for
+    TX (see commit 833421e for the TX side).
     """
     labels: list[str] = []
     mission = entry.get("mission")
     if not isinstance(mission, dict):
         return labels
-
     cmd_id = mission.get("cmd_id")
     if isinstance(cmd_id, str) and cmd_id:
         labels.append(cmd_id)
-
-    facts = mission.get("facts")
-    if isinstance(facts, dict):
-        header = facts.get("header")
-        if isinstance(header, dict):
-            fact_cmd_id = header.get("cmd_id")
-            if isinstance(fact_cmd_id, str) and fact_cmd_id:
-                labels.append(fact_cmd_id)
-
     return labels
 
 
@@ -200,7 +193,7 @@ async def api_log_entries(
 
     Filters:
       - ``label``: substring match against derived generic labels, including
-        TX ``mission.cmd_id`` and RX ``mission.facts.header.cmd_id``.
+        TX and RX ``mission.cmd_id`` (the canonical envelope field).
       - ``from`` / ``to``: HH:MM or HH:MM:SS, compared against ts_ms using
         the session's calendar day as the reference midnight.
       - ``event_kind``: comma-separated whitelist. Defaults to

@@ -9,7 +9,7 @@ A mission may declare its packet-list / TX queue columns as YAML:
             value_icons: {CMD: command, TLM: telemetry}, default_icon: unknown }
       tx_columns:
         - { id: target, label: tgt,   width: w-[52px], path: header.target }
-        - { id: cmd,    label: cmd,   flex: true,      path: header.cmd_id }
+        - { id: cmd,    label: cmd,   flex: true,      kind: cmd_id }
         - { id: verify, label: verify, width: w-[78px], align: right, kind: verifiers }
 
 `path:` is a dotted lookup against the row's mission-facts dict on the
@@ -21,7 +21,9 @@ the frontend owns the concrete icon library.
 
 `kind:` selects the renderer. `value` (default) walks `path:` against
 the facts dict. `verifiers` ignores `path:` and renders the
-client-tracked tick strip from the verification WS stream.
+client-tracked tick strip from the verification WS stream. `cmd_id`
+ignores `path:` and reads the canonical envelope field
+(``mission.cmd_id``) — same field the platform log-search uses.
 
 Author:  Irfan Annuar - USC ISI SERC
 """

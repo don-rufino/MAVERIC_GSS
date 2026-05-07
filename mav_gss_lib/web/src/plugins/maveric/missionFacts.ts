@@ -5,7 +5,6 @@ export interface MavericMissionFacts extends MissionFacts {
   id: 'maveric'
   facts: {
     header?: {
-      cmd_id?: string | number
       src?: string | number
       dest?: string | number
       echo?: string | number
@@ -26,7 +25,7 @@ export function mavericHeader(packet: RxPacket): MavericMissionFacts['facts']['h
 }
 
 export function mavericCmdId(packet: RxPacket): string {
-  return String(mavericHeader(packet)?.cmd_id ?? '')
+  return String(packet.mission?.cmd_id ?? '')
 }
 
 export function mavericPtype(packet: RxPacket): string {

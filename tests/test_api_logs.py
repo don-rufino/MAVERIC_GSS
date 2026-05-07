@@ -29,7 +29,7 @@ def _build_fixture(log_dir: Path) -> str:
         "inner_hex": "deadbeef", "inner_len": 4,
         "duplicate": False, "uplink_echo": False, "unknown": False,
         "warnings": [],
-        "mission": {"id": "maveric", "facts": {"header": {"cmd_id": "eps_hk"}}},
+        "mission": {"id": "maveric", "cmd_id": "eps_hk", "facts": {"header": {}}},
     }
     tel = {
         "event_id": "t1", "event_kind": "parameter",
@@ -146,7 +146,7 @@ def test_label_filter_matches_tx_mission_cmd_id():
         assert entries[0]["seq"] == 2
 
 
-def test_label_filter_matches_rx_mission_facts_cmd_id():
+def test_label_filter_matches_rx_mission_cmd_id():
     with tempfile.TemporaryDirectory() as tmp:
         stem = _build_fixture(Path(tmp))
         app = create_app()
@@ -158,6 +158,77 @@ def test_label_filter_matches_rx_mission_facts_cmd_id():
         assert len(entries) == 1
         assert entries[0]["event_kind"] == "rx_packet"
         assert entries[0]["seq"] == 1
+
+
+def test_label_filter_matches_envelope_cmd_id_without_nested_header():
+    """Pin the contract: search MUST match an RX record that carries
+    mission.cmd_id at the envelope level when the nested
+    facts.header.cmd_id path is empty.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        stem = "session_20260423_141500_GS-0_irfan"
+        json_dir = Path(tmp) / "json"
+        json_dir.mkdir(parents=True)
+        rx = {
+            "event_id": "e1", "event_kind": "rx_packet",
+            "session_id": stem, "ts_ms": 1714053603500,
+            "ts_iso": "2026-04-23T14:00:03.500+00:00",
+            "seq": 1, "v": "5.7.0", "mission_id": "maveric",
+            "operator": "irfan", "station": "GS-0",
+            "frame_label": "ASM+GOLAY", "transport_meta": "",
+            "inner_hex": "deadbeef", "inner_len": 4,
+            "duplicate": False, "uplink_echo": False, "unknown": False,
+            "warnings": [],
+            "mission": {"id": "maveric", "cmd_id": "eps_hk",
+                        "facts": {"header": {}}},
+        }
+        (json_dir / f"{stem}.jsonl").write_text(json.dumps(rx) + "\n")
+        app = create_app()
+        app.state.runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
+        with TestClient(app) as client:
+            r = client.get(f"/api/logs/{stem}?label=eps_hk")
+        assert r.status_code == 200
+        entries = r.json()["entries"]
+        assert len(entries) == 1
+        assert entries[0]["event_kind"] == "rx_packet"
+        assert entries[0]["seq"] == 1
+
+
+def test_label_filter_ignores_legacy_facts_header_cmd_id():
+    """Pin the hard cut: a record carrying cmd_id ONLY at the legacy
+    nested path (mission.facts.header.cmd_id, no envelope-level
+    mission.cmd_id) MUST NOT match search. Guards against accidental
+    reintroduction of the MAVERIC-shape-specific reach-through.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        stem = "session_20260423_142000_GS-0_irfan"
+        json_dir = Path(tmp) / "json"
+        json_dir.mkdir(parents=True)
+        rx = {
+            "event_id": "e1", "event_kind": "rx_packet",
+            "session_id": stem, "ts_ms": 1714053603500,
+            "ts_iso": "2026-04-23T14:00:03.500+00:00",
+            "seq": 1, "v": "5.7.0", "mission_id": "maveric",
+            "operator": "irfan", "station": "GS-0",
+            "frame_label": "ASM+GOLAY", "transport_meta": "",
+            "inner_hex": "deadbeef", "inner_len": 4,
+            "duplicate": False, "uplink_echo": False, "unknown": False,
+            "warnings": [],
+            # Legacy shape: cmd_id ONLY in the nested header. No envelope
+            # field. Modern records cannot look like this; this fixture
+            # exists solely to prove the search refuses to match it.
+            "mission": {"id": "maveric",
+                        "facts": {"header": {"cmd_id": "eps_hk"}}},
+        }
+        (json_dir / f"{stem}.jsonl").write_text(json.dumps(rx) + "\n")
+        app = create_app()
+        app.state.runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
+        with TestClient(app) as client:
+            r = client.get(f"/api/logs/{stem}?label=eps_hk")
+        assert r.status_code == 200
+        entries = r.json()["entries"]
+        # Hard cut: legacy shape contributes ZERO label matches.
+        assert entries == []
 
 
 def test_parameters_endpoint_filters_by_name():

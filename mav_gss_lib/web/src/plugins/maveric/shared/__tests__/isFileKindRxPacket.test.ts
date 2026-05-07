@@ -5,7 +5,7 @@ import type { RxPacket } from '@/lib/types';
 
 function pkt(cmdId: string, ptype = 'CMD', src = 'GS'): RxPacket {
   return {
-    mission: { id: 'maveric', facts: { header: { cmd_id: cmdId, ptype, src } } },
+    mission: { id: 'maveric', cmd_id: cmdId, facts: { header: { ptype, src } } },
   } as unknown as RxPacket;
 }
 

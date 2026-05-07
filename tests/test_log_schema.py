@@ -53,7 +53,7 @@ def _make_packet() -> PacketEnvelope:
         transport_meta={"transmitter": "probe"},
         warnings=[],
         mission_payload={},
-        mission={"id": "maveric", "facts": {"header": {"cmd_id": "probe"}}},
+        mission={"id": "maveric", "cmd_id": "probe", "facts": {"header": {}}},
         flags=PacketFlags(),
         parameters=(
             ParamUpdate(name="eps.vbatt", value=7.42,
@@ -89,7 +89,7 @@ def test_rx_packet_envelope_shape():
     assert record["frame_label"] == pkt.frame_type
     assert "frame_type" not in record
     assert "warnings" in record
-    assert record["mission"] == {"id": "maveric", "facts": {"header": {"cmd_id": "probe"}}}
+    assert record["mission"] == {"id": "maveric", "cmd_id": "probe", "facts": {"header": {}}}
     assert "_rendering" not in record
     assert "telemetry" not in record
 

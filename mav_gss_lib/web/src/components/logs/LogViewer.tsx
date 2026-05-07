@@ -84,18 +84,8 @@ function entryLabel(e: LogEntry): string {
   }
   const mission = e.mission
   if (mission && typeof mission === 'object') {
-    const missionObj = mission as Record<string, unknown>
-    const missionCmd = missionObj.cmd_id
+    const missionCmd = (mission as Record<string, unknown>).cmd_id
     if (typeof missionCmd === 'string' && missionCmd) return missionCmd
-
-    const facts = missionObj.facts
-    if (facts && typeof facts === 'object') {
-      const header = (facts as Record<string, unknown>).header
-      if (header && typeof header === 'object') {
-        const cmdId = (header as Record<string, unknown>).cmd_id
-        if (typeof cmdId === 'string' && cmdId) return cmdId
-      }
-    }
   }
   return ''
 }

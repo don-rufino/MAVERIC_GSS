@@ -57,6 +57,7 @@ import { FilenameInput } from '../shared/FilenameInput';
 import { useFileChunkSet, type ChunkSetTarget } from '../shared/useFileChunkSet';
 import { computeMissingRanges } from '../shared/missingRanges';
 import { packetPayloadText } from '@/lib/rxPacket';
+import { mavericCmdId, mavericHeader, mavericPtype } from '@/plugins/maveric/missionFacts';
 import type { TxArgSchema } from '@/lib/types';
 import type { FileLeaf, ImagePair } from '../files/types';
 
@@ -428,11 +429,10 @@ export default function DownlinkPreview() {
     const startMs = packets[0]?.received_at_ms ?? 0;
     for (const p of packets) {
       if (p.is_echo) continue;
-      const facts = (p.mission?.facts ?? {}) as Record<string, unknown>;
-      const header = (facts.header ?? {}) as Record<string, unknown>;
-      const cmdId = String(header.cmd_id ?? '');
+      const cmdId = mavericCmdId(p);
       if (!cmdId || !isFilesPageCmd(cmdId)) continue;
-      const rawPty = String(header.ptype ?? 'CMD');
+      const header = mavericHeader(p);
+      const rawPty = mavericPtype(p) || 'CMD';
       const ptype: PType = (rawPty in PTYPE_TONE) ? (rawPty as PType) : 'CMD';
       // Args from packet facts/parameters formatted as `k=v  k=v` —
       // mirrors the legacy RxLogPanel display (key/value pairs from
@@ -444,7 +444,7 @@ export default function DownlinkPreview() {
         tsRel: p.received_at_ms != null ? Math.max(0, (p.received_at_ms - startMs) / 1000) : 0,
         dir: 'RX',
         ptype,
-        src: String(header.src ?? '?'),
+        src: String(header?.src ?? '?'),
         cmd: cmdId,
         meta: args || `pkt #${p.num}`,
       });

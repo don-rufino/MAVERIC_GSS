@@ -148,6 +148,7 @@ def _is_uplink_echo(payload: MaverMissionPayload, codec: MaverPacketCodec) -> bo
 
 
 def build_mission_facts(payload: MaverMissionPayload) -> MavericMissionFacts:
+    cmd_id = (payload.header or {}).get("cmd_id", "")
     header = _mission_header(payload)
     integrity = _mission_integrity(payload)
     protocol: dict[str, Any] = {
@@ -159,6 +160,7 @@ def build_mission_facts(payload: MaverMissionPayload) -> MavericMissionFacts:
         protocol["csp_header"] = dict(payload.csp_header)
     return {
         "id": "maveric",
+        "cmd_id": cmd_id,
         "facts": {
             "header": header,
             "protocol": protocol,
@@ -170,7 +172,6 @@ def build_mission_facts(payload: MaverMissionPayload) -> MavericMissionFacts:
 def _mission_header(payload: MaverMissionPayload) -> dict[str, Any]:
     h = payload.header or {}
     return {
-        "cmd_id": h.get("cmd_id", ""),
         "src": h.get("src", ""),
         "dest": h.get("dest", ""),
         "echo": h.get("echo", ""),

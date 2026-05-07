@@ -82,10 +82,7 @@ ui:
     - id: cmd
       label: cmd
       flex: true
-      path: header.cmd_id
-  # NOTE: rx keeps `path: header.cmd_id` because the RX-side parser
-  # populates mission.facts.header.cmd_id; tx uses `kind: cmd_id` because
-  # the canonical envelope field is mission.cmd_id (no header duplicate).
+      kind: cmd_id
   tx_columns:
     - id: dest
       label: dest

@@ -64,10 +64,11 @@ export function columnAlignClass(c: ColumnDef): string {
 // tick strip is dispatched on `c.kind === 'verifiers'`.
 export function buildRxRow(packet: RxPacket, columns: ColumnDef[]): Record<string, RenderCell> {
   const facts = packet.mission?.facts as Record<string, unknown> | undefined
+  const cmdId = packet.mission?.cmd_id as string | undefined
   const row: Record<string, RenderCell> = {}
   for (const c of columns) {
     const shellBuild = RX_SHELL_BUILDERS.get(c.id)
-    row[c.id] = shellBuild ? shellBuild(packet) : missionCell(c, facts)
+    row[c.id] = shellBuild ? shellBuild(packet) : missionCell(c, facts, cmdId)
   }
   return row
 }
