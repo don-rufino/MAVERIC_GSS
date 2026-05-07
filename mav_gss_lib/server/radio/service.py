@@ -154,9 +154,9 @@ class RadioService:
             tx_hz = _parse_frequency_hz(tx_cfg.get("frequency"), _parse_frequency_hz(frequencies.get("tx_hz")))
         env: dict[str, str] = {}
         if rx_hz is not None:
-            env["MAVERIC_RX_FREQ_HZ"] = str(rx_hz)
+            env["GSS_RX_FREQ_HZ"] = str(rx_hz)
         if tx_hz is not None:
-            env["MAVERIC_TX_FREQ_HZ"] = str(tx_hz)
+            env["GSS_TX_FREQ_HZ"] = str(tx_hz)
         return env
 
     def command(self) -> list[str]:

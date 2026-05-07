@@ -76,8 +76,8 @@ class RadioServiceConfigTests(unittest.TestCase):
         rt.platform_cfg["rx"]["frequency"] = "437.7 MHz"
         rt.platform_cfg["tx"]["frequency"] = "437800000"
         svc = RadioService(rt)
-        self.assertEqual(svc._frequency_env()["MAVERIC_RX_FREQ_HZ"], "437700000.0")
-        self.assertEqual(svc._frequency_env()["MAVERIC_TX_FREQ_HZ"], "437800000.0")
+        self.assertEqual(svc._frequency_env()["GSS_RX_FREQ_HZ"], "437700000.0")
+        self.assertEqual(svc._frequency_env()["GSS_TX_FREQ_HZ"], "437800000.0")
 
     def test_frequency_env_falls_back_to_tracking_base(self):
         rt = _fake_runtime({"enabled": True})
@@ -88,8 +88,8 @@ class RadioServiceConfigTests(unittest.TestCase):
             "tx_hz": 437_620_000.0,
         }
         svc = RadioService(rt)
-        self.assertEqual(svc._frequency_env()["MAVERIC_RX_FREQ_HZ"], "437610000.0")
-        self.assertEqual(svc._frequency_env()["MAVERIC_TX_FREQ_HZ"], "437620000.0")
+        self.assertEqual(svc._frequency_env()["GSS_RX_FREQ_HZ"], "437610000.0")
+        self.assertEqual(svc._frequency_env()["GSS_TX_FREQ_HZ"], "437620000.0")
 
 
 class RadioServiceLoopBindingTests(unittest.TestCase):
