@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isFileKindRxPacket } from '../../missionFacts';
+import { isFileKindRxPacket, mavericCmdId } from '../../missionFacts';
 import { fileCaps } from '../fileKinds';
 import type { RxPacket } from '@/lib/types';
 
@@ -44,5 +44,18 @@ describe('isFileKindRxPacket', () => {
   it('aii/mag opt out of error fallback (ambiguous across kinds)', () => {
     expect(isFileKindRxPacket(pkt('something_else', 'ERR', 'HLNV'), fileCaps('aii'))).toBe(false);
     expect(isFileKindRxPacket(pkt('something_else', 'NACK', 'ASTR'), fileCaps('mag'))).toBe(false);
+  });
+
+  it('does not match a non-MAVERIC packet whose envelope cmd_id collides', () => {
+    // Guard: another mission emitting the same generic envelope field
+    // must NOT be classified as a MAVERIC file packet. The MAVERIC
+    // helpers gate on mission.id === 'maveric' before reading cmd_id.
+    const foreign = {
+      mission: { id: 'echo_v2', cmd_id: 'img_get_chunks', facts: { header: {} } },
+    } as unknown as RxPacket;
+    expect(mavericCmdId(foreign)).toBe('');
+    expect(isFileKindRxPacket(foreign, fileCaps('image'))).toBe(false);
+    expect(isFileKindRxPacket(foreign, fileCaps('aii'))).toBe(false);
+    expect(isFileKindRxPacket(foreign, fileCaps('mag'))).toBe(false);
   });
 });

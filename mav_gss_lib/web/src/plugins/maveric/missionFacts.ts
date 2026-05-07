@@ -25,7 +25,7 @@ export function mavericHeader(packet: RxPacket): MavericMissionFacts['facts']['h
 }
 
 export function mavericCmdId(packet: RxPacket): string {
-  return String(packet.mission?.cmd_id ?? '')
+  return String(mavericFacts(packet)?.cmd_id ?? '')
 }
 
 export function mavericPtype(packet: RxPacket): string {

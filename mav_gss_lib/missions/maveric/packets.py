@@ -49,6 +49,7 @@ class MaverMissionPayload:
 
 class MavericMissionFacts(TypedDict):
     id: Literal["maveric"]
+    cmd_id: str
     facts: dict[str, Any]
 
 
