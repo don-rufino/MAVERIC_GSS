@@ -83,13 +83,13 @@ class TestDeclarativeFramerReadsLiveConfig(unittest.TestCase):
 
         framed_before = rt.platform.frame_tx(prep.encoded)
         self.assertEqual(framed_before.frame_label, "ASM+Golay")
-        self.assertEqual(framed_before.log_fields["csp"]["src"], 6)
+        self.assertEqual(framed_before.log_fields["facts"]["protocol"]["csp_header"]["src"], 6)
 
         # Mutate live mission_cfg in place — the same dict identity that the
         # mission captured at build time. Next frame must reflect the change.
         rt.mission_cfg["csp"]["source"] = 7
         framed_after = rt.platform.frame_tx(prep.encoded)
-        self.assertEqual(framed_after.log_fields["csp"]["src"], 7)
+        self.assertEqual(framed_after.log_fields["facts"]["protocol"]["csp_header"]["src"], 7)
 
     def test_asm_golay_mtu_is_enforced_via_mission_framer(self):
         from mav_gss_lib.server.state import create_runtime
@@ -139,7 +139,7 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
                     operator="irfan", station="GS-0",
                     frame_label="ASM+Golay",
                     log_fields={
-                        "csp": {"prio": 2, "dest": 8},
+                        "facts": {"protocol": {"csp_header": {"prio": 2, "dest": 8}}},
                     },
                 )
                 log.write_mission_command(
@@ -157,9 +157,9 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
         # nor under the nested mission block.
         self.assertNotIn("uplink_mode", rec)
         self.assertNotIn("uplink_mode", rec["mission"])
-        # CSP headers live under the nested `mission` dict —
-        # the unified envelope keeps top-level keys stable across missions.
-        self.assertEqual(rec["mission"]["csp"]["dest"], 8)
+        # CSP headers nest under mission.facts.protocol.csp_header —
+        # symmetric with the RX shape and unified across missions.
+        self.assertEqual(rec["mission"]["facts"]["protocol"]["csp_header"]["dest"], 8)
         self.assertEqual(rec["operator"], "irfan")
         self.assertEqual(rec["station"], "GS-0")
         self.assertEqual(rec["event_kind"], "tx_command")

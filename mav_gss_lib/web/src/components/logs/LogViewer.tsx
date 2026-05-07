@@ -410,13 +410,13 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                     const label = entryLabel(e)
                     const frame = isSys
                       ? systemEventState(e, kind)
-                      : String(e.frame_type ?? e.frame_label ?? '')
-                    const rawLen = Number(e.size ?? e.wire_len ?? 0)
-                    const wireLen = Number(e.wire_len ?? rawLen)
-                    const innerLen = Number(e.inner_len ?? 0)
-                    const rawHex = String(e.raw_hex ?? e.wire_hex ?? '')
-                    const wireHex = String(e.wire_hex ?? (isTx ? rawHex : ''))
-                    const innerHex = String(e.inner_hex ?? '')
+                      : String(e.frame_label ?? e.frame_type ?? '')
+                    const innerLen = Number(e.inner_len ?? e.size ?? 0)
+                    const wireLen = Number(e.wire_len ?? innerLen)
+                    const rawLen = innerLen  // legacy alias used below
+                    const innerHex = String(e.inner_hex ?? e.raw_hex ?? '')
+                    const wireHex = String(e.wire_hex ?? (isTx ? innerHex : ''))
+                    const rawHex = innerHex  // legacy alias used below
                     const displayLen = isSys ? '' : (isTx ? wireLen : rawLen)
                     const displayInnerLen = isTx && innerHex ? innerLen : ''
                     const warnings = (Array.isArray(e.warnings) ? e.warnings : []) as string[]

@@ -65,4 +65,6 @@ def test_runtime_v2_loads_maveric_with_walker_and_cache(tmp_path):
     assert rx.packet.flags.is_unknown is True
     assert tx.encoded.raw
     assert tx.encoded.cmd_id == "ftdi_log"
-    assert tx.encoded.mission_facts["header"]["cmd_id"] == "ftdi_log"
+    # cmd_id is canonical at EncodedCommand.cmd_id; not duplicated under
+    # mission_facts["header"] (post-Task-6).
+    assert "cmd_id" not in tx.encoded.mission_facts["header"]

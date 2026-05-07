@@ -48,7 +48,7 @@ class DeclarativeFramerTests(unittest.TestCase):
         framed = framer.frame(EncodedCommand(raw=b"\x01\x02\x03"))
         self.assertEqual(framed.frame_label, "ASM+Golay")
         self.assertNotIn("uplink_mode", framed.log_fields)  # label lives on FramedCommand.frame_label, not log_fields
-        self.assertEqual(framed.log_fields["csp"]["src"], 6)
+        self.assertEqual(framed.log_fields["facts"]["protocol"]["csp_header"]["src"], 6)
         self.assertGreater(framed.max_payload, 0)
 
     def test_live_config_propagates(self):
@@ -57,8 +57,8 @@ class DeclarativeFramerTests(unittest.TestCase):
         before = framer.frame(EncodedCommand(raw=b"\x01"))
         cfg["csp"]["source"] = 7
         after = framer.frame(EncodedCommand(raw=b"\x01"))
-        self.assertEqual(before.log_fields["csp"]["src"], 6)
-        self.assertEqual(after.log_fields["csp"]["src"], 7)
+        self.assertEqual(before.log_fields["facts"]["protocol"]["csp_header"]["src"], 6)
+        self.assertEqual(after.log_fields["facts"]["protocol"]["csp_header"]["src"], 7)
 
     def test_static_config_overrides_config_ref(self):
         spec = FramingSpec(
@@ -73,7 +73,7 @@ class DeclarativeFramerTests(unittest.TestCase):
         cfg = {"csp": {"enabled": True, "source": 6}}
         framed = DeclarativeFramer(spec, cfg).frame(EncodedCommand(raw=b"\x01"))
         # Static `config: {source: 99}` wins over `config_ref` lookup.
-        self.assertEqual(framed.log_fields["csp"]["src"], 99)
+        self.assertEqual(framed.log_fields["facts"]["protocol"]["csp_header"]["src"], 99)
 
 
 if __name__ == "__main__":

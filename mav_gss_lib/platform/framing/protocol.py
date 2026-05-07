@@ -23,6 +23,15 @@ from __future__ import annotations
 from typing import Any, Iterable, Protocol, runtime_checkable
 
 
+def _deep_merge_log_fields(dst: dict[str, Any], src: dict[str, Any]) -> None:
+    """Recursive merge: src wins on leaf collisions; nested dicts merge."""
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _deep_merge_log_fields(dst[k], v)
+        else:
+            dst[k] = v
+
+
 @runtime_checkable
 class Framer(Protocol):
     """One protocol layer in a wire stack."""
@@ -73,7 +82,7 @@ class FramerChain:
     def log_fields(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for f in self.framers:
-            out.update(f.log_fields())
+            _deep_merge_log_fields(out, f.log_fields())
         return out
 
     def log_lines(self) -> list[str]:

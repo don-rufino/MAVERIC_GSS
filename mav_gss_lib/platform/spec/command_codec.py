@@ -314,19 +314,21 @@ class DeclarativeCommandOpsAdapter:
             for arg in meta.argument_list
             if arg.name in args
         }
-        # Surface header (cmd_id + routing) for declarative TX columns.
-        mission_facts = {
-            "header": {
-                "cmd_id": cmd_id,
-                **completed_fields,
-                "args": format_args_summary(normalized_args.items()),
-            },
-            "protocol": {
-                "args_hex": args_bytes.hex(),
-                "args_len": len(args_bytes),
-                "wire_len": len(raw),
-            },
+        # cmd_id is the canonical EncodedCommand field; do NOT duplicate it
+        # under header.cmd_id — the platform logger surfaces it as
+        # mission.cmd_id.
+        header = {
+            **{k: v for k, v in completed_fields.items() if k != "cmd_id"},
+            "args": format_args_summary(normalized_args.items()),
         }
+        # Inner-frame length: this is the COMMAND wire (CSP), not the
+        # outer ASM+Golay frame. Name accordingly.
+        protocol = {
+            "args_hex": args_bytes.hex(),
+            "args_len": len(args_bytes),
+            "inner_len": len(raw),
+        }
+        mission_facts = {"header": header, "protocol": protocol}
         # Typed args -> parameters (mirrors RX walker emit). The command's
         # argument_list, not operator payload keys, owns names and order.
         params = tuple(

@@ -129,11 +129,11 @@ class CSPv1Framer(Framer):
         if not self.config.enabled:
             return {}
         c = self.config
-        return {"csp": {
+        return {"facts": {"protocol": {"csp_header": {
             "prio": int(c.prio), "src": int(c.src), "dest": int(c.dest),
             "dport": int(c.dport), "sport": int(c.sport),
             "flags": int(c.flags), "csp_crc": bool(c.csp_crc),
-        }}
+        }}}}
 
     def log_line(self) -> str | None:
         if not self.config.enabled:

@@ -102,7 +102,9 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         self.assertEqual(item["type"], "mission_cmd")
         self.assertEqual(item["cmd_id"], "com_ping")
         self.assertIn("mission", item)
-        self.assertEqual(item["mission"]["facts"]["header"]["cmd_id"], "com_ping")
+        # cmd_id is canonical at the queue item top level (item["cmd_id"]);
+        # not duplicated under mission.facts.header (post-Task-6).
+        self.assertNotIn("cmd_id", item["mission"]["facts"]["header"])
         self.assertEqual(item["mission"]["facts"]["header"]["dest"], "EPS")
 
     def test_preview_returns_checkpoint_items(self):

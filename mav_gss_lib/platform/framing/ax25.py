@@ -263,10 +263,11 @@ class Ax25Framer(Framer):
         if not self.config.enabled:
             return {}
         c = self.config
-        return {"ax25": {
+        # TODO: AX.25 e2e test
+        return {"facts": {"protocol": {"ax25_header": {
             "src_call": c.src_call, "src_ssid": int(c.src_ssid),
             "dest_call": c.dest_call, "dest_ssid": int(c.dest_ssid),
-        }}
+        }}}}
 
     def log_line(self) -> str | None:
         if not self.config.enabled:

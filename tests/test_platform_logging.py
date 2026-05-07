@@ -36,12 +36,12 @@ def test_build_rx_packet_record_wraps_echo_packet_in_platform_envelope(tmp_path)
     assert record["station"] == "gs"
 
     # RX logs keep one canonical packet body.
-    assert record["raw_hex"] == "dead"
-    assert record["size"] == 2
+    assert record["inner_hex"] == "dead"
+    assert record["inner_len"] == 2
+    assert "raw_hex" not in record
+    assert "size" not in record
     assert "wire_hex" not in record
     assert "wire_len" not in record
-    assert "inner_hex" not in record
-    assert "inner_len" not in record
 
     # Mission block always present; `_rendering` and nested `telemetry` gone
     assert record["mission"] == {}

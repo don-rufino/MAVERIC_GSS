@@ -6,11 +6,26 @@ here, then ``mav_gss_lib.logging`` persists them to shared JSONL session files.
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Iterator
 
 from ._log_envelope import new_event_id, ts_iso
 from .contract.mission import MissionSpec
 from .contract.packets import PacketEnvelope
+
+
+def _deep_merge(dst: dict, src: dict) -> dict:
+    """Generic recursive merge: src wins; nested dicts merge instead of replace.
+
+    Mutates dst and returns it. Caller is responsible for passing a
+    deep-copied dst if they want input isolation.
+    """
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _deep_merge(dst[k], v)
+        else:
+            dst[k] = v
+    return dst
 
 
 def rx_packet_record(
@@ -37,10 +52,10 @@ def rx_packet_record(
         "mission_id": mission_id or mission.id,
         "operator": operator,
         "station": station,
-        "frame_type": packet.frame_type,
+        "frame_label": packet.frame_type,
         "transport_meta": str(packet.transport_meta.get("transmitter", "")),
-        "raw_hex": packet.raw.hex(),
-        "size": len(packet.raw),
+        "inner_hex": packet.raw.hex(),
+        "inner_len": len(packet.raw),
         "duplicate": packet.flags.is_duplicate,
         "uplink_echo": packet.flags.is_uplink_echo,
         "unknown": packet.flags.is_unknown,
@@ -100,19 +115,35 @@ def tx_command_record(
 ) -> dict[str, Any]:
     """Build one outbound command event record.
 
-    `mission_facts` mirrors the RX `MissionFacts.facts` shape (for example
-    mission-owned header/protocol blocks). `parameters` is the typed-args
-    list (each `{name, value, unit, ...}`). `cmd_id` stays under the
-    mission-owned block so the top-level envelope remains generic.
+    Generic. The logger does NOT know about CSP, MAVERIC, headers, or
+    protocol field names. mission_facts arrives canonical from the
+    command codec; log_fields arrives pre-nested from the framer chain
+    (e.g. {"facts": {"protocol": {"csp_header": ...}}}) and deep-merges
+    into mission["facts"]. Single platform-level rule applied here:
+    drop ts_ms from TX parameter rows (operator inputs have no
+    meaningful timestamp).
+
+    Both mission_facts and log_fields are deep-copied before the merge
+    so caller-side state cannot be mutated.
+
+    Framer log_fields contribute ONLY to mission_block["facts"]. Any
+    keys outside "facts" are dropped.
     """
-    log_fields = dict(log_fields or {})
+    cleaned_params = [
+        {k: v for k, v in p.items() if k != "ts_ms"}
+        for p in (parameters or ())
+    ]
+    facts: dict = copy.deepcopy(mission_facts or {})
+    if isinstance(log_fields, dict):
+        framer_facts = copy.deepcopy(log_fields.get("facts") or {})
+        if framer_facts:
+            _deep_merge(facts, framer_facts)
     mission_block: dict = {
         "id": mission_id,
         "cmd_id": cmd_id,
-        "facts": dict(mission_facts or {}),
-        "parameters": list(parameters or ()),
+        "facts": facts,
+        "parameters": cleaned_params,
     }
-    mission_block.update(log_fields)
 
     return {
         "event_id": event_id or new_event_id(),
@@ -130,6 +161,7 @@ def tx_command_record(
         "inner_len": len(raw_cmd),
         "wire_hex": wire.hex(),
         "wire_len": len(wire),
+        "warnings": [],
         "mission": mission_block,
     }
 

@@ -11,9 +11,8 @@ class FramerLogAggregationTests(unittest.TestCase):
             {"framer": "asm_golay"},
         ])
         fields = chain.log_fields()
-        self.assertIn("csp", fields)
-        self.assertEqual(fields["csp"]["src"], 6)
-        self.assertEqual(fields["csp"]["dest"], 8)
+        self.assertEqual(fields["facts"]["protocol"]["csp_header"]["src"], 6)
+        self.assertEqual(fields["facts"]["protocol"]["csp_header"]["dest"], 8)
 
     def test_log_lines_skips_disabled_framers(self):
         chain = build_chain([
@@ -35,7 +34,7 @@ class FramerLogAggregationTests(unittest.TestCase):
             {"framer": "ax25", "config": {"enabled": True, "src_call": "WAAAAA", "dest_call": "WBBBBB"}},
         ])
         fields = chain.log_fields()
-        self.assertEqual(fields["ax25"]["src_call"], "WAAAAA")
+        self.assertEqual(fields["facts"]["protocol"]["ax25_header"]["src_call"], "WAAAAA")
 
 
 if __name__ == "__main__":

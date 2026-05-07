@@ -80,12 +80,15 @@ def test_rx_packet_envelope_shape():
     )
     _assert_envelope(record)
     assert record["event_kind"] == "rx_packet"
-    assert record["raw_hex"] == "01020304"
-    assert record["size"] == 4
-    assert "wire_hex" not in record
+    assert record["inner_hex"] == "01020304"
+    assert record["inner_len"] == 4
+    assert "raw_hex" not in record
+    assert "size" not in record
+    assert "wire_hex" not in record    # RX has no preserved outer frame
     assert "wire_len" not in record
-    assert "inner_hex" not in record
-    assert "inner_len" not in record
+    assert record["frame_label"] == pkt.frame_type
+    assert "frame_type" not in record
+    assert "warnings" in record
     assert record["mission"] == {"id": "maveric", "facts": {"header": {"cmd_id": "probe"}}}
     assert "_rendering" not in record
     assert "telemetry" not in record
@@ -127,10 +130,17 @@ def test_tx_command_envelope_shape():
             record = tx_command_record(
                 1,
                 cmd_id="com_ping",
+                # Canonical post-codec shape: header has no cmd_id duplicate;
+                # protocol uses inner_len (not wire_len) for the inner-CSP length.
                 mission_facts={
-                    "header": {"dest": "EPS", "src": "GS", "echo": "NONE", "ptype": "CMD"}
+                    "header": {"dest": "EPS", "src": "GS", "echo": "NONE", "ptype": "CMD", "args": ""},
+                    "protocol": {"args_hex": "", "args_len": 0, "inner_len": 3},
                 },
-                parameters=[],
+                # One real parameter row with ts_ms=0 — proves the platform
+                # logger strips it.
+                parameters=[
+                    {"name": "module", "value": 0, "unit": "", "display_only": False, "ts_ms": 0},
+                ],
                 raw_cmd=raw_cmd,
                 wire=wire,
                 session_id=log.session_id,
@@ -138,7 +148,8 @@ def test_tx_command_envelope_shape():
                 version="5.7.0",
                 mission_id="maveric", operator="irfan", station="GS-0",
                 frame_label="ASM+Golay",
-                log_fields={"csp": {"prio": 2, "dest": 8}},
+                # Framer log_fields now arrive pre-nested.
+                log_fields={"facts": {"protocol": {"csp_header": {"prio": 2, "dest": 8}}}},
             )
             log.write_mission_command(record, raw_cmd=raw_cmd, wire=wire, log_text=[])
         finally:
@@ -155,18 +166,25 @@ def test_tx_command_envelope_shape():
     assert "dest" not in rec
     assert "ptype" not in rec
     assert rec["frame_label"] == "ASM+Golay"
-    # Retired `uplink_mode` alias must not surface — neither at top level nor
-    # under the nested mission block.
     assert "uplink_mode" not in rec
     assert "uplink_mode" not in rec["mission"]
     assert rec["inner_hex"] == "010203"
     assert rec["inner_len"] == 3
     assert rec["wire_hex"] == "0102030405"
     assert rec["wire_len"] == 5
-    # Mission-owned everything under one key
+    assert rec["warnings"] == []
+    # Mission-owned: cmd_id canonical at mission.cmd_id; not duplicated.
     assert rec["mission"]["cmd_id"] == "com_ping"
+    assert "cmd_id" not in rec["mission"]["facts"]["header"]
     assert rec["mission"]["facts"]["header"]["dest"] == "EPS"
-    assert rec["mission"]["csp"]["dest"] == 8
+    assert rec["mission"]["facts"]["protocol"]["inner_len"] == 3
+    assert "wire_len" not in rec["mission"]["facts"]["protocol"]
+    assert rec["mission"]["facts"]["protocol"]["csp_header"]["dest"] == 8
+    assert "csp" not in rec["mission"]
+    assert len(rec["mission"]["parameters"]) == 1
+    p = rec["mission"]["parameters"][0]
+    assert p["name"] == "module"
+    assert "ts_ms" not in p
 
 
 def test_session_id_matches_file_stem():

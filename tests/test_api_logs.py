@@ -25,8 +25,8 @@ def _build_fixture(log_dir: Path) -> str:
         "ts_iso": "2026-04-23T14:00:03.500+00:00",
         "seq": 1, "v": "5.7.0", "mission_id": "maveric",
         "operator": "irfan", "station": "GS-0",
-        "frame_type": "ASM+GOLAY", "transport_meta": "",
-        "raw_hex": "deadbeef", "size": 4,
+        "frame_label": "ASM+GOLAY", "transport_meta": "",
+        "inner_hex": "deadbeef", "inner_len": 4,
         "duplicate": False, "uplink_echo": False, "unknown": False,
         "warnings": [],
         "mission": {"id": "maveric", "facts": {"header": {"cmd_id": "eps_hk"}}},
@@ -50,7 +50,23 @@ def _build_fixture(log_dir: Path) -> str:
         "frame_label": "ASM+Golay",
         "inner_hex": "dead", "inner_len": 2,
         "wire_hex": "deadbeef", "wire_len": 4,
-        "mission": {"id": "maveric", "cmd_id": "com_ping", "facts": {"header": {"cmd_id": "com_ping"}}},
+        "warnings": [],
+        "mission": {
+            "id": "maveric",
+            "cmd_id": "com_ping",
+            "facts": {
+                "header": {"dest": "EPS", "src": "GS", "echo": "NONE", "ptype": "CMD"},
+                "protocol": {
+                    "args_hex": "",
+                    "args_len": 0,
+                    "inner_len": 2,
+                    "csp_header": {"prio": 2, "src": 0, "dest": 8,
+                                   "dport": 24, "sport": 0, "flags": 0,
+                                   "csp_crc": True},
+                },
+            },
+            "parameters": [],
+        },
     }
     trk = {
         "event_id": "e3", "event_kind": "tracking",
