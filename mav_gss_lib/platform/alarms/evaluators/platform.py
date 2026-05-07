@@ -14,8 +14,8 @@ from mav_gss_lib.platform.alarms.contract import AlarmSource, Severity
 from mav_gss_lib.platform.alarms.registry import Verdict
 
 
-SILENCE_WARNING_S = 200
-SILENCE_CRITICAL_S = 600
+SILENCE_WARNING_S = 1800
+SILENCE_CRITICAL_S = 3600
 CRC_WINDOW_MS = 60_000
 CRC_WARNING_THRESHOLD = 3
 CRC_CRITICAL_THRESHOLD = 10
