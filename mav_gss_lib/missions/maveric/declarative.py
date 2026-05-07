@@ -162,6 +162,17 @@ class _MaverCommandOpsWrapper:
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)
 
+    def correlation_key(self, encoded):
+        facts = encoded.mission_facts if isinstance(encoded.mission_facts, dict) else {}
+        header = facts.get("header") or {}
+        dest_raw = header.get("dest", "")
+        # Normalize through the same routine the schema producer uses so
+        # numeric and symbolic dest declarations collapse to one key shape.
+        # Returns "" for None/missing — matches the empty-string sentinel
+        # used elsewhere when routing isn't declared.
+        dest_name = self._resolve_node_value(dest_raw) if dest_raw not in (None, "") else ""
+        return (encoded.cmd_id, dest_name)
+
     # -- CLI grammar -----------------------------------------------------
 
     def _parse_cli(self, line: str) -> CommandDraft:

@@ -225,5 +225,37 @@ class Sweeper(unittest.TestCase):
         self.assertEqual(inst.stage, "timed_out")
 
 
+class IsSettled(unittest.TestCase):
+    def test_active_instance_is_not_settled(self):
+        from mav_gss_lib.platform.tx.verifiers import is_settled
+        inst = _instance()
+        self.assertFalse(is_settled(inst))
+
+    def test_terminal_with_pending_outcome_is_not_settled(self):
+        from mav_gss_lib.platform.tx.verifiers import is_settled
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        reg.apply("i1", "res_from_lppm",
+                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
+        self.assertEqual(inst.stage, "complete")
+        # NACK + LPPM ack still pending → not settled.
+        self.assertFalse(is_settled(inst))
+
+    def test_terminal_with_all_outcomes_decided_is_settled(self):
+        from mav_gss_lib.platform.tx.verifiers import is_settled
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        reg.apply("i1", "res_from_lppm",
+                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
+        reg.apply("i1", "uppm_ack",
+                  VerifierOutcome.passed(matched_at_ms=500, match_event_id="e1"))
+        reg.apply("i1", "lppm_ack", VerifierOutcome.window_expired())
+        reg.apply("i1", "nack_uppm", VerifierOutcome.window_expired())
+        reg.apply("i1", "nack_lppm", VerifierOutcome.window_expired())
+        self.assertTrue(is_settled(inst))
+
+
 if __name__ == "__main__":
     unittest.main()

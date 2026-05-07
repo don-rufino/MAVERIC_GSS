@@ -41,6 +41,27 @@ def _open_instance_for(cmd_id="mtq_set_1", dest="LPPM"):
     )
 
 
+def _full_lppm_instance(cmd_id="mtq_set_1", dest="LPPM"):
+    """Mirror tests/test_platform_verifier_registry._instance — full set:
+    uppm_ack + lppm_ack + res_from_lppm + nack_uppm + nack_lppm.
+    Required so res_from_lppm has a verifier to apply against."""
+    vs = VerifierSet(verifiers=(
+        VerifierSpec("uppm_ack",      "received", CheckWindow(0, 10000), "UPPM", "info"),
+        VerifierSpec("lppm_ack",      "received", CheckWindow(0, 15000), "LPPM", "info"),
+        VerifierSpec("res_from_lppm", "complete", CheckWindow(0, 30000), "RES",  "success"),
+        VerifierSpec("nack_uppm",     "failed",   CheckWindow(0, 30000), "NACK", "danger"),
+        VerifierSpec("nack_lppm",     "failed",   CheckWindow(0, 30000), "NACK", "danger"),
+    ))
+    return CommandInstance(
+        instance_id="i_full",
+        correlation_key=(cmd_id, dest),
+        t0_ms=0, cmd_event_id="c_full",
+        verifier_set=vs,
+        outcomes={v.verifier_id: VerifierOutcome.pending() for v in vs.verifiers},
+        stage="released",
+    )
+
+
 def _item(cmd_id="mtq_set_1", args="", dest="LPPM"):
     """Queue-item shape: payload is mission-owned; key is precomputed by CommandOps."""
     return {"type": "mission_cmd",
@@ -83,13 +104,34 @@ class AdmitResults(unittest.TestCase):
         result, info = tx.admit(_item(cmd_id="mtq_set_1", args="2", dest="LPPM"))
         self.assertEqual(result, AdmitResult.REJECTED_WINDOW_OPEN)
 
-    def test_released_after_instance_reaches_terminal(self):
-        """Admission reopens when the prior instance transitions to Complete."""
+    def test_blocked_after_complete_until_settled(self):
+        """Admission stays REJECTED while NACK / TLM windows are still open,
+        even though the instance has reached a terminal stage. Late-NACK
+        semantics require the slot to remain claimed until is_settled."""
         reg = VerifierRegistry()
-        inst = _open_instance_for()
+        inst = _full_lppm_instance()
         reg.register(inst)
-        # Simulate a RES arriving — set stage to complete.
-        inst.stage = "complete"
+        # Simulate RES arriving — stage transitions to complete, but pending
+        # verifiers (NACK windows) keep is_settled False.
+        reg.apply(inst.instance_id, "res_from_lppm",
+                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e1"))
+        self.assertEqual(inst.stage, "complete")
+        tx = _runtime_with(reg, active=False)
+        result, _ = tx.admit(_item())
+        self.assertEqual(result, AdmitResult.REJECTED_WINDOW_OPEN)
+
+    def test_released_once_all_outcomes_settled(self):
+        """Once every window closes (sweeper marks pending verifiers as
+        window_expired), is_settled flips True and the slot frees."""
+        reg = VerifierRegistry()
+        inst = _full_lppm_instance()
+        reg.register(inst)
+        reg.apply(inst.instance_id, "res_from_lppm",
+                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e1"))
+        # Simulate sweeper expiring the rest.
+        for spec in inst.verifier_set.verifiers:
+            if inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending()).state == "pending":
+                reg.apply(inst.instance_id, spec.verifier_id, VerifierOutcome.window_expired())
         tx = _runtime_with(reg, active=False)
         result, _ = tx.admit(_item())
         self.assertEqual(result, AdmitResult.ACCEPTED)

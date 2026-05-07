@@ -142,6 +142,23 @@ def _derive_stage(inst: CommandInstance) -> InstanceStage:
 _TERMINAL: tuple[InstanceStage, ...] = ("complete", "failed", "timed_out")
 
 
+def is_settled(inst: CommandInstance) -> bool:
+    """Canonical 'this instance is done' predicate.
+
+    True iff the instance has reached a terminal stage AND every declared
+    verifier outcome has been decided (no pending). Late-NACK semantics
+    require waiting for every window to close before considering an
+    instance done — this is the single check every subsystem uses.
+    """
+    if inst.stage not in _TERMINAL:
+        return False
+    for spec in inst.verifier_set.verifiers:
+        outcome = inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending())
+        if outcome.state == "pending":
+            return False
+    return True
+
+
 class VerifierRegistry:
     """In-memory registry of open command instances.
 
@@ -191,7 +208,7 @@ class VerifierRegistry:
     def lookup_open(self, correlation_key: tuple) -> CommandInstance | None:
         with self._lock:
             for inst in self._by_id.values():
-                if inst.correlation_key == correlation_key and inst.stage not in _TERMINAL:
+                if inst.correlation_key == correlation_key and not is_settled(inst):
                     return inst
             return None
 
@@ -317,9 +334,11 @@ def parse_instance(obj: dict) -> CommandInstance:
 
 
 def write_instances(path, instances: list[CommandInstance]) -> None:
-    """Atomic rewrite. Terminals are excluded (live in the log, not the registry)."""
+    """Atomic rewrite. Settled instances are excluded (live in the log,
+    not the registry). Terminal-but-unsettled instances (open NACK / TLM
+    windows) MUST persist so a post-restart late NACK can override."""
     import os as _os
-    lines = [serialize_instance(i) for i in instances if i.stage not in _TERMINAL]
+    lines = [serialize_instance(i) for i in instances if not is_settled(i)]
     tmp = str(path) + ".tmp"
     with open(tmp, "w") as f:
         f.write("\n".join(lines) + ("\n" if lines else ""))
@@ -329,9 +348,9 @@ def write_instances(path, instances: list[CommandInstance]) -> None:
 def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
     """Load open instances. For each, mark window_expired for any verifier
     whose check_window.stop_ms has passed since t0, then re-derive stage.
-    Drop any instance that is terminal — either because the on-disk stage
-    already was (crash mid-write), or because enough wall-clock time passed
-    across the restart that every window has now closed (timed_out)."""
+    Drop any instance that is fully settled (terminal AND every outcome
+    decided) — terminal-but-unsettled instances must be restored so a
+    post-restart late NACK can still override."""
     from pathlib import Path as _Path
     p = _Path(path)
     if not p.exists():
@@ -345,8 +364,10 @@ def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
             inst = parse_instance(json.loads(line))
         except Exception:
             continue
-        if inst.stage in _TERMINAL:
-            continue
+        # Do NOT skip terminal-on-disk instances — they may be terminal-
+        # but-unsettled (open NACK window). Re-evaluate every verifier
+        # window against the current wall clock; let _derive_stage update
+        # the stage from the resulting outcome map.
         for spec in inst.verifier_set.verifiers:
             current = inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending())
             if current.state != "pending":
@@ -354,7 +375,8 @@ def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
             if now_ms - inst.t0_ms >= spec.check_window.stop_ms:
                 inst.outcomes[spec.verifier_id] = VerifierOutcome.window_expired()
         inst.stage = _derive_stage(inst)
-        if inst.stage in _TERMINAL:
+        # Single drop predicate: settled across the restart boundary.
+        if is_settled(inst):
             continue
         restored.append(inst)
     return restored

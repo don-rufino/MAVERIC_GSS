@@ -216,7 +216,22 @@ def match_verifiers(envelope, open_instances, *, now_ms: int, rx_event_id: str =
     if not (isinstance(cmd_id, str) and isinstance(src_name, str) and isinstance(ptype_name, str)):
         return []
     src_lower = src_name.lower()
-    candidates = [i for i in open_instances if i.correlation_key and i.correlation_key[0] == cmd_id]
+    # ACK / RES / FILE / NACK responses must come back from the original
+    # command's destination, so we filter by the full (cmd_id, dest) key
+    # to keep a same-cmd_id different-dest sibling from stealing the
+    # transition. TLM is cmd_id-keyed (`tlm_<cmd_id>`) and may originate
+    # from any source, so it filters by cmd_id only.
+    cmd_id_match = [
+        i for i in open_instances
+        if i.correlation_key and i.correlation_key[0] == cmd_id
+    ]
+    if ptype_name == "TLM":
+        candidates = cmd_id_match
+    else:
+        candidates = [
+            i for i in cmd_id_match
+            if len(i.correlation_key) >= 2 and i.correlation_key[1] == src_name
+        ]
     candidates.sort(key=lambda i: i.t0_ms, reverse=True)
     if not candidates:
         return []

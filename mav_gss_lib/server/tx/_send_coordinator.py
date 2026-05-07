@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, NamedTuple
 
 from mav_gss_lib.platform import EncodedCommand, FramedCommand
+from mav_gss_lib.platform.tx.verifiers import is_settled
 from mav_gss_lib.transport import send_pdu
 
 from .queue import QueueItem
@@ -62,30 +63,30 @@ class _SendCoordinator:
 
     async def _wait_for_pending_verifications_clear(
         self, *, poll_ms: int = 250, max_wait_ms: int = 35_000,
+        # max_wait_ms ≥ max(every verifier window) + 5_000
     ) -> bool:
-        """Block until no non-terminal verifier instance is open, or abort.
+        """Block until every verifier instance is settled, or abort.
 
         Honors the mission correlation invariant via the simpler global rule
         operators expect: at most one verification window is open at a time.
-        The next mission_cmd waits until the prior instance reaches a terminal
-        stage (complete / failed / timed_out) before publishing.
+        The next mission_cmd waits until every prior instance is settled
+        (terminal stage AND every verifier outcome decided) before publishing.
 
         Cross-target batches serialize too — accepted tradeoff for predictable
         per-row UI: each row's rail/dots tell a clean story without overlap.
 
         Hard cap of `max_wait_ms` prevents the queue from stalling forever if
-        the periodic sweeper somehow fails to advance an instance to terminal;
+        the periodic sweeper somehow fails to advance an instance to settled;
         proceed with the next send rather than freeze.
 
         Returns True if aborted.
         """
-        from mav_gss_lib.platform.tx.verifiers import _TERMINAL
         svc = self.service
         if svc.abort.is_set():
             return True
         registry = svc.runtime.platform.verifiers
         deadline = time.time() + max_wait_ms / 1000.0
-        while any(inst.stage not in _TERMINAL for inst in registry.open_instances()):
+        while any(not is_settled(inst) for inst in registry.open_instances()):
             if time.time() >= deadline:
                 logging.warning(
                     "verifier wait timed out after %dms — proceeding with next send",
@@ -252,8 +253,7 @@ class _SendCoordinator:
         # unit-test runtimes (which skip lifespan) don't, and so bypass the
         # wait entirely.
         if getattr(svc.runtime, "verifier_sweep_task", None) is not None:
-            from mav_gss_lib.platform.tx.verifiers import _TERMINAL
-            if any(inst.stage not in _TERMINAL
+            if any(not is_settled(inst)
                    for inst in svc.runtime.platform.verifiers.open_instances()):
                 svc.sending["waiting"] = True
                 await svc.send_queue_update()
@@ -453,8 +453,7 @@ class _SendCoordinator:
             # tests (which skip lifespan) don't hang.
             if (not svc.abort.is_set()
                     and getattr(svc.runtime, "verifier_sweep_task", None) is not None):
-                from mav_gss_lib.platform.tx.verifiers import _TERMINAL
-                if any(inst.stage not in _TERMINAL
+                if any(not is_settled(inst)
                        for inst in svc.runtime.platform.verifiers.open_instances()):
                     svc.sending["waiting"] = True
                     await svc.send_queue_update()

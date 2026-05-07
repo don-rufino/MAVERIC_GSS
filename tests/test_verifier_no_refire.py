@@ -50,5 +50,60 @@ class TestNoRefire(unittest.TestCase):
         self.assertEqual(second, [])
 
 
+class TestCorrelationKeyNormalization(unittest.TestCase):
+    def test_numeric_and_symbolic_dest_produce_same_key(self):
+        from mav_gss_lib.missions.maveric.declarative import _MaverCommandOpsWrapper
+        # Construct a wrapper with just enough plumbing to call
+        # correlation_key. _resolve_node_value walks self._codec, so
+        # we mock it: integer 1 → "LPPM", everything else passthrough.
+        class _StubCodec:
+            def node_name_for(self, n):
+                return {1: "LPPM", 0: "GS"}.get(n, str(n))
+        w = _MaverCommandOpsWrapper.__new__(_MaverCommandOpsWrapper)
+        w._codec = _StubCodec()
+        from mav_gss_lib.platform.contract import EncodedCommand
+
+        sym = EncodedCommand(raw=b"", cmd_id="mtq_set_1", src="GS", guard=False,
+                             mission_facts={"header": {"dest": "LPPM"}}, parameters=())
+        num = EncodedCommand(raw=b"", cmd_id="mtq_set_1", src="GS", guard=False,
+                             mission_facts={"header": {"dest": 1}}, parameters=())
+        self.assertEqual(w.correlation_key(sym), w.correlation_key(num))
+        self.assertEqual(w.correlation_key(sym), ("mtq_set_1", "LPPM"))
+
+
+class TestNoCrossInstanceMisattribution(unittest.TestCase):
+    def test_late_response_only_matches_same_dest_instance(self):
+        spec = VerifierSpec(
+            "lppm_ack", "received", CheckWindow(0, 10_000),
+            "LPPM", "info",
+        )
+        inst_lppm = CommandInstance(
+            instance_id="i_lppm", correlation_key=("com_ping", "LPPM"),
+            t0_ms=0, cmd_event_id="cmd1",
+            verifier_set=VerifierSet(verifiers=(spec,)),
+            outcomes={"lppm_ack": VerifierOutcome.pending()},
+            stage="released",
+        )
+        inst_uppm = CommandInstance(
+            instance_id="i_uppm", correlation_key=("com_ping", "UPPM"),
+            t0_ms=1000, cmd_event_id="cmd2",  # newer
+            verifier_set=VerifierSet(verifiers=(VerifierSpec(
+                "uppm_ack", "received", CheckWindow(0, 10_000), "UPPM", "info",
+            ),)),
+            outcomes={"uppm_ack": VerifierOutcome.pending()},
+            stage="released",
+        )
+        # ACK from LPPM — must attach to inst_lppm even though inst_uppm
+        # is newer with the same cmd_id.
+        result = match_verifiers(
+            _envelope("com_ping", "LPPM", "ACK"),
+            [inst_lppm, inst_uppm],
+            now_ms=2000, rx_event_id="rx1",
+        )
+        self.assertEqual(len(result), 1)
+        instance_id, _, _ = result[0]
+        self.assertEqual(instance_id, "i_lppm")
+
+
 if __name__ == "__main__":
     unittest.main()
