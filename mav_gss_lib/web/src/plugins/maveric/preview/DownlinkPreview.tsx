@@ -297,7 +297,7 @@ function liveLeaf(l: FileLeaf): LeafData {
   return {
     received: l.received,
     total: l.total ?? 0,
-    chunkSize: l.chunk_size ?? 150,
+    chunkSize: l.chunk_size ?? 125,
   };
 }
 
@@ -327,7 +327,7 @@ function adaptFlatFile(f: FileLeaf, nowMs: number): FlatFile | null {
     filename: f.filename,
     received: f.received,
     total: f.total ?? 0,
-    chunkSize: f.chunk_size ?? 150,
+    chunkSize: f.chunk_size ?? 125,
     ageS: ageFrom(f.last_activity_ms, nowMs),
   };
 }
@@ -609,13 +609,13 @@ export default function DownlinkPreview() {
     return () => clearTimeout(t);
   }, [uiHydrated, txKindOverride, cntChunkSizes, activeLeaf, liveFiles]);
   // Chunk size — passed as `chunk_size` arg on cnt/get commands.
-  // Default 150B per AX100 Mode 5 / CSP v1 framing. Operator can edit
+  // Default 125B per AX100 Mode 5 / CSP v1 framing. Operator can edit
   // freely until the first chunk lands; once `received > 0` for the
   // resolved file's active leaf, the input locks to that file's
   // confirmed size (mixing would corrupt the local re-assembly and
   // the spacecraft's slicing). Lock releases when the filename no
   // longer matches a known file (typed-elsewhere or local-deleted).
-  const [chunkSize, setChunkSize] = useState<string>('150');
+  const [chunkSize, setChunkSize] = useState<string>('125');
 
   // Click-to-restage: chunk-timeline missing-range chip → range form.
   // Stores a (start, count, key) — `key` re-mounts the inputs so a
