@@ -138,5 +138,61 @@ class TestTlmAcrossSources(unittest.TestCase):
         self.assertEqual(verifier_id, "tlm_eps_hk")
 
 
+class TestGatewayAck(unittest.TestCase):
+    """Pin: the matcher must accept a gateway-source ACK (src=UPPM) for a
+    command whose final dest is downstream of the gateway (LPPM / EPS /
+    HLNV / ASTR). The instance's verifier_set declares both the gateway
+    ack (``uppm_ack``) and the dest ack (``lppm_ack`` etc.) — both must
+    be matchable. A previous implementation pre-filtered candidates by
+    ``correlation_key[1] == src`` ("responses come back from the dest")
+    and silently dropped every gateway ACK in a real flight session
+    (Session May 26 2026: 7 commands sent, 7 UPPM ACKs received, 0
+    uppm_ack matches before the fix)."""
+
+    def _lppm_instance(self) -> CommandInstance:
+        return CommandInstance(
+            instance_id="i_lppm",
+            correlation_key=("com_ping", "LPPM"),
+            t0_ms=0,
+            cmd_event_id="cmd1",
+            verifier_set=VerifierSet(verifiers=(
+                VerifierSpec("uppm_ack", "received", CheckWindow(0, 5_000),
+                             "UPPM", "info"),
+                VerifierSpec("lppm_ack", "received", CheckWindow(0, 5_000),
+                             "LPPM", "info"),
+            )),
+            outcomes={
+                "uppm_ack": VerifierOutcome.pending(),
+                "lppm_ack": VerifierOutcome.pending(),
+            },
+            stage="released",
+        )
+
+    def test_uppm_gateway_ack_matches_lppm_bound_instance(self):
+        inst = self._lppm_instance()
+        result = match_verifiers(
+            _envelope("com_ping", "UPPM", "ACK"),
+            [inst], now_ms=500, rx_event_id="rx_uppm",
+        )
+        self.assertEqual(len(result), 1)
+        instance_id, verifier_id, _ = result[0]
+        self.assertEqual(instance_id, "i_lppm")
+        self.assertEqual(verifier_id, "uppm_ack")
+
+    def test_dest_ack_still_matches_after_uppm_ack(self):
+        inst = self._lppm_instance()
+        inst.outcomes["uppm_ack"] = VerifierOutcome.passed(
+            matched_at_ms=500, match_event_id="rx_uppm",
+        )
+        result = match_verifiers(
+            _envelope("com_ping", "LPPM", "ACK"),
+            [inst], now_ms=1000, rx_event_id="rx_lppm",
+        )
+        self.assertEqual(len(result), 1)
+        instance_id, verifier_id, _ = result[0]
+        self.assertEqual(instance_id, "i_lppm")
+        self.assertEqual(verifier_id, "lppm_ack")
+
+
 if __name__ == "__main__":
     unittest.main()
