@@ -86,7 +86,11 @@ def _params_as_json(params: tuple) -> list[dict[str, Any]]:
 
 
 def _mission_block(mission_id: str, encoded: EncodedCommand) -> dict[str, Any]:
-    return {"id": mission_id, "facts": dict(encoded.mission_facts or {})}
+    return {
+        "id": mission_id,
+        "cmd_id": encoded.cmd_id,
+        "facts": dict(encoded.mission_facts or {}),
+    }
 
 
 def _correlation_key_json(key: tuple[Any, ...]) -> list[Any]:

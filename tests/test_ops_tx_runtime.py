@@ -92,6 +92,17 @@ class TestTxRuntime(unittest.TestCase):
         self.assertEqual(item["cmd_id"], "tlm_beacon")
         self.assertEqual(item["mission"]["facts"]["header"]["dest"], "UPPM")
 
+    def test_mission_block_carries_canonical_cmd_id(self):
+        """Contract pin (symmetric with RX, see test_platform_maveric_spec.py):
+        the TX queue item's ``mission`` dict carries cmd_id at the envelope
+        level (``mission.cmd_id``) and NOT under ``mission.facts.header.cmd_id``.
+        The frontend ``kind: cmd_id`` column resolver reads only the envelope
+        field; dropping it here surfaces as ``--`` in the TX cmd column.
+        """
+        item = self._make_item("com_ping")
+        self.assertEqual(item["mission"]["cmd_id"], "com_ping")
+        self.assertNotIn("cmd_id", item["mission"]["facts"]["header"])
+
     def test_fixed_dest_command_rejects_dest_override(self):
         with self.assertRaisesRegex(HeaderFieldNotOverridable, "does not allow operator override"):
             validate_mission_cmd(_make_payload("tlm_beacon"), runtime=self.runtime)
