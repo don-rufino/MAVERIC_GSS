@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, NamedTuple
 
 from mav_gss_lib.platform import EncodedCommand, FramedCommand
-from mav_gss_lib.platform.tx.verifiers import is_settled
+from mav_gss_lib.platform.tx.verifiers import is_settled, is_terminal
 from mav_gss_lib.transport import send_pdu
 
 from .queue import QueueItem
@@ -60,6 +60,39 @@ class _SendCoordinator:
             return True
         except asyncio.TimeoutError:
             return False
+
+    async def _wait_for_terminal_stage(
+        self, *, poll_ms: int = 250, max_wait_ms: int = 35_000,
+    ) -> bool:
+        """Block until every open instance has reached terminal stage, or abort.
+
+        Weaker gate than ``_wait_for_pending_verifications_clear``: terminal
+        stage means the command has succeeded / failed / timed out, but
+        declared late-NACK / NACK-window outcomes may still be pending. Used
+        by the post-last-item UI dwell so the SENDING / Abort banner clears
+        as soon as the operator knows the outcome, rather than waiting on
+        NACK-window expiry that adds no information to a succeeded command.
+
+        Returns True if aborted.
+        """
+        svc = self.service
+        if svc.abort.is_set():
+            return True
+        registry = svc.runtime.platform.verifiers
+        deadline = time.time() + max_wait_ms / 1000.0
+        while any(not is_terminal(inst) for inst in registry.open_instances()):
+            if time.time() >= deadline:
+                logging.warning(
+                    "terminal-stage wait timed out after %dms — proceeding with cleanup",
+                    max_wait_ms,
+                )
+                return False
+            try:
+                await asyncio.wait_for(svc.abort.wait(), timeout=poll_ms / 1000.0)
+                return True
+            except asyncio.TimeoutError:
+                continue
+        return False
 
     async def _wait_for_pending_verifications_clear(
         self, *, poll_ms: int = 250, max_wait_ms: int = 35_000,
@@ -445,19 +478,23 @@ class _SendCoordinator:
                 if result.aborted:
                     break
 
-            # Last-item verification trail: hold `sending` true until the final
-            # command's verifier instance reaches terminal. Without this the
-            # TxBuilder collapse-to-progress block re-expands the moment the
-            # ZMQ publish completes (~100ms), well before the ~30s verification
-            # finishes. Gated on the periodic sweeper actually running so unit
-            # tests (which skip lifespan) don't hang.
+            # Last-item UI dwell: hold `sending` true until the final
+            # command's verifier instance reaches terminal stage (complete
+            # / failed / timed_out). The admission gate above gates the
+            # NEXT send on `is_settled` (NACK window must close); here we
+            # only hold the UI banner long enough for the operator to see
+            # the outcome — clearing on `is_settled` would add ~10s of
+            # stale UI to every successful command while unfired NACK
+            # windows tick down to window_expired. Gated on the periodic
+            # sweeper actually running so unit tests (which skip lifespan)
+            # don't hang.
             if (not svc.abort.is_set()
                     and getattr(svc.runtime, "verifier_sweep_task", None) is not None):
-                if any(not is_settled(inst)
+                if any(not is_terminal(inst)
                        for inst in svc.runtime.platform.verifiers.open_instances()):
                     svc.sending["waiting"] = True
                     await svc.send_queue_update()
-                    await self._wait_for_pending_verifications_clear()
+                    await self._wait_for_terminal_stage()
                     svc.sending["waiting"] = False
         finally:
             await self._finalize_send(ctx.sent)

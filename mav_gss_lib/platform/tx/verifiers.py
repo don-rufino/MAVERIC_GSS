@@ -159,6 +159,17 @@ def is_settled(inst: CommandInstance) -> bool:
     return True
 
 
+def is_terminal(inst: CommandInstance) -> bool:
+    """True iff the instance has reached a terminal stage.
+
+    Weaker than ``is_settled`` — does not require late-NACK / NACK-window
+    outcomes to be decided. Used for UI dwell gating where the operator
+    only needs to know the command has succeeded / failed / timed out,
+    not whether every declared verifier window has finally closed.
+    """
+    return inst.stage in _TERMINAL
+
+
 class VerifierRegistry:
     """In-memory registry of open command instances.
 

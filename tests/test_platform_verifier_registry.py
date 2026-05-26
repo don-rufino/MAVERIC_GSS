@@ -248,6 +248,40 @@ class IsSettled(unittest.TestCase):
         self.assertTrue(is_settled(inst))
 
 
+class IsTerminal(unittest.TestCase):
+    """Weaker companion to is_settled — true on any terminal stage,
+    regardless of remaining pending outcomes. Gates the post-last-item
+    UI dwell so the SENDING banner clears when the operator knows the
+    outcome rather than waiting on unfired NACK windows."""
+
+    def test_released_instance_is_not_terminal(self):
+        from mav_gss_lib.platform.tx.verifiers import is_terminal
+        inst = _instance()
+        self.assertFalse(is_terminal(inst))
+
+    def test_complete_with_pending_outcomes_is_terminal(self):
+        """Key divergence from is_settled: a successful command with
+        unfired NACK / dest-ack verifiers still pending IS terminal."""
+        from mav_gss_lib.platform.tx.verifiers import is_settled, is_terminal
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        reg.apply("i1", "res_from_lppm",
+                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
+        self.assertEqual(inst.stage, "complete")
+        self.assertTrue(is_terminal(inst))
+        self.assertFalse(is_settled(inst))  # NACK + lppm_ack still pending
+
+    def test_timed_out_instance_is_terminal(self):
+        from mav_gss_lib.platform.tx.verifiers import is_terminal
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        reg.sweep(now_ms=inst.t0_ms + 35000)  # past every stop_ms
+        self.assertEqual(inst.stage, "timed_out")
+        self.assertTrue(is_terminal(inst))
+
+
 class FinalizeSettled(unittest.TestCase):
     def test_terminal_with_pending_verifier_does_not_finalize(self):
         """Late-NACK semantics: stage=complete but NACK still pending must
