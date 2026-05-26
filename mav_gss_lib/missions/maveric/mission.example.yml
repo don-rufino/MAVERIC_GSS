@@ -109,7 +109,6 @@ ui:
     - id: cmd
       label: cmd
       width: 140
-      truncate: true
       kind: cmd_id
     - id: args
       label: args

@@ -54,14 +54,21 @@ export function composeRxColumns(missionColumns: ColumnDef[]): ColumnDef[] {
 // Width is applied as an inline style (not a Tailwind class) so any
 // pixel value works without needing a build-time class allowlist. The
 // className carries only the shrink / flex / truncate behavior.
+//
+// `truncate: true` means "this column can shrink below `width` to make
+// room for other content, capped at `width` and clipping overflow with
+// ellipsis." Without truncate, `width` is a hard fixed dimension. Use
+// truncate for the variable-content column (args) so the right-anchored
+// verify column stays visible when the row would otherwise overflow.
 export function columnWidthClass(c: ColumnDef): string {
   if (c.flex) return 'flex-1 shrink-0'
-  if (c.truncate) return 'shrink-0 truncate'
+  if (c.truncate) return 'min-w-0 truncate'
   return 'shrink-0'
 }
 
 export function columnWidthStyle(c: ColumnDef): CSSProperties | undefined {
   if (c.flex || c.width == null) return undefined
+  if (c.truncate) return { maxWidth: `${c.width}px` }
   return { width: `${c.width}px` }
 }
 
