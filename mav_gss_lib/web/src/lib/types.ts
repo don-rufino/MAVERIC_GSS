@@ -48,7 +48,10 @@ export interface ParamUpdate {
 export interface ColumnDef {
   id: string
   label: string
-  width?: string
+  /** Fixed column width in CSS pixels. Applied as inline style by
+   *  `columnWidthStyle` — CSS-framework-agnostic, no build-time class
+   *  allowlist required. Omit for content-width or `flex: true` columns. */
+  width?: number
   align?: 'left' | 'right'
   flex?: boolean
   toggle?: string

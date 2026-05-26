@@ -8,7 +8,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
-import { col, buildTxRow, columnWidthClass, columnAlignClass } from '@/lib/columns'
+import { col, buildTxRow, columnWidthClass, columnWidthStyle, columnAlignClass } from '@/lib/columns'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
@@ -121,7 +121,7 @@ export function QueueItem({
   const renderColumn = (c: ColumnDef) => {
     if (c.kind === 'verifiers') {
       return (
-        <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)}`}>
+        <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)}`} style={columnWidthStyle(c)}>
           <VerifierTickStrip instance={instance} now_ms={nowMs} />
         </span>
       )

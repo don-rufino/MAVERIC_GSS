@@ -24,7 +24,7 @@ import { DelayItem } from './DelayItem'
 import { NoteItem } from './NoteItem'
 import { CheckpointItem } from './CheckpointItem'
 import { colors } from '@/lib/colors'
-import { col, buildTxRow, columnWidthClass, columnAlignClass } from '@/lib/columns'
+import { col, buildTxRow, columnWidthClass, columnWidthStyle, columnAlignClass } from '@/lib/columns'
 import { useTx } from '@/state/txHooks'
 import type {
   TxQueueSummary, SendProgress, ColumnDef, TxHistoryItem, TxQueueCmd,
@@ -217,7 +217,7 @@ export function TxQueue({
           <span className={`${col.num} shrink-0 text-right tabular-nums`}>#</span>
           {visibleColumns.length > 0
             ? visibleColumns.map(c => (
-                <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)} whitespace-nowrap`}>{c.label}</span>
+                <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)} whitespace-nowrap`} style={columnWidthStyle(c)}>{c.label}</span>
               ))
             : <span className="flex-1">command</span>
           }

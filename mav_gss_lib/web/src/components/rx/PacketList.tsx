@@ -2,7 +2,7 @@ import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { PacketRow } from './PacketRow'
 import { colors } from '@/lib/colors'
-import { composeRxColumns, columnWidthClass, columnAlignClass } from '@/lib/columns'
+import { composeRxColumns, columnWidthClass, columnWidthStyle, columnAlignClass } from '@/lib/columns'
 import type { ColumnDef, ParamUpdate, RxPacket } from '@/lib/types'
 
 const FALLBACK_COLUMNS = composeRxColumns([])
@@ -138,6 +138,7 @@ export function PacketList({
               <span
                 key={c.id}
                 className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)} whitespace-nowrap`}
+                style={columnWidthStyle(c)}
               >
                 {c.label}
               </span>

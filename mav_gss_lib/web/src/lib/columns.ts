@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { ColumnDef, RenderCell, RxPacket, TxQueueCmd, TxHistoryItem } from '@/lib/types'
 import { frameColor } from '@/lib/colors'
 import { packetFlags, rxTime } from '@/lib/rxPacket'
@@ -18,18 +19,18 @@ export const col = {
 // column. Mission-authored columns from `mission.yml::ui.rx_columns` slot
 // in between PRE and POST in `composeRxColumns`.
 const PLATFORM_RX_SHELL_PRE: ReadonlyArray<readonly [ColumnDef, (p: RxPacket) => RenderCell]> = [
-  [{ id: 'num',   label: '#',     width: 'w-9',       align: 'right' },
+  [{ id: 'num',   label: '#',     width: 36, align: 'right' },
     (p) => ({ value: p.num, tabular: true })],
-  [{ id: 'time',  label: 'time',  width: 'w-[68px]' },
+  [{ id: 'time',  label: 'time',  width: 68 },
     (p) => ({ value: rxTime(p), monospace: true, tabular: true })],
-  [{ id: 'frame', label: 'frame', width: 'w-[72px]', toggle: 'showFrame' },
+  [{ id: 'frame', label: 'frame', width: 72, toggle: 'showFrame' },
     (p) => ({ value: p.frame || '--', monospace: true, tone: frameColor(p.frame || '') })],
 ]
 
 const PLATFORM_RX_SHELL_POST: ReadonlyArray<readonly [ColumnDef, (p: RxPacket) => RenderCell]> = [
-  [{ id: 'flags', label: '',     width: 'w-[72px]', align: 'right' },
+  [{ id: 'flags', label: '',     width: 72, align: 'right' },
     (p) => ({ value: packetFlags(p) })],
-  [{ id: 'size',  label: 'size', width: 'w-10',     align: 'right' },
+  [{ id: 'size',  label: 'size', width: 40, align: 'right' },
     (p) => ({ value: p.size, suffix: 'B', tabular: true })],
 ]
 
@@ -46,14 +47,22 @@ export function composeRxColumns(missionColumns: ColumnDef[]): ColumnDef[] {
   ]
 }
 
-// Single source of truth for how a column maps to width / align Tailwind
-// classes. Used by CellValue, QueueItem (verifier branch) and TxQueue
-// (header row) so header labels and cell content always share the same
-// box geometry.
+// Column geometry helpers — used by CellValue, QueueItem (verifier
+// branch), TxQueue (header row) and PacketList (header row) so header
+// labels and cell content always share the same box geometry.
+//
+// Width is applied as an inline style (not a Tailwind class) so any
+// pixel value works without needing a build-time class allowlist. The
+// className carries only the shrink / flex / truncate behavior.
 export function columnWidthClass(c: ColumnDef): string {
   if (c.flex) return 'flex-1 shrink-0'
-  if (c.truncate && c.width) return `max-${c.width} min-w-0 truncate`
-  return `${c.width ?? ''} shrink-0`
+  if (c.truncate) return 'shrink-0 truncate'
+  return 'shrink-0'
+}
+
+export function columnWidthStyle(c: ColumnDef): CSSProperties | undefined {
+  if (c.flex || c.width == null) return undefined
+  return { width: `${c.width}px` }
 }
 
 export function columnAlignClass(c: ColumnDef): string {

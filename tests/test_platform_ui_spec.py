@@ -18,7 +18,7 @@ class UiSpecParserTests(unittest.TestCase):
     def test_parses_rx_columns(self):
         spec = parse_ui_section({
             "rx_columns": [
-                {"id": "src", "label": "src", "width": "w-[52px]", "path": "header.src"},
+                {"id": "src", "label": "src", "width": 52, "path": "header.src"},
                 {"id": "echo", "label": "echo", "toggle": "showEcho", "path": "header.echo"},
                 {
                     "id": "ptype",
@@ -37,7 +37,7 @@ class UiSpecParserTests(unittest.TestCase):
         self.assertEqual(src.id, "src")
         self.assertEqual(src.label, "src")
         self.assertEqual(src.path, "header.src")
-        self.assertEqual(src.width, "w-[52px]")
+        self.assertEqual(src.width, 52)
         self.assertFalse(src.badge)
 
         echo = spec.rx_columns[1]
@@ -55,12 +55,12 @@ class UiSpecParserTests(unittest.TestCase):
     def test_to_json_strips_defaults(self):
         spec = parse_ui_section({
             "rx_columns": [
-                {"id": "src", "label": "src", "path": "header.src", "width": "w-[52px]"},
+                {"id": "src", "label": "src", "path": "header.src", "width": 52},
             ],
         })
         self.assertEqual(
             spec.rx_columns[0].to_json(),
-            {"id": "src", "label": "src", "path": "header.src", "width": "w-[52px]"},
+            {"id": "src", "label": "src", "path": "header.src", "width": 52},
         )
 
     def test_to_json_includes_icon_tokens(self):
@@ -144,18 +144,32 @@ class UiSpecParserTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_ui_section({"rx_columns": "not a list"})
 
+    def test_rejects_non_integer_width(self):
+        """Spec contract pin: width must be a positive integer (pixels).
+        Catches the prior Tailwind-class-string format ('w-[52px]') and
+        any other non-numeric value — these would otherwise silently
+        produce no-op className strings at render time."""
+        for bad in ("w-[52px]", "52", 0, -10, True, 52.5):
+            with self.subTest(value=bad):
+                with self.assertRaises(ValueError):
+                    parse_ui_section({
+                        "rx_columns": [
+                            {"id": "x", "label": "x", "path": "a", "width": bad},
+                        ],
+                    })
+
     def test_parses_truncate_flag(self):
         spec = parse_ui_section({
             "rx_columns": [
                 {"id": "args", "label": "args", "path": "header.args",
-                 "width": "w-[200px]", "truncate": True},
+                 "width": 200, "truncate": True},
             ],
         })
         self.assertTrue(spec.rx_columns[0].truncate)
         self.assertEqual(
             spec.rx_columns[0].to_json(),
             {"id": "args", "label": "args", "path": "header.args",
-             "width": "w-[200px]", "truncate": True},
+             "width": 200, "truncate": True},
         )
 
     def test_truncate_defaults_false(self):
@@ -180,11 +194,11 @@ class MissionDocumentUiTests(unittest.TestCase):
               rx_columns:
                 - id: src
                   label: src
-                  width: w-[52px]
+                  width: 52
                   path: header.src
                 - id: ptype
                   label: type
-                  width: w-[52px]
+                  width: 52
                   badge: true
                   path: header.ptype
                   value_icons:

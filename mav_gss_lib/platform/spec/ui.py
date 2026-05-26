@@ -4,13 +4,18 @@ A mission may declare its packet-list / TX queue columns as YAML:
 
     ui:
       rx_columns:
-        - { id: source, label: src,   width: w-[52px], path: header.source }
-        - { id: kind,   label: type,  width: w-[52px], path: header.kind, badge: true,
+        - { id: source, label: src,   width: 52, path: header.source }
+        - { id: kind,   label: type,  width: 52, path: header.kind, badge: true,
             value_icons: {CMD: command, TLM: telemetry}, default_icon: unknown }
       tx_columns:
-        - { id: target, label: tgt,   width: w-[52px], path: header.target }
-        - { id: cmd,    label: cmd,   flex: true,      kind: cmd_id }
-        - { id: verify, label: verify, width: w-[78px], align: right, kind: verifiers }
+        - { id: target, label: tgt,   width: 52, path: header.target }
+        - { id: cmd,    label: cmd,   flex: true,  kind: cmd_id }
+        - { id: verify, label: verify, width: 78, align: right, kind: verifiers }
+
+`width:` is the fixed column width in CSS pixels (positive integer).
+The platform applies it as an inline style at render time, so the value
+is CSS-framework-agnostic and works for any pixel value without needing
+a build-time class allowlist.
 
 `path:` is a dotted lookup against the row's mission-facts dict on the
 client. Platform shell columns (RX: num/time/frame/flags/size) are
@@ -54,7 +59,7 @@ class UiColumn:
     label: str
     path: str = ""
     kind: str = "value"
-    width: str | None = None
+    width: int | None = None
     align: str | None = None
     flex: bool = False
     toggle: str | None = None
@@ -147,8 +152,12 @@ def _parse_column(entry: Any, seen_ids: set[str], path_label: str) -> UiColumn:
     if kind == "value" and not path:
         raise ValueError(f"{path_label}[{col_id}].path is required when kind='value'")
     width = entry.get("width")
-    if width is not None and not isinstance(width, str):
-        raise ValueError(f"{path_label}[{col_id}].width must be a string")
+    if width is not None:
+        # bool is a subclass of int — reject explicitly to catch `width: true`.
+        if isinstance(width, bool) or not isinstance(width, int) or width <= 0:
+            raise ValueError(
+                f"{path_label}[{col_id}].width must be a positive integer (pixels)"
+            )
     align = entry.get("align")
     if align is not None and align not in _VALID_ALIGN:
         raise ValueError(

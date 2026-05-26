@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
 import { ValueBadge } from '@/components/shared/atoms/ValueBadge'
-import { columnWidthClass, columnAlignClass } from '@/lib/columns'
+import { columnWidthClass, columnWidthStyle, columnAlignClass } from '@/lib/columns'
 import type { ColumnDef, RenderCell, RenderingFlag } from '@/lib/types'
 
 function iconTokenForValue(
@@ -30,12 +30,13 @@ export function CellValue({ col: c, row, showFrame, showEcho }: {
   const cell = row[c.id]
   const val = cell?.value
   const width = columnWidthClass(c)
+  const widthStyle = columnWidthStyle(c)
   const align = columnAlignClass(c)
 
   if (Array.isArray(val)) {
     const flags = val as RenderingFlag[]
     return (
-      <span className={`py-1 px-1 ${width} ${align}`}>
+      <span className={`py-1 px-1 ${width} ${align}`} style={widthStyle}>
         <span className="flex items-center gap-1 justify-end whitespace-nowrap">
           {flags.map((f, i) => (
             <Badge key={i} variant={f.tone === 'danger' ? 'destructive' : 'secondary'} className="text-[11px] px-1 py-0 h-5"
@@ -50,7 +51,7 @@ export function CellValue({ col: c, row, showFrame, showEcho }: {
 
   if (cell?.badge) {
     return (
-      <span className={`py-1 px-1 ${width}`}>
+      <span className={`py-1 px-1 ${width}`} style={widthStyle}>
         <ValueBadge
           value={val as string | number}
           tone={cell.tone}
@@ -65,7 +66,7 @@ export function CellValue({ col: c, row, showFrame, showEcho }: {
   return (
     <span
       className={`py-1 px-1 ${width} ${align} whitespace-nowrap ${cell?.monospace ? 'font-mono' : ''} ${cell?.tabular ? 'tabular-nums' : ''}`}
-      style={{ color: cell?.tone ?? colors.dim }}
+      style={{ color: cell?.tone ?? colors.dim, ...widthStyle }}
       title={cell?.tooltip ?? autoTitle}
     >
       {text}

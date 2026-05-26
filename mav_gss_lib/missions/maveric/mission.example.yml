@@ -59,16 +59,16 @@ ui:
   rx_columns:
     - id: src
       label: src
-      width: w-[52px]
+      width: 52
       path: header.src
     - id: echo
       label: echo
-      width: w-[52px]
+      width: 52
       toggle: showEcho
       path: header.echo
     - id: ptype
       label: type
-      width: w-[52px]
+      width: 52
       badge: true
       path: header.ptype
       value_icons:
@@ -86,16 +86,16 @@ ui:
   tx_columns:
     - id: dest
       label: dest
-      width: w-[52px]
+      width: 52
       path: header.dest
     - id: echo
       label: echo
-      width: w-[52px]
+      width: 52
       hide_if_all: [NONE]
       path: header.echo
     - id: ptype
       label: type
-      width: w-[52px]
+      width: 52
       badge: true
       path: header.ptype
       value_icons:
@@ -108,14 +108,16 @@ ui:
       default_icon: unknown
     - id: cmd
       label: cmd
+      width: 140
+      truncate: true
       kind: cmd_id
     - id: args
       label: args
-      width: w-[280px]
+      width: 280
       truncate: true
       path: header.args
     - id: verify
       label: verify
-      width: w-[78px]
+      width: 78
       align: right
       kind: verifiers
