@@ -20,9 +20,9 @@ def _fake_runtime(radio_cfg=None):
     return SimpleNamespace(
         platform_cfg={
             "radio": radio_cfg,
-            "rx": {"frequency": "437.6 MHz"},
-            "tx": {"frequency": "437600000"},
-            "tracking": {"frequencies": {"rx_hz": 437_600_000.0, "tx_hz": 437_600_000.0}},
+            "rx": {"frequency": "437.575 MHz"},
+            "tx": {"frequency": "437575000"},
+            "tracking": {"frequencies": {"rx_hz": 437_575_000.0, "tx_hz": 437_575_000.0}},
         },
         cfg_lock=threading.Lock(),
         mission_id="maveric",

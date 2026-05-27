@@ -34,8 +34,8 @@ _CSP_DEFAULTS = {
     "dest_port": 0, "src_port": 0, "flags": 0, "csp_crc": True,
 }
 _IMAGING_DEFAULTS = {"thumb_prefix": "tn_"}
-_RX_DEFAULTS = {"frequency": "437.6 MHz"}
-_TX_DEFAULTS = {"frequency": "437.6 MHz"}
+_RX_DEFAULTS = {"frequency": "437.575 MHz"}
+_TX_DEFAULTS = {"frequency": "437.575 MHz"}
 
 
 def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:

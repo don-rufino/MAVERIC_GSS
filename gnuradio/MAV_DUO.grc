@@ -61,7 +61,7 @@ blocks:
   id: variable
   parameters:
     comment: RX center frequency (overridden at runtime by /ws/tracking doppler)
-    value: 437.6e6
+    value: 437.575e6
   states:
     bus_sink: false
     bus_source: false
@@ -73,7 +73,7 @@ blocks:
   id: variable
   parameters:
     comment: TX center frequency (overridden at runtime by /ws/tracking doppler)
-    value: 437.6e6
+    value: 437.575e6
   states:
     bus_sink: false
     bus_source: false

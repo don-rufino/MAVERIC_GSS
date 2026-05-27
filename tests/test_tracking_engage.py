@@ -24,7 +24,7 @@ class _FakeRuntime:
                     "line1": "1 99999U 26001A   26182.53800926  .00000000  00000-0  15000-3 0  9999",
                     "line2": "2 99999  97.8250 154.7171 0058009 348.1000 351.9980 14.91466332000019",
                 },
-                "frequencies": {"rx_hz": 437_600_000.0, "tx_hz": 437_600_000.0},
+                "frequencies": {"rx_hz": 437_575_000.0, "tx_hz": 437_575_000.0},
                 "display": {"day_night_map": True},
                 "control": control or {
                     "rx_zmq_addr": "tcp://127.0.0.1:0",
@@ -75,8 +75,8 @@ class TrackingEngageTests(unittest.TestCase):
         self.assertEqual(order, ["publish", "close"])
         published: DopplerCorrection = active_sink.publish.call_args.args[0]
         self.assertEqual(published.mode, "disconnected")
-        self.assertEqual(published.rx_tune_hz, 437_600_000.0)
-        self.assertEqual(published.tx_tune_hz, 437_600_000.0)
+        self.assertEqual(published.rx_tune_hz, 437_575_000.0)
+        self.assertEqual(published.tx_tune_hz, 437_575_000.0)
         self.assertEqual(published.range_rate_mps, 0.0)
 
     def test_engage_failure_keeps_null_sink(self) -> None:

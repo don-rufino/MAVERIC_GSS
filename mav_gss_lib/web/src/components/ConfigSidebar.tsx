@@ -7,7 +7,7 @@ import { authFetch } from '@/lib/auth'
 import { GssInput } from '@/components/ui/gss-input'
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
-const DEFAULT_DOPPLER_HZ = 437_600_000
+const DEFAULT_DOPPLER_HZ = 437_575_000
 let hasLoadedConfigSidebar = false
 
 function diffConfig(current: GssConfig, base: GssConfig): Partial<GssConfig> | undefined

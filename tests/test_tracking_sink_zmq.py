@@ -15,10 +15,10 @@ def _correction(rx_tune: float, tx_tune: float) -> DopplerCorrection:
         satellite="MAVERIC",
         mode="connected",
         range_rate_mps=-1234.5,
-        rx_hz=437_600_000.0,
+        rx_hz=437_575_000.0,
         rx_shift_hz=-200.0,
         rx_tune_hz=rx_tune,
-        tx_hz=437_600_000.0,
+        tx_hz=437_575_000.0,
         tx_shift_hz=210.0,
         tx_tune_hz=tx_tune,
     )

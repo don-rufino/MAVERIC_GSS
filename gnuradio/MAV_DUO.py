@@ -88,12 +88,12 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.rx_actual_freq = rx_actual_freq = 0
         self.zmq_port_tx = zmq_port_tx = "52002"
         self.zmq_port_rx = zmq_port_rx = "52001"
-        self.tx_freq = tx_freq = 437.6e6
+        self.tx_freq = tx_freq = 437.575e6
         self.tx_amp = tx_amp = 0.7
         self.tx_actual_freq_label = tx_actual_freq_label = tx_actual_freq
         self.samp_ratetx = samp_ratetx = 2400000
         self.samp_rate = samp_rate = 1000000
-        self.rx_freq = rx_freq = 437.6e6
+        self.rx_freq = rx_freq = 437.575e6
         self.rx_actual_freq_label = rx_actual_freq_label = rx_actual_freq
         self.rf_gain = rf_gain = 50
         self.modindex = modindex = 1/1.5

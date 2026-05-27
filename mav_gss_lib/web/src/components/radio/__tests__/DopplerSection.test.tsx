@@ -9,12 +9,12 @@ const baseProps = {
     satellite: 'MAVERIC',
     mode: 'disconnected' as const,
     range_rate_mps: -1234.5,
-    rx_hz: 437_600_000,
+    rx_hz: 437_575_000,
     rx_shift_hz: -200,
-    rx_tune_hz: 437_599_800,
-    tx_hz: 437_600_000,
+    rx_tune_hz: 437_574_800,
+    tx_hz: 437_575_000,
     tx_shift_hz: 210,
-    tx_tune_hz: 437_600_210,
+    tx_tune_hz: 437_575_210,
   },
   mode: 'disconnected' as const,
   error: '',
@@ -36,7 +36,7 @@ describe('DopplerSection', () => {
     render(<DopplerSection {...baseProps} mode="connected" doppler={{ ...baseProps.doppler, mode: 'connected' }} />)
     expect(screen.getByText('ENGAGED')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Disengage' })).toBeTruthy()
-    expect(screen.getByText(/437,599,800/)).toBeTruthy()
+    expect(screen.getByText(/437,574,800/)).toBeTruthy()
   })
 
   it('calls engage on button click', () => {

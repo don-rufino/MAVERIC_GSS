@@ -16,12 +16,12 @@ platform:
     delay_ms: 500
     # Uplink/base TX frequency. Doppler live tuning uses
     # platform.tracking.frequencies.tx_hz.
-    frequency: 437.6 MHz
+    frequency: 437.575 MHz
   rx:
     zmq_addr: tcp://127.0.0.1:52001
     # Downlink/base RX frequency. Doppler live tuning uses
     # platform.tracking.frequencies.rx_hz.
-    frequency: 437.6 MHz
+    frequency: 437.575 MHz
     tx_blackout_ms: 0
   radio:
     enabled: true
