@@ -93,7 +93,8 @@ def _derive_stage(inst: CommandInstance) -> InstanceStage:
          terminal as Complete. There's nothing to wait
          for; keeping it non-terminal would block the admission gate
          indefinitely.
-      1. Any FailedVerifier passed → Failed (NACK wins, even after Complete).
+      1. Any FailedVerifier passed → Failed (NACK precedence over Complete
+         in the rare path where both outcomes are decided in the same map).
       2. Else CompleteVerifier passed → Complete.
       3. Else an ACK-only set with any ReceivedVerifier passed → Complete.
       4. Else all verifier windows closed → TimedOut.
@@ -145,27 +146,12 @@ _TERMINAL: tuple[InstanceStage, ...] = ("complete", "failed", "timed_out")
 def is_settled(inst: CommandInstance) -> bool:
     """Canonical 'this instance is done' predicate.
 
-    True iff the instance has reached a terminal stage AND every declared
-    verifier outcome has been decided (no pending). Late-NACK semantics
-    require waiting for every window to close before considering an
-    instance done — this is the single check every subsystem uses.
-    """
-    if inst.stage not in _TERMINAL:
-        return False
-    for spec in inst.verifier_set.verifiers:
-        outcome = inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending())
-        if outcome.state == "pending":
-            return False
-    return True
-
-
-def is_terminal(inst: CommandInstance) -> bool:
-    """True iff the instance has reached a terminal stage.
-
-    Weaker than ``is_settled`` — does not require late-NACK / NACK-window
-    outcomes to be decided. Used for UI dwell gating where the operator
-    only needs to know the command has succeeded / failed / timed out,
-    not whether every declared verifier window has finally closed.
+    True iff the instance has reached a terminal stage (complete, failed,
+    or timed_out). The spacecraft protocol guarantees a NACK never arrives
+    after a successful ACK+RES, so a pending NACK outcome after
+    stage=complete is impossible on the wire — no need to wait for the
+    window to close. The timed_out branch is settled by construction:
+    _derive_stage only returns timed_out when every outcome is non-pending.
     """
     return inst.stage in _TERMINAL
 
@@ -187,11 +173,10 @@ class VerifierRegistry:
     negligible overhead (microseconds) and makes the code robust to callers
     that forget the architectural invariant.
 
-    Terminal-but-unsettled instances (stage in {complete, failed, timed_out}
-    while a NACK / TLM window is still pending) remain in `open_instances()`
-    until `finalize_settled()` is called — late-NACK semantics require the
-    row to stay reachable until every window closes. The sweep loop calls
-    `finalize_settled()` at end of its pass.
+    Terminal instances (stage in {complete, failed, timed_out}) remain in
+    `open_instances()` until `finalize_settled()` is called. The sweep loop
+    calls `finalize_settled()` at end of its pass, so terminal instances
+    are dropped on the next tick.
     """
 
     def __init__(self) -> None:
@@ -351,9 +336,8 @@ def parse_instance(obj: dict) -> CommandInstance:
 
 
 def write_instances(path, instances: list[CommandInstance]) -> None:
-    """Atomic rewrite. Settled instances are excluded (live in the log,
-    not the registry). Terminal-but-unsettled instances (open NACK / TLM
-    windows) MUST persist so a post-restart late NACK can override."""
+    """Atomic rewrite. Settled instances are excluded — they live in the
+    log, not the registry."""
     import os as _os
     lines = [serialize_instance(i) for i in instances if not is_settled(i)]
     tmp = str(path) + ".tmp"
@@ -365,9 +349,7 @@ def write_instances(path, instances: list[CommandInstance]) -> None:
 def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
     """Load open instances. For each, mark window_expired for any verifier
     whose check_window.stop_ms has passed since t0, then re-derive stage.
-    Drop any instance that is fully settled (terminal AND every outcome
-    decided) — terminal-but-unsettled instances must be restored so a
-    post-restart late NACK can still override."""
+    Drop any instance that has reached a terminal stage at restore time."""
     from pathlib import Path as _Path
     p = _Path(path)
     if not p.exists():
@@ -381,10 +363,6 @@ def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
             inst = parse_instance(json.loads(line))
         except Exception:
             continue
-        # Do NOT skip terminal-on-disk instances — they may be terminal-
-        # but-unsettled (open NACK window). Re-evaluate every verifier
-        # window against the current wall clock; let _derive_stage update
-        # the stage from the resulting outcome map.
         for spec in inst.verifier_set.verifiers:
             current = inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending())
             if current.state != "pending":
@@ -392,7 +370,6 @@ def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
             if now_ms - inst.t0_ms >= spec.check_window.stop_ms:
                 inst.outcomes[spec.verifier_id] = VerifierOutcome.window_expired()
         inst.stage = _derive_stage(inst)
-        # Single drop predicate: settled across the restart boundary.
         if is_settled(inst):
             continue
         restored.append(inst)

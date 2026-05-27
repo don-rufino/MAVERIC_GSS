@@ -104,34 +104,29 @@ class AdmitResults(unittest.TestCase):
         result, info = tx.admit(_item(cmd_id="mtq_set_1", args="2", dest="LPPM"))
         self.assertEqual(result, AdmitResult.REJECTED_WINDOW_OPEN)
 
-    def test_blocked_after_complete_until_settled(self):
-        """Admission stays REJECTED while NACK / TLM windows are still open,
-        even though the instance has reached a terminal stage. Late-NACK
-        semantics require the slot to remain claimed until is_settled."""
+    def test_released_after_complete(self):
+        """Admission frees on stage=complete. Protocol invariant: spacecraft
+        never emits NACK after ACK+RES, so a pending NACK outcome after RES
+        is impossible on the wire — no reason to hold the slot."""
         reg = VerifierRegistry()
         inst = _full_lppm_instance()
         reg.register(inst)
-        # Simulate RES arriving — stage transitions to complete, but pending
-        # verifiers (NACK windows) keep is_settled False.
         reg.apply(inst.instance_id, "res_from_lppm",
                   VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e1"))
         self.assertEqual(inst.stage, "complete")
         tx = _runtime_with(reg, active=False)
         result, _ = tx.admit(_item())
-        self.assertEqual(result, AdmitResult.REJECTED_WINDOW_OPEN)
+        self.assertEqual(result, AdmitResult.ACCEPTED)
 
-    def test_released_once_all_outcomes_settled(self):
-        """Once every window closes (sweeper marks pending verifiers as
-        window_expired), is_settled flips True and the slot frees."""
+    def test_released_after_timed_out(self):
+        """A command that gets nothing back: sweeper expires every window,
+        stage flips to timed_out, slot frees."""
         reg = VerifierRegistry()
         inst = _full_lppm_instance()
         reg.register(inst)
-        reg.apply(inst.instance_id, "res_from_lppm",
-                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e1"))
-        # Simulate sweeper expiring the rest.
         for spec in inst.verifier_set.verifiers:
-            if inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending()).state == "pending":
-                reg.apply(inst.instance_id, spec.verifier_id, VerifierOutcome.window_expired())
+            reg.apply(inst.instance_id, spec.verifier_id, VerifierOutcome.window_expired())
+        self.assertEqual(inst.stage, "timed_out")
         tx = _runtime_with(reg, active=False)
         result, _ = tx.admit(_item())
         self.assertEqual(result, AdmitResult.ACCEPTED)

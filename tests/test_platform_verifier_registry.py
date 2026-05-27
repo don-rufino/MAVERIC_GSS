@@ -222,7 +222,10 @@ class IsSettled(unittest.TestCase):
         inst = _instance()
         self.assertFalse(is_settled(inst))
 
-    def test_terminal_with_pending_outcome_is_not_settled(self):
+    def test_complete_is_settled(self):
+        """Protocol invariant: spacecraft never emits NACK after ACK+RES,
+        so stage=complete is definitive — pending NACK outcomes can be
+        ignored."""
         from mav_gss_lib.platform.tx.verifiers import is_settled
         reg = VerifierRegistry()
         inst = _instance()
@@ -230,87 +233,37 @@ class IsSettled(unittest.TestCase):
         reg.apply("i1", "res_from_lppm",
                   VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
         self.assertEqual(inst.stage, "complete")
-        # NACK + LPPM ack still pending → not settled.
-        self.assertFalse(is_settled(inst))
-
-    def test_terminal_with_all_outcomes_decided_is_settled(self):
-        from mav_gss_lib.platform.tx.verifiers import is_settled
-        reg = VerifierRegistry()
-        inst = _instance()
-        reg.register(inst)
-        reg.apply("i1", "res_from_lppm",
-                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
-        reg.apply("i1", "uppm_ack",
-                  VerifierOutcome.passed(matched_at_ms=500, match_event_id="e1"))
-        reg.apply("i1", "lppm_ack", VerifierOutcome.window_expired())
-        reg.apply("i1", "nack_uppm", VerifierOutcome.window_expired())
-        reg.apply("i1", "nack_lppm", VerifierOutcome.window_expired())
         self.assertTrue(is_settled(inst))
 
-
-class IsTerminal(unittest.TestCase):
-    """Weaker companion to is_settled — true on any terminal stage,
-    regardless of remaining pending outcomes. Gates the post-last-item
-    UI dwell so the SENDING banner clears when the operator knows the
-    outcome rather than waiting on unfired NACK windows."""
-
-    def test_released_instance_is_not_terminal(self):
-        from mav_gss_lib.platform.tx.verifiers import is_terminal
-        inst = _instance()
-        self.assertFalse(is_terminal(inst))
-
-    def test_complete_with_pending_outcomes_is_terminal(self):
-        """Key divergence from is_settled: a successful command with
-        unfired NACK / dest-ack verifiers still pending IS terminal."""
-        from mav_gss_lib.platform.tx.verifiers import is_settled, is_terminal
-        reg = VerifierRegistry()
-        inst = _instance()
-        reg.register(inst)
-        reg.apply("i1", "res_from_lppm",
-                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
-        self.assertEqual(inst.stage, "complete")
-        self.assertTrue(is_terminal(inst))
-        self.assertFalse(is_settled(inst))  # NACK + lppm_ack still pending
-
-    def test_timed_out_instance_is_terminal(self):
-        from mav_gss_lib.platform.tx.verifiers import is_terminal
+    def test_timed_out_is_settled(self):
+        from mav_gss_lib.platform.tx.verifiers import is_settled
         reg = VerifierRegistry()
         inst = _instance()
         reg.register(inst)
         reg.sweep(now_ms=inst.t0_ms + 35000)  # past every stop_ms
         self.assertEqual(inst.stage, "timed_out")
-        self.assertTrue(is_terminal(inst))
+        self.assertTrue(is_settled(inst))
 
 
 class FinalizeSettled(unittest.TestCase):
-    def test_terminal_with_pending_verifier_does_not_finalize(self):
-        """Late-NACK semantics: stage=complete but NACK still pending must
-        stay open so a late NACK can override."""
+    def test_released_does_not_finalize(self):
         reg = VerifierRegistry()
         inst = _instance()
         reg.register(inst)
-        # Pass the complete verifier; NACK + ACKs still pending.
-        reg.apply("i1", "res_from_lppm",
-                  VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
-        self.assertEqual(inst.stage, "complete")
-        # finalize_settled should NOT pop because nack_uppm/nack_lppm
-        # outcomes are still pending (windows still open).
+        self.assertEqual(inst.stage, "released")
         finalized = reg.finalize_settled()
         self.assertEqual(finalized, [])
         self.assertEqual(len(reg.open_instances()), 1)
 
-    def test_all_settled_finalizes(self):
+    def test_complete_finalizes(self):
+        """Protocol invariant: stage=complete is definitive, no need to
+        wait for pending NACK outcomes — instance is dropped right away."""
         reg = VerifierRegistry()
         inst = _instance()
         reg.register(inst)
-        # Drive every verifier out of pending: pass complete + ack, expire NACKs/LPPM ack.
         reg.apply("i1", "res_from_lppm",
                   VerifierOutcome.passed(matched_at_ms=8000, match_event_id="e3"))
-        reg.apply("i1", "uppm_ack",
-                  VerifierOutcome.passed(matched_at_ms=500, match_event_id="e1"))
-        reg.apply("i1", "lppm_ack", VerifierOutcome.window_expired())
-        reg.apply("i1", "nack_uppm", VerifierOutcome.window_expired())
-        reg.apply("i1", "nack_lppm", VerifierOutcome.window_expired())
+        self.assertEqual(inst.stage, "complete")
         finalized = reg.finalize_settled()
         self.assertEqual(len(finalized), 1)
         self.assertEqual(finalized[0].instance_id, "i1")

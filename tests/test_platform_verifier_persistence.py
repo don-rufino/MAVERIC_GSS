@@ -42,28 +42,23 @@ class SerializeRoundTrip(unittest.TestCase):
 
 
 class WriteThrough(unittest.TestCase):
-    def test_rewrite_drops_settled_keeps_terminal_with_open_windows(self):
-        """Persistence drops only is_settled instances. A complete-but-NACK-pending
-        instance must persist so a post-restart late NACK can still override."""
+    def test_rewrite_drops_terminal_keeps_active(self):
+        """Persistence drops settled (terminal) instances. Protocol invariant:
+        spacecraft never emits NACK after ACK+RES, so a stage=complete
+        instance has nothing more to wait for and need not persist."""
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".pending_instances.jsonl"
             reg = VerifierRegistry()
             i1 = _sample_instance(stage="released")  # active → kept
-            i2 = _sample_instance(stage="complete")  # terminal but pending NACK → kept
+            i2 = _sample_instance(stage="complete")  # terminal → dropped
             i2.instance_id = "i2"
             i2.correlation_key = ("com_ping", "UPPM")
-            i3 = _sample_instance(stage="complete")  # terminal AND all settled → dropped
-            i3.instance_id = "i3"
-            i3.correlation_key = ("com_ping", "HLNV")
-            for spec in i3.verifier_set.verifiers:
-                if i3.outcomes.get(spec.verifier_id, VerifierOutcome.pending()).state == "pending":
-                    i3.outcomes[spec.verifier_id] = VerifierOutcome.window_expired()
-            reg.register(i1); reg.register(i2); reg.register(i3)
+            reg.register(i1); reg.register(i2)
             write_instances(path, reg.open_instances())
             lines = path.read_text().strip().splitlines()
-            self.assertEqual(len(lines), 2)  # i1 + i2 persisted; i3 dropped
+            self.assertEqual(len(lines), 1)  # i1 persisted; i2 dropped
             ids = sorted(parse_instance(json.loads(l)).instance_id for l in lines)
-            self.assertEqual(ids, ["i1", "i2"])
+            self.assertEqual(ids, ["i1"])
 
 
 class RestoreElapsed(unittest.TestCase):
