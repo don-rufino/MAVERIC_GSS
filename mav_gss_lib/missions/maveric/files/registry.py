@@ -1,7 +1,7 @@
 """Python-declarative file-transport registry.
 
 One row per file kind. Read once at ``mission.py::build(ctx)`` to
-construct the three concrete adapters; the events watcher and HTTP
+construct the concrete adapters; the events watcher and HTTP
 router are then wired with the resulting list. The registry is a
 maveric-specific binding layer - it composes the kind-agnostic store
 and the adapter Protocol.
@@ -16,6 +16,7 @@ from typing import Any
 
 from mav_gss_lib.missions.maveric.files.adapters import (
     AiiKindAdapter,
+    EpsKindAdapter,
     FileKindAdapter,
     ImageKindAdapter,
     MagKindAdapter,
@@ -56,11 +57,16 @@ FILE_TRANSPORTS: tuple[FileTransportConfig, ...] = (
         capture_cmd=None, output_subdir="mag", extension=".npz",
         media_type="application/octet-stream",
     ),
+    FileTransportConfig(
+        kind="eps", cnt_cmd="eps_cnt_chunks", get_cmd="eps_get_chunks",
+        capture_cmd=None, output_subdir="eps", extension=".npz",
+        media_type="application/octet-stream",
+    ),
 )
 
 
 def build_file_kind_adapters(mission_cfg: dict[str, Any]) -> list[FileKindAdapter]:
-    """Construct the three concrete adapters with a live mission_cfg ref.
+    """Construct the concrete adapters with a live mission_cfg ref.
 
     Order matches ``FILE_TRANSPORTS``. The image adapter holds a
     closure over ``mission_cfg`` so live edits to
@@ -70,6 +76,7 @@ def build_file_kind_adapters(mission_cfg: dict[str, Any]) -> list[FileKindAdapte
         ImageKindAdapter(mission_cfg=mission_cfg),
         AiiKindAdapter(),
         MagKindAdapter(),
+        EpsKindAdapter(),
     ]
 
 

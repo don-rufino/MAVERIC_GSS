@@ -319,3 +319,53 @@ class MagKindAdapter:
             })
         files.sort(key=lambda p: (-(p["last_activity_ms"] or 0), p["source"] or "", p["filename"]))
         return {"files": files}
+
+
+# ── EpsKindAdapter ─────────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class EpsKindAdapter:
+    """EPS-payload npz kind: raw bytes, single-seed, no validation.
+
+    Structural twin of ``MagKindAdapter`` — the payload RPi ``eps.py``
+    captures EPS housekeeping into an npz (``eps_capture``) and downlinks
+    it chunked (``eps_cnt_chunks`` seeds the total, ``eps_get_chunks``
+    feeds chunks). Distinct from the EPS-*node* ``eps_*`` commands.
+    """
+
+    kind: str = "eps"
+    cnt_cmd: str = "eps_cnt_chunks"
+    get_cmd: str = "eps_get_chunks"
+    capture_cmd: str | None = None
+    media_type: str = "application/octet-stream"
+
+    def seed_from_cnt(self, args: dict[str, Any]) -> Iterable[tuple[str, int]]:
+        return _single_seed(args)
+
+    def seed_from_capture(self, args: dict[str, Any]) -> Iterable[tuple[str, int]]:
+        return []
+
+    def partial_repair(self, path: str) -> None:
+        return None
+
+    def on_complete(self, path: str) -> dict[str, Any]:
+        return {}
+
+    def status_view(self, store: ChunkFileStore) -> dict[str, Any]:
+        files: list[dict[str, Any]] = []
+        for ref in store.known_files(kind=self.kind):
+            received, total = store.progress(ref)
+            files.append({
+                "id": ref.id,
+                "kind": ref.kind,
+                "source": ref.source,
+                "filename": ref.filename,
+                "received": received,
+                "total": total,
+                "complete": store.is_complete(ref),
+                "chunk_size": store.chunk_size(ref),
+                "last_activity_ms": store.meta_mtime_ms(ref),
+            })
+        files.sort(key=lambda p: (-(p["last_activity_ms"] or 0), p["source"] or "", p["filename"]))
+        return {"files": files}
