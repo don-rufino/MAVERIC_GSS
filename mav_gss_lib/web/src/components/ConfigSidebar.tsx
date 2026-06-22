@@ -5,6 +5,7 @@ import type { GssConfig, PlatformTrackingConfig } from '@/lib/types'
 import { X, FileText, Database } from 'lucide-react'
 import { authFetch } from '@/lib/auth'
 import { GssInput } from '@/components/ui/gss-input'
+import { parseTleBlock, joinTleBlock } from '@/lib/tle'
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 const DEFAULT_DOPPLER_HZ = 437_575_000
@@ -171,6 +172,7 @@ interface ConfigSidebarProps {
 
 export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
   const [cfg, setCfg] = useState<GssConfig | null>(null)
+  const [tleDraft, setTleDraft] = useState('')
   const [dirty, setDirty] = useState(false)
   const [statusInfo, setStatusInfo] = useState<{ version: string; schema_path: string; schema_count: number; log_dir: string; session_log_json: string | null } | null>(null)
   const initialRef = useRef<GssConfig | null>(null)
@@ -249,6 +251,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
       .then((data: GssConfig) => {
         setCfg(data)
         initialRef.current = JSON.parse(JSON.stringify(data))
+        setTleDraft(joinTleBlock(data.platform.tracking?.tle ?? {}))
         setDirty(false)
       })
       .catch(() => {})
@@ -281,7 +284,10 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
   }, [cfg])
 
   const handleCancel = useCallback(() => {
-    if (initialRef.current) setCfg(JSON.parse(JSON.stringify(initialRef.current)))
+    if (initialRef.current) {
+      setCfg(JSON.parse(JSON.stringify(initialRef.current)))
+      setTleDraft(joinTleBlock(initialRef.current.platform.tracking?.tle ?? {}))
+    }
     setDirty(false)
     onClose()
   }, [onClose])
@@ -328,6 +334,32 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
       return next
     })
   }, [])
+
+  const updateTrackingTle = useCallback((patch: Partial<PlatformTrackingConfig['tle']>) => {
+    setCfg((prev) => {
+      if (!prev) return prev
+      const tracking = prev.platform.tracking
+      const next = {
+        ...prev,
+        platform: {
+          ...prev.platform,
+          tracking: {
+            ...(tracking ?? {}),
+            tle: { ...(tracking?.tle ?? {}), ...patch },
+          } as PlatformTrackingConfig,
+        },
+      }
+      setDirty(true)
+      return next
+    })
+  }, [])
+
+  // The textarea holds the raw paste; only the lines that successfully
+  // parse are written back, so a partial edit never wipes a good field.
+  const handleTleDraftChange = useCallback((text: string) => {
+    setTleDraft(text)
+    updateTrackingTle(parseTleBlock(text))
+  }, [updateTrackingTle])
 
   const updateMission = useCallback((
     section: string,
@@ -443,6 +475,27 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                   <TextField label="TX ZMQ Address" value={cfg.platform.tx.zmq_addr} onChange={(v) => updatePlatform('tx', 'zmq_addr', v)} />
                   <NumberField label="TX Delay (ms)" value={cfg.platform.tx.delay_ms} onChange={(v) => updatePlatform('tx', 'delay_ms', v)} />
                   <NumberField label="TX→RX Blackout (ms)" value={cfg.platform.rx.tx_blackout_ms ?? 0} onChange={(v) => updatePlatform('rx', 'tx_blackout_ms', v)} />
+                </Section>
+
+                {/* Tracking / Doppler — TLE applies live on the next 1 Hz tick, no restart */}
+                <Section title="Tracking">
+                  <TextField
+                    label="TLE Source"
+                    value={cfg.platform.tracking?.tle?.source ?? ''}
+                    onChange={(v) => updateTrackingTle({ source: v })}
+                  />
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-light" style={{ color: colors.dim }}>Two-Line Elements</span>
+                    <textarea
+                      value={tleDraft}
+                      onChange={(e) => handleTleDraftChange(e.target.value)}
+                      rows={3}
+                      spellCheck={false}
+                      placeholder={'SATNAME\n1 NNNNNU ...\n2 NNNNN ...'}
+                      className="w-full font-mono text-xs rounded px-2 py-1 resize-y leading-snug"
+                      style={{ backgroundColor: colors.bgApp, color: colors.value, border: `1px solid ${colors.borderSubtle}` }}
+                    />
+                  </label>
                 </Section>
 
                 {/* Session Info */}
