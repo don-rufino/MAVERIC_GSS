@@ -36,6 +36,7 @@ import satellites.components.datasinks
 import satellites.core
 import sip
 import threading
+import pmt
 
 
 def snipfcn_layout_stretch_snippet(self):
@@ -47,6 +48,61 @@ def snipfcn_layout_stretch_snippet(self):
 
 def snippets_main_after_init(tb):
     snipfcn_layout_stretch_snippet(tb)
+
+
+class _PttGate(gr.basic_block):
+    """T/R sequencer for an external-PA + physical-relay chain.
+
+    Drives one manual GPIO line (pin1) via an H-bridge; a second always-HIGH
+    enable line (pin2) is set once at init and left alone. Idle/RX = pin1 HIGH.
+    The PA is always powered, so pin1 must reach TX and the relays must settle
+    BEFORE any RF, and must not move back until RF has drained. For each TX PDU:
+      1. drives pin1 LOW           (relay -> TX)
+      2. waits lead_s              (relays settle cold, before any RF)
+      3. forwards the PDU          (PA drives the antenna)
+      4. holds for air-time + tail_s, then drives pin1 HIGH
+                                   (relay -> RX only after RF is gone)
+    Sequences are serialized so back-to-back commands never move the line
+    mid-burst. LOW = TX; flip the values in _line() if the H-bridge differs.
+    """
+
+    def __init__(self, usrp_sink, bank="FP0", pin=0x1,
+                 lead_s=1.0, tail_s=1.0, baud=9600):
+        gr.basic_block.__init__(self, name="ptt_gate", in_sig=[], out_sig=[])
+        self.sink = usrp_sink
+        self.bank = bank
+        self.pin = pin
+        self.lead_s = lead_s
+        self.tail_s = tail_s
+        self.baud = baud
+        self._lock = threading.Lock()
+        self.message_port_register_in(pmt.intern("pdu_in"))
+        self.message_port_register_out(pmt.intern("pdu_out"))
+        self.set_msg_handler(pmt.intern("pdu_in"), self._handle)
+
+    def _line(self, tx):
+        # pin1 LOW = TX, HIGH = RX. Mask = self.pin so the pin-2 enable is untouched.
+        self.sink.set_gpio_attr(self.bank, "OUT",
+                                0x0 if tx else self.pin, self.pin)
+
+    def _air_seconds(self, msg):
+        try:
+            return len(pmt.u8vector_elements(pmt.cdr(msg))) * 8.0 / self.baud
+        except Exception:
+            return 0.5  # conservative fallback if payload length is unavailable
+
+    def _handle(self, msg):
+        with self._lock:
+            air_s = self._air_seconds(msg)
+            self._line(True)                                   # pin1 -> LOW (TX)
+            print(f"[PTT] TX key  -> pin1 LOW, lead {self.lead_s:.1f}s", flush=True)
+            time.sleep(self.lead_s)                            # cold-switch settle, pre-RF
+            self.message_port_pub(pmt.intern("pdu_out"), msg)  # PA drives antenna
+            print(f"[PTT] RF out  -> air {air_s:.2f}s, tail {self.tail_s:.1f}s", flush=True)
+            time.sleep(air_s + self.tail_s)                    # hold until RF fully drained
+            self._line(False)                                  # pin1 -> HIGH (RX)
+            print("[PTT] RX       -> pin1 HIGH", flush=True)
+
 
 class MAV_DUO(gr.top_block, Qt.QWidget):
 
@@ -142,6 +198,40 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.uhd_usrp_sink_0.set_center_freq(tx_freq, 0)
         self.uhd_usrp_sink_0.set_antenna('TX/RX', 0)
         self.uhd_usrp_sink_0.set_gain(rf_gain, 0)
+        
+        # ==================================================
+        # B210 GPIO -> H-bridge PTT  (external PA + physical relays)
+        # --------------------------------------------------
+        # Two manual lines (not ATR), driven by _PttGate:
+        #   pin1 = GPIO0 / J504 pin 1 : T/R control  (HIGH = RX/idle, LOW = TX)
+        #   pin2 = GPIO1 / J504 pin 2 : enable        (held HIGH throughout)
+        # Idle/RX = both HIGH. During a burst pin1 drops LOW (pin2 stays HIGH) and
+        # returns HIGH only after RF has drained, so the relay switches cold.
+        # FAIL-SAFE: idle is pin1 HIGH, so pin1's external resistor must now be a
+        # PULL-UP (crash/boot -> hi-Z -> HIGH -> RX). A pull-DOWN would fail to TX
+        # into the always-on PA. Choose pin2's resistor to match its enable's safe state.
+        # ==================================================
+
+        TX_PIN = 1 << 0     # GPIO0 / J504 pin 1 : T/R line (HIGH = RX, LOW = TX)
+        EN_PIN = 1 << 1     # GPIO1 / J504 pin 2 : enable (held HIGH)
+        MASK   = TX_PIN | EN_PIN
+
+        # Manual control (NOT ATR); start with BOTH lines HIGH = idle / RX.
+        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "CTRL", 0x0,  MASK)  # manual, not ATR
+        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "OUT",  MASK, MASK)  # preload both HIGH (RX/idle)
+        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "DDR",  MASK, MASK)  # outputs (drive the HIGH)
+
+        # Sequencer toggles pin1 only (pin2 enable stays HIGH); pre-key before RF.
+        self.ptt_gate = _PttGate(
+            self.uhd_usrp_sink_0, bank="FP0", pin=TX_PIN,
+            lead_s=1.5, tail_s=0.2, baud=baud)
+        
+        
+        # ==================================================
+        # B210 GPIO PTT Configuration END
+        # ==================================================
+        
+        
         self._tx_amp_range = qtgui.Range(0, 1.0, 0.01, 0.7, 200)
         self._tx_amp_win = qtgui.RangeWidget(self._tx_amp_range, self.set_tx_amp, "TX Amplitude", "counter_slider", float, QtCore.Qt.Horizontal)
         self.top_grid_layout.addWidget(self._tx_amp_win, 0, 0, 1, 1)
@@ -369,7 +459,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         ##################################################
         self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.satellites_hexdump_sink_0, 'in'))
         self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
-        self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.pdu_pdu_to_tagged_stream_0, 'pdus'))
+        self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.ptt_gate, 'pdu_in'))
+        self.msg_connect((self.ptt_gate, 'pdu_out'), (self.pdu_pdu_to_tagged_stream_0, 'pdus'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.satellites_hexdump_sink_0_0, 'in'))
         self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.uhd_usrp_source_0, 'command'))
         self.msg_connect((self.zeromq_sub_msg_source_txcmd, 'out'), (self.uhd_usrp_sink_0, 'command'))
