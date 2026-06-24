@@ -202,26 +202,31 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         # ==================================================
         # B210 GPIO -> H-bridge PTT  (external PA + physical relays)
         # --------------------------------------------------
-        # Two manual lines (not ATR), driven by _PttGate:
+        # Manual lines (not ATR), driven by _PttGate:
         #   pin1 = GPIO0 / J504 pin 1 : T/R control  (HIGH = RX/idle, LOW = TX)
         #   pin2 = GPIO1 / J504 pin 2 : enable        (held HIGH throughout)
-        # Idle/RX = both HIGH. During a burst pin1 drops LOW (pin2 stays HIGH) and
+        #   pin3 = GPIO2 / J504 pin 3 : enable        (held HIGH throughout)
+        #   pin4 = GPIO3 / J504 pin 4 : enable        (held HIGH throughout)
+        # Idle/RX = all HIGH. During a burst pin1 drops LOW (pins 2-4 stay HIGH) and
         # returns HIGH only after RF has drained, so the relay switches cold.
         # FAIL-SAFE: idle is pin1 HIGH, so pin1's external resistor must now be a
         # PULL-UP (crash/boot -> hi-Z -> HIGH -> RX). A pull-DOWN would fail to TX
-        # into the always-on PA. Choose pin2's resistor to match its enable's safe state.
+        # into the always-on PA. Choose each enable's (pins 2-4) resistor to match
+        # its safe state: pull-UP to stay enabled on crash, pull-DOWN to disable.
         # ==================================================
 
-        TX_PIN = 1 << 0     # GPIO0 / J504 pin 1 : T/R line (HIGH = RX, LOW = TX)
-        EN_PIN = 1 << 1     # GPIO1 / J504 pin 2 : enable (held HIGH)
-        MASK   = TX_PIN | EN_PIN
+        TX_PIN  = 1 << 0    # GPIO0 / J504 pin 1 : T/R line (HIGH = RX, LOW = TX)
+        EN_PIN  = 1 << 1    # GPIO1 / J504 pin 2 : enable (held HIGH)
+        EN2_PIN = 1 << 2    # GPIO2 / J504 pin 3 : enable (held HIGH)
+        EN3_PIN = 1 << 3    # GPIO3 / J504 pin 4 : enable (held HIGH)
+        MASK    = TX_PIN | EN_PIN | EN2_PIN | EN3_PIN
 
-        # Manual control (NOT ATR); start with BOTH lines HIGH = idle / RX.
+        # Manual control (NOT ATR); start with ALL lines HIGH (pin1 RX-idle, pins 2-4 enables).
         self.uhd_usrp_sink_0.set_gpio_attr("FP0", "CTRL", 0x0,  MASK)  # manual, not ATR
-        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "OUT",  MASK, MASK)  # preload both HIGH (RX/idle)
+        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "OUT",  MASK, MASK)  # preload all HIGH
         self.uhd_usrp_sink_0.set_gpio_attr("FP0", "DDR",  MASK, MASK)  # outputs (drive the HIGH)
 
-        # Sequencer toggles pin1 only (pin2 enable stays HIGH); pre-key before RF.
+        # Sequencer toggles pin1 only (pins 2-4 enables stay HIGH); pre-key before RF.
         self.ptt_gate = _PttGate(
             self.uhd_usrp_sink_0, bank="FP0", pin=TX_PIN,
             lead_s=1.5, tail_s=0.2, baud=baud)
