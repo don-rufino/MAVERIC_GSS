@@ -53,25 +53,26 @@ def snippets_main_after_init(tb):
 class _PttGate(gr.basic_block):
     """T/R sequencer for an external-PA + physical-relay chain.
 
-    Drives one manual GPIO line (pin1) via an H-bridge; a second always-HIGH
-    enable line (pin2) is set once at init and left alone. Idle/RX = pin1 HIGH.
-    The PA is always powered, so pin1 must reach TX and the relays must settle
-    BEFORE any RF, and must not move back until RF has drained. For each TX PDU:
-      1. drives pin1 LOW           (relay -> TX)
-      2. waits lead_s              (relays settle cold, before any RF)
-      3. forwards the PDU          (PA drives the antenna)
-      4. holds for air-time + tail_s, then drives pin1 HIGH
-                                   (relay -> RX only after RF is gone)
-    Sequences are serialized so back-to-back commands never move the line
-    mid-burst. LOW = TX; flip the values in _line() if the H-bridge differs.
+    Drives a complementary GPIO pair into an H-bridge; always-HIGH enable lines
+    are set once at init and left alone. The pair (toggle_mask) flips to its
+    `live_value` during transmit and to the complement at idle/RX. The PA is
+    always powered, so the pair must reach the live/TX state and the relays must
+    settle BEFORE any RF, and must not flip back until RF has drained. Per TX PDU:
+      1. drive the pair live       (e.g. GPIO0 HIGH / GPIO2 LOW)
+      2. wait lead_s               (relays settle cold, before any RF)
+      3. forward the PDU           (PA drives the antenna)
+      4. hold for air-time + tail_s, then flip the pair back to idle/RX
+                                   (relays move only after RF is gone)
+    Sequences are serialized so back-to-back commands never flip mid-burst.
     """
 
-    def __init__(self, usrp_sink, bank="FP0", pin=0x1,
+    def __init__(self, usrp_sink, bank="FP0", toggle_mask=0x1, live_value=0x1,
                  lead_s=1.0, tail_s=1.0, baud=9600):
         gr.basic_block.__init__(self, name="ptt_gate", in_sig=[], out_sig=[])
         self.sink = usrp_sink
         self.bank = bank
-        self.pin = pin
+        self.toggle_mask = toggle_mask
+        self.live_value = live_value
         self.lead_s = lead_s
         self.tail_s = tail_s
         self.baud = baud
@@ -80,10 +81,10 @@ class _PttGate(gr.basic_block):
         self.message_port_register_out(pmt.intern("pdu_out"))
         self.set_msg_handler(pmt.intern("pdu_in"), self._handle)
 
-    def _line(self, tx):
-        # pin1 LOW = TX, HIGH = RX. Mask = self.pin so the pin-2 enable is untouched.
-        self.sink.set_gpio_attr(self.bank, "OUT",
-                                0x0 if tx else self.pin, self.pin)
+    def _line(self, live):
+        # Flip the complementary pair to live/idle; enables (outside the mask) untouched.
+        val = self.live_value if live else (self.toggle_mask & ~self.live_value)
+        self.sink.set_gpio_attr(self.bank, "OUT", val, self.toggle_mask)
 
     def _air_seconds(self, msg):
         try:
@@ -94,14 +95,14 @@ class _PttGate(gr.basic_block):
     def _handle(self, msg):
         with self._lock:
             air_s = self._air_seconds(msg)
-            self._line(True)                                   # pin1 -> LOW (TX)
-            print(f"[PTT] TX key  -> pin1 LOW, lead {self.lead_s:.1f}s", flush=True)
+            self._line(True)                                   # live: GPIO0 HIGH, GPIO2 LOW
+            print(f"[PTT] TX key  -> GPIO0 HIGH / GPIO2 LOW, lead {self.lead_s:.1f}s", flush=True)
             time.sleep(self.lead_s)                            # cold-switch settle, pre-RF
             self.message_port_pub(pmt.intern("pdu_out"), msg)  # PA drives antenna
             print(f"[PTT] RF out  -> air {air_s:.2f}s, tail {self.tail_s:.1f}s", flush=True)
             time.sleep(air_s + self.tail_s)                    # hold until RF fully drained
-            self._line(False)                                  # pin1 -> HIGH (RX)
-            print("[PTT] RX       -> pin1 HIGH", flush=True)
+            self._line(False)                                  # idle: GPIO0 LOW, GPIO2 HIGH
+            print("[PTT] RX       -> GPIO0 LOW / GPIO2 HIGH", flush=True)
 
 
 class MAV_DUO(gr.top_block, Qt.QWidget):
@@ -202,33 +203,35 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         # ==================================================
         # B210 GPIO -> H-bridge PTT  (external PA + physical relays)
         # --------------------------------------------------
-        # Manual lines (not ATR), driven by _PttGate:
-        #   pin1 = GPIO0 / J504 pin 1 : T/R control  (HIGH = RX/idle, LOW = TX)
-        #   pin2 = GPIO1 / J504 pin 2 : enable        (held HIGH throughout)
-        #   pin3 = GPIO2 / J504 pin 3 : enable        (held HIGH throughout)
-        #   pin4 = GPIO3 / J504 pin 4 : enable        (held HIGH throughout)
-        # Idle/RX = all HIGH. During a burst pin1 drops LOW (pins 2-4 stay HIGH) and
-        # returns HIGH only after RF has drained, so the relay switches cold.
-        # FAIL-SAFE: idle is pin1 HIGH, so pin1's external resistor must now be a
-        # PULL-UP (crash/boot -> hi-Z -> HIGH -> RX). A pull-DOWN would fail to TX
-        # into the always-on PA. Choose each enable's (pins 2-4) resistor to match
-        # its safe state: pull-UP to stay enabled on crash, pull-DOWN to disable.
+        # Manual lines (not ATR), driven by _PttGate. GPIO0/GPIO2 are a
+        # complementary H-bridge pair; GPIO1/GPIO3 are always-HIGH enables:
+        #   GPIO0 / J504 pin 1 : LOW idle/RX, HIGH when live (TX)
+        #   GPIO1 / J504 pin 2 : always HIGH (enable)
+        #   GPIO2 / J504 pin 3 : HIGH idle/RX, LOW when live  (inverse of GPIO0)
+        #   GPIO3 / J504 pin 4 : always HIGH (enable)
+        # During a burst GPIO0 -> HIGH and GPIO2 -> LOW together (lead before RF,
+        # held through the burst, flipped back only after RF drains -> cold switch).
+        # FAIL-SAFE = idle/RX state, set by each external resistor:
+        #   GPIO0 -> PULL-DOWN (idle LOW)        GPIO2 -> PULL-UP (idle HIGH)
+        #   GPIO1, GPIO3 -> pull to each enable's safe state (up = on, down = off, on crash).
         # ==================================================
 
-        TX_PIN  = 1 << 0    # GPIO0 / J504 pin 1 : T/R line (HIGH = RX, LOW = TX)
-        EN_PIN  = 1 << 1    # GPIO1 / J504 pin 2 : enable (held HIGH)
-        EN2_PIN = 1 << 2    # GPIO2 / J504 pin 3 : enable (held HIGH)
-        EN3_PIN = 1 << 3    # GPIO3 / J504 pin 4 : enable (held HIGH)
-        MASK    = TX_PIN | EN_PIN | EN2_PIN | EN3_PIN
+        LIVE_PIN = 1 << 0   # GPIO0 / J504 pin 1 : LOW idle, HIGH when live (TX)
+        EN_PIN   = 1 << 1   # GPIO1 / J504 pin 2 : always HIGH (enable)
+        INV_PIN  = 1 << 2   # GPIO2 / J504 pin 3 : HIGH idle, LOW when live (inverse of GPIO0)
+        EN3_PIN  = 1 << 3   # GPIO3 / J504 pin 4 : always HIGH (enable)
+        MASK     = LIVE_PIN | EN_PIN | INV_PIN | EN3_PIN
+        IDLE_OUT = EN_PIN | INV_PIN | EN3_PIN   # idle/RX: GPIO0 LOW, GPIO1/2/3 HIGH
 
-        # Manual control (NOT ATR); start with ALL lines HIGH (pin1 RX-idle, pins 2-4 enables).
-        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "CTRL", 0x0,  MASK)  # manual, not ATR
-        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "OUT",  MASK, MASK)  # preload all HIGH
-        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "DDR",  MASK, MASK)  # outputs (drive the HIGH)
+        # Manual control (NOT ATR); preload the idle/RX state (GPIO0 LOW, rest HIGH).
+        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "CTRL", 0x0,      MASK)  # manual, not ATR
+        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "OUT",  IDLE_OUT, MASK)  # idle: GPIO0 low, rest high
+        self.uhd_usrp_sink_0.set_gpio_attr("FP0", "DDR",  MASK,     MASK)  # outputs
 
-        # Sequencer toggles pin1 only (pins 2-4 enables stay HIGH); pre-key before RF.
+        # Sequencer flips the GPIO0/GPIO2 pair for TX (enables untouched); pre-key before RF.
         self.ptt_gate = _PttGate(
-            self.uhd_usrp_sink_0, bank="FP0", pin=TX_PIN,
+            self.uhd_usrp_sink_0, bank="FP0",
+            toggle_mask=(LIVE_PIN | INV_PIN), live_value=LIVE_PIN,
             lead_s=1.5, tail_s=0.2, baud=baud)
         
         
