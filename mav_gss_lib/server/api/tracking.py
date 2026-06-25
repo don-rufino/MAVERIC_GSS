@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from mav_gss_lib.platform.tracking import TrackingError
@@ -91,6 +92,22 @@ async def api_tracking_doppler_connection(state: str, request: Request) -> dict[
     # for the next 1 Hz doppler tick to carry the mode forward.
     await runtime.doppler_broadcaster.publish({"type": "status", **runtime.tracking.status()})
     return {"connected": connected, "mode": result}
+
+
+@router.post("/api/tracking/tle/fetch", response_model=None)
+async def api_tracking_tle_fetch(request: Request) -> dict[str, Any] | JSONResponse:
+    denied = require_api_token(request)
+    if denied:
+        return denied
+    runtime = get_runtime(request)
+    # Blocking urllib runs off the event loop.
+    return await run_in_threadpool(runtime.tle_fetch.fetch_preview)
+
+
+@router.get("/api/tracking/tle/status", response_model=None)
+async def api_tracking_tle_status(request: Request) -> dict[str, Any]:
+    runtime = get_runtime(request)
+    return runtime.tle_fetch.status()
 
 
 __all__ = ["router"]
