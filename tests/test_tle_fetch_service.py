@@ -93,3 +93,29 @@ class TleFetchServiceTests(unittest.TestCase):
             self.assertIn(key, out)
         # config untouched (manual wins)
         self.assertEqual(rt.platform_cfg["tracking"]["tle"]["line1"], "hand")
+
+
+import asyncio
+from mav_gss_lib.server.tracking._fetch_loop import tle_fetch_loop
+
+class TleFetchLoopGatingTests(unittest.TestCase):
+    def test_disabled_when_auto_refresh_off(self):
+        cfg = {"tle": {"line1": "x", "line2": "y", "method": "seed"},
+               "tle_fetch": {"identifier": "25544", "auto_refresh": False}}
+        rt = _FakeRuntime(cfg)
+        calls = {"n": 0}
+        def fake_fetch(settings, now_ms):
+            calls["n"] += 1
+            return _good_result()
+        rt.tle_fetch = TleFetchService(rt, fetch_fn=fake_fetch)
+
+        async def run():
+            task = asyncio.create_task(tle_fetch_loop(rt, poll_s_override=0.01))
+            await asyncio.sleep(0.05)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        asyncio.run(run())
+        self.assertEqual(calls["n"], 0)

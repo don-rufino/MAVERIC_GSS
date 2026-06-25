@@ -49,6 +49,7 @@ from mav_gss_lib.platform.alarms.evaluators.platform import (
 )
 from mav_gss_lib.platform.alarms.setup import build_alarm_environment
 from mav_gss_lib.server.api.tracking_ws import register_tracking_ws
+from mav_gss_lib.server.tracking._fetch_loop import tle_fetch_loop
 from mav_gss_lib.server.tracking._tick import DopplerBroadcaster, doppler_tick_loop
 from mav_gss_lib.server.ws.alarms import WebRuntimeBroadcastTarget
 from .state import WEB_DIR, create_runtime, get_runtime
@@ -82,6 +83,10 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
         name="doppler-tick",
     )
     runtime._doppler_tick_task.add_done_callback(log_task_exception("doppler-tick"))
+    runtime._tle_fetch_task = asyncio.create_task(
+        tle_fetch_loop(runtime), name="tle-fetch",
+    )
+    runtime._tle_fetch_task.add_done_callback(log_task_exception("tle-fetch"))
 
     rx_addr = get_rx_zmq_addr(runtime.platform_cfg)
     runtime.rx.log = SessionLog(
@@ -188,6 +193,13 @@ async def _shutdown_runtime(runtime: "WebRuntime") -> None:
         doppler_task.cancel()
         try:
             await doppler_task
+        except (asyncio.CancelledError, Exception):
+            pass
+    fetch_task = getattr(runtime, "_tle_fetch_task", None)
+    if fetch_task is not None:
+        fetch_task.cancel()
+        try:
+            await fetch_task
         except (asyncio.CancelledError, Exception):
             pass
     try:
