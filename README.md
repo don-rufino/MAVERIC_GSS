@@ -112,6 +112,8 @@ The web runtime and GNU Radio exchange PMT PDUs over two ZMQ sockets. GNU Radio 
 
 All four addresses are editable in `gss.yml` (`platform.tx`, `platform.rx`, `platform.tracking.control`). The Radio tab reports process state, the configured script, PID, uptime, ZMQ status, and captured stdout/stderr; Doppler engagement controls live in the same tab.
 
+The GSS can also fetch MAVERIC's TLE from CelesTrak, with a Space-Track fallback (credentials read from the `SPACETRACK_IDENTITY` / `SPACETRACK_PASSWORD` environment variables, never stored in config). Fetch is OFF by default: it runs from a manual "Fetch TLE" button in the config dialog, plus an optional `auto_refresh` once the spacecraft is cataloged. Manual paste remains the pre-launch primary path. Fetched TLEs are SGP4/propagation-validated before they are accepted and never overwrite a hand-entered (`manual`) TLE.
+
 A quick runtime probe once the server is up:
 
 ```bash
