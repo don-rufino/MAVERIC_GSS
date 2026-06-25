@@ -99,5 +99,20 @@ class TestTrackingService(unittest.TestCase):
         self.assertLessEqual(len(body["upcoming_passes"]), 1)
 
 
+from mav_gss_lib.platform.tracking.propagation import satellite_from_lines, TrackingError
+
+class SatelliteFromLinesTests(unittest.TestCase):
+    L1 = "1 25544U 98067A   26001.50000000  .00000000  00000-0  00000-0 0  9990"
+    L2 = "2 25544  51.6400   0.0000 0000000   0.0000   0.0000 15.50000000000007"
+
+    def test_builds_from_lines(self):
+        sat = satellite_from_lines("ISS", self.L1, self.L2)
+        self.assertEqual(sat.name, "ISS")
+
+    def test_rejects_garbage(self):
+        with self.assertRaises(TrackingError):
+            satellite_from_lines("X", "1 garbage", "2 garbage")
+
+
 if __name__ == "__main__":
     unittest.main()
