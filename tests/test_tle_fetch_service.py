@@ -119,3 +119,15 @@ class TleFetchLoopGatingTests(unittest.TestCase):
                 pass
         asyncio.run(run())
         self.assertEqual(calls["n"], 0)
+
+
+class CredsNeverPersistedTests(unittest.TestCase):
+    def test_spacetrack_creds_not_in_config_or_status(self):
+        cfg = {"tle": {"line1": "x", "line2": "y", "method": "seed"},
+               "tle_fetch": {"identifier": "25544"}}
+        rt = _FakeRuntime(cfg)
+        rt.tle_fetch = TleFetchService(rt, fetch_fn=lambda s, now_ms: _good_result())
+        rt.tle_fetch.refresh_and_persist()
+        blob = repr(rt.platform_cfg) + repr(rt.tle_fetch.status())
+        self.assertNotIn("password", blob.lower())
+        self.assertNotIn("identity", blob.lower())
