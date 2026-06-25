@@ -13,8 +13,11 @@ from __future__ import annotations
 import copy
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Callable
 
+from mav_gss_lib.config import save_operator_config, split_to_persistable
+from mav_gss_lib.platform.config import persist_mission_config
 from mav_gss_lib.platform.tracking.fetch import FetchResult, TleFetchSettings, fetch_tle
 
 _LOG = logging.getLogger(__name__)
@@ -48,6 +51,8 @@ class TleFetchService:
         return self._fetch_fn(self.settings(), now_ms=_now_ms())
 
     def fetch_preview(self) -> dict:
+        # Manual preview is returned to the caller directly and deliberately does
+        # NOT touch _status, which tracks only the auto-refresh lifecycle.
         result = self._run_fetch()
         return self._as_dict(result)
 
@@ -56,35 +61,37 @@ class TleFetchService:
         if not result.ok:
             self._status = self._as_dict(result)
             return self._status
+        snapshot = None
+        locked = False
         with self.runtime.cfg_lock:
             tracking = self.runtime.platform_cfg.setdefault("tracking", {})
             current = tracking.get("tle") or {}
             if current.get("method") == "manual":
-                out = {"ok": False, "detail": "manual TLE locked — auto-refresh skipped",
-                       "via": result.via}
-                self._status = out
-                return out
-            via = result.via or "fetch"
-            tracking["tle"] = {
-                "source": f"{via} (fetched {_iso(result.tle_epoch_ms or _now_ms())})",
-                "name": result.name or current.get("name", ""),
-                "line1": result.line1,
-                "line2": result.line2,
-                "method": "fetched",
-                "fetched_at_ms": _now_ms(),
-            }
-            snapshot = self._persistable_snapshot()
+                locked = True
+            else:
+                via = result.via or "fetch"
+                tracking["tle"] = {
+                    "source": f"{via} (fetched {_iso(result.tle_epoch_ms or _now_ms())})",
+                    "name": result.name or current.get("name", ""),
+                    "line1": result.line1,
+                    "line2": result.line2,
+                    "method": "fetched",
+                    "fetched_at_ms": _now_ms(),
+                }
+                snapshot = self._persistable_snapshot()
+        if locked:
+            self._status = self._as_dict(
+                FetchResult(ok=False, via=result.via,
+                            detail="manual TLE locked — auto-refresh skipped"))
+            return self._status
         self._save(snapshot)
-        out = self._as_dict(result)
-        self._status = out
-        return out
+        self._status = self._as_dict(result)
+        return self._status
 
     def status(self) -> dict:
-        return getattr(self, "_status", {"ok": False, "detail": "no fetch yet", "via": None})
+        return getattr(self, "_status", self._as_dict(FetchResult(ok=False, detail="no fetch yet")))
 
     def _persistable_snapshot(self):
-        from mav_gss_lib.config import split_to_persistable
-        from mav_gss_lib.platform.config import persist_mission_config
         mission_persistable = persist_mission_config(
             self.runtime.mission_cfg, self.runtime.mission.config,
         ) if getattr(self.runtime, "mission", None) is not None else copy.deepcopy(self.runtime.mission_cfg)
@@ -95,7 +102,6 @@ class TleFetchService:
     def _save(self, snapshot) -> None:
         if getattr(self.runtime, "config_save_disabled", False):
             return
-        from mav_gss_lib.config import save_operator_config
         try:
             save_operator_config(snapshot)
         except Exception:
@@ -121,7 +127,6 @@ class TleFetchService:
 
 
 def _iso(ms: int) -> str:
-    from datetime import datetime, timezone
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 

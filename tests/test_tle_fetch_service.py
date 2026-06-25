@@ -73,3 +73,23 @@ class TleFetchServiceTests(unittest.TestCase):
         out = svc.refresh_and_persist()
         self.assertFalse(out["ok"])
         self.assertEqual(rt.platform_cfg["tracking"]["tle"]["line1"], "x")
+
+    def test_status_shape_consistent_before_and_after(self):
+        cfg = {"tle": {"line1": "x", "line2": "y", "method": "seed"},
+               "tle_fetch": {"identifier": "25544"}}
+        rt, svc = self._svc(cfg, _good_result())
+        before = set(svc.status().keys())
+        svc.refresh_and_persist()
+        after = set(svc.status().keys())
+        self.assertEqual(before, after)
+
+    def test_manual_lock_status_has_full_shape(self):
+        cfg = {"tle": {"line1": "hand", "line2": "edit", "method": "manual"},
+               "tle_fetch": {"identifier": "25544"}}
+        rt, svc = self._svc(cfg, _good_result())
+        out = svc.refresh_and_persist()
+        self.assertFalse(out["ok"])
+        for key in ("age_days", "candidates", "ts_ms", "via", "name"):
+            self.assertIn(key, out)
+        # config untouched (manual wins)
+        self.assertEqual(rt.platform_cfg["tracking"]["tle"]["line1"], "hand")
