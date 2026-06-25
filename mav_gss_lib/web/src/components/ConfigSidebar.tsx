@@ -386,7 +386,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
       if (data.ok) {
         const tle = { source: `${data.via} (fetched)`, name: data.name,
                       line1: data.line1, line2: data.line2, method: 'fetched' as const,
-                      fetched_at_ms: data.tle_epoch_ms }
+                      fetched_at_ms: Date.now() }
         updateTrackingTle(tle)
         setTleDraft(joinTleBlock(tle))
         const age = data.age_days != null ? ` · epoch ${data.age_days}d old` : ''
