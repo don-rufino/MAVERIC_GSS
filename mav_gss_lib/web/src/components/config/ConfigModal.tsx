@@ -109,6 +109,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
   const animateOnMount = hasLoadedConfigModal
   const [activeCategory, setActiveCategory] = useState('radio')
   const [search, setSearch] = useState('')
+  const [credStatus, setCredStatus] = useState<{ identity_set: boolean; password_set: boolean } | null>(null)
 
   useEffect(() => {
     hasLoadedConfigModal = true
@@ -188,6 +189,10 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
     fetch('/api/status')
       .then((r) => r.json())
       .then(setStatusInfo)
+      .catch(() => {})
+    fetch('/api/tracking/tle/status')
+      .then((r) => r.json())
+      .then((d) => setCredStatus(d.spacetrack ?? null))
       .catch(() => {})
   }, [open])
 
@@ -418,6 +423,24 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
     })
 
     const identifier = cfg.platform.tracking?.tle_fetch?.identifier ?? ''
+    const provider = cfg.platform.tracking?.tle_fetch?.provider ?? 'celestrak'
+    const autoFetchRows: SettingRow[] = [
+      { id: 'provider', label: 'Provider', description: 'Which catalog the Fetch button queries.', control: { kind: 'select', value: provider, options: [{ value: 'celestrak', label: 'CelesTrak' }, { value: 'spacetrack', label: 'Space-Track' }], onChange: (v) => updateTrackingFetch({ provider: v as 'celestrak' | 'spacetrack' }) } },
+    ]
+    if (provider === 'spacetrack') {
+      autoFetchRows.push({
+        id: 'creds', label: 'Space-Track credentials',
+        control: { kind: 'env-status', rows: [
+          { name: 'SPACETRACK_IDENTITY', present: !!credStatus?.identity_set },
+          { name: 'SPACETRACK_PASSWORD', present: !!credStatus?.password_set },
+        ], hint: 'Set both in the environment before launching MAV_WEB.py. Credentials are never typed into or stored by the app.' },
+      })
+    }
+    autoFetchRows.push(
+      { id: 'identifier', label: 'Catalog identifier', description: 'NORAD ID or name to look up.', control: { kind: 'fetch-identifier', value: identifier, onChange: (v) => updateTrackingFetch({ identifier: v }), onFetch: () => { void handleFetchTle() }, fetching, fetchMsg, disabled: fetching || !identifier.trim() } },
+      { id: 'auto_refresh', label: 'Auto-refresh', description: 'Periodically re-fetch elements.', control: { kind: 'toggle', value: cfg.platform.tracking?.tle_fetch?.auto_refresh ?? false, onChange: (v) => updateTrackingFetch({ auto_refresh: v }) } },
+      { id: 'refresh_hours', label: 'Refresh interval', description: 'How often to re-fetch while enabled.', control: { kind: 'number', unit: 'hours', value: cfg.platform.tracking?.tle_fetch?.refresh_interval_hours ?? 12, onChange: (v) => updateTrackingFetch({ refresh_interval_hours: v }) } },
+    )
     out.push({
       id: 'tracking', title: 'Tracking', description: 'Orbit propagation and Doppler tuning source.',
       groups: [
@@ -425,11 +448,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
           { id: 'tle_source', label: 'TLE source', description: 'Origin label for the current elements.', control: { kind: 'text', stacked: true, value: cfg.platform.tracking?.tle?.source ?? '', onChange: (v) => updateTrackingTle({ source: v }) } },
           { id: 'tle', label: 'Two-line elements (TLE)', description: 'Name, line 1, line 2 — applied live on the next tick.', control: { kind: 'tle', draft: tleDraft, onChange: handleTleDraftChange } },
         ]},
-        { title: 'Auto-fetch', rows: [
-          { id: 'identifier', label: 'Catalog identifier', description: 'NORAD ID or name to look up.', control: { kind: 'fetch-identifier', value: identifier, onChange: (v) => updateTrackingFetch({ identifier: v }), onFetch: () => { void handleFetchTle() }, fetching, fetchMsg, disabled: fetching || !identifier.trim() } },
-          { id: 'auto_refresh', label: 'Auto-refresh', description: 'Periodically re-fetch elements.', control: { kind: 'toggle', value: cfg.platform.tracking?.tle_fetch?.auto_refresh ?? false, onChange: (v) => updateTrackingFetch({ auto_refresh: v }) } },
-          { id: 'refresh_hours', label: 'Refresh interval', description: 'How often to re-fetch while enabled.', control: { kind: 'number', unit: 'hours', value: cfg.platform.tracking?.tle_fetch?.refresh_interval_hours ?? 12, onChange: (v) => updateTrackingFetch({ refresh_interval_hours: v }) } },
-        ]},
+        { title: 'Auto-fetch', rows: autoFetchRows },
       ],
     })
 
@@ -446,7 +465,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       out.push({ id: 'about', title: 'About', description: 'Session and build details.', groups: [{ title: 'Session', rows }] })
     }
     return out
-  }, [cfg, tleDraft, statusInfo, fetching, fetchMsg, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingFetch, updateTrackingTle])
+  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingFetch, updateTrackingTle])
 
   const trimmed = search.trim()
   const contentPanes = trimmed ? panes : panes.filter((p) => p.id === activeCategory)

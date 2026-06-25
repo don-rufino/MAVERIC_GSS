@@ -323,6 +323,7 @@ export interface PlatformTrackingConfig {
     identifier: string
     auto_refresh: boolean
     refresh_interval_hours: number
+    provider?: 'celestrak' | 'spacetrack'
   }
 }
 

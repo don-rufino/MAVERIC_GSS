@@ -2,7 +2,7 @@ import { useContext } from 'react'
 import { colors } from '@/lib/colors'
 import { GssInput } from '@/components/ui/gss-input'
 import { Switch } from '@/components/ui/switch'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Lock, CircleCheck, CircleX } from 'lucide-react'
 import { SearchContext, matchesQuery, useFieldVisible } from './search'
 
 export type Control =
@@ -20,13 +20,15 @@ export type Control =
       fetchMsg: string
       disabled: boolean
     }
+  | { kind: 'select'; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void }
+  | { kind: 'env-status'; rows: { name: string; present: boolean }[]; hint: string }
 
 export interface SettingRow { id: string; label: string; description?: string; control: Control }
 export interface SettingGroup { title: string; rows: SettingRow[] }
 export interface SettingPane { id: string; title: string; description?: string; groups: SettingGroup[] }
 
 function isStacked(c: Control): boolean {
-  return (c.kind === 'text' && !!c.stacked) || c.kind === 'tle' || c.kind === 'fetch-identifier'
+  return (c.kind === 'text' && !!c.stacked) || c.kind === 'tle' || c.kind === 'fetch-identifier' || c.kind === 'env-status'
 }
 
 function TleBlock({ draft, onChange }: { draft: string; onChange: (v: string) => void }) {
@@ -101,6 +103,35 @@ function ControlView({ control }: { control: Control }) {
       return <TleBlock draft={control.draft} onChange={control.onChange} />
     case 'fetch-identifier':
       return <FetchIdentifier {...control} />
+    case 'select':
+      return (
+        <select
+          value={control.value}
+          onChange={(e) => control.onChange(e.target.value)}
+          className="w-40 rounded px-2.5 py-1.5 text-[12.5px] outline-none"
+          style={{ backgroundColor: colors.bgApp, border: `1px solid ${colors.borderSubtle}`, color: colors.value }}
+        >
+          {control.options.map((o) => <option key={o.value} value={o.value} style={{ backgroundColor: colors.bgApp }}>{o.label}</option>)}
+        </select>
+      )
+    case 'env-status':
+      return (
+        <div className="rounded-md p-3" style={{ backgroundColor: colors.bgPanel, border: `1px solid ${colors.borderSubtle}` }}>
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: colors.dim }}>
+            <Lock className="size-3" /> Credentials · environment
+          </div>
+          {control.rows.map((r) => (
+            <div key={r.name} className="flex items-center justify-between py-0.5">
+              <span className="font-mono text-[11.5px]" style={{ color: colors.textSecondary }}>{r.name}</span>
+              <span className="flex items-center gap-1.5 text-xs" style={{ color: r.present ? colors.success : colors.danger }}>
+                {r.present ? <CircleCheck className="size-3.5" /> : <CircleX className="size-3.5" />}
+                {r.present ? 'present' : 'missing'}
+              </span>
+            </div>
+          ))}
+          <div className="text-[11.5px] mt-2 leading-snug" style={{ color: colors.sep }}>{control.hint}</div>
+        </div>
+      )
   }
 }
 
@@ -115,10 +146,11 @@ export function RowRenderer({ row }: { row: SettingRow }) {
     </div>
   )
   if (stacked) {
+    const hideLabel = row.control.kind === 'env-status'
     return (
       <div className="py-1.5">
-        {labelBlock}
-        <div className="mt-1.5"><ControlView control={row.control} /></div>
+        {!hideLabel && labelBlock}
+        <div className={hideLabel ? '' : 'mt-1.5'}><ControlView control={row.control} /></div>
       </div>
     )
   }

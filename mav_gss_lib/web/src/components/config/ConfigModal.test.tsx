@@ -18,7 +18,10 @@ const STATUS = { version: '1.2.3', schema_path: '/x/maveric.yml', schema_count: 
 
 beforeEach(() => {
   global.fetch = vi.fn((url: RequestInfo | URL) => {
-    const body = String(url).includes('/api/status') ? STATUS : CONFIG
+    const u = String(url)
+    const body = u.includes('/api/tracking/tle/status')
+      ? { ok: false, spacetrack: { identity_set: true, password_set: false } }
+      : u.includes('/api/status') ? STATUS : CONFIG
     return Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response)
   }) as unknown as typeof fetch
 })
@@ -95,5 +98,16 @@ describe('ConfigModal', () => {
     await openModal()
     fireEvent.change(screen.getByPlaceholderText('Search settings'), { target: { value: 'zzzzznomatch' } })
     expect(screen.getByText(/No settings match/)).toBeTruthy()
+  })
+
+  it('shows the provider dropdown and reveals the env-status panel for Space-Track', async () => {
+    await openModal()
+    fireEvent.click(within(rail()).getByText('Tracking'))
+    const select = screen.getAllByDisplayValue('CelesTrak').find((el) => el.tagName === 'SELECT')
+    expect(select).toBeTruthy()
+    expect(screen.queryByText('SPACETRACK_IDENTITY')).toBeNull()
+    fireEvent.change(select!, { target: { value: 'spacetrack' } })
+    expect(screen.getByText('SPACETRACK_IDENTITY')).toBeTruthy()
+    expect(screen.getByText('SPACETRACK_PASSWORD')).toBeTruthy()
   })
 })
