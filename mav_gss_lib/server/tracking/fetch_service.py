@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Callable
@@ -45,6 +46,7 @@ class TleFetchService:
             identifier=str(raw.get("identifier", "")),
             auto_refresh=bool(raw.get("auto_refresh", False)),
             refresh_interval_hours=interval,
+            provider=str(raw.get("provider", "celestrak")),
         )
 
     def _run_fetch(self) -> FetchResult:
@@ -90,6 +92,14 @@ class TleFetchService:
 
     def status(self) -> dict:
         return getattr(self, "_status", self._as_dict(FetchResult(ok=False, detail="no fetch yet")))
+
+    @staticmethod
+    def spacetrack_env_status() -> dict:
+        """Non-secret booleans: are the Space-Track env creds present? (values never exposed)."""
+        return {
+            "identity_set": bool(os.environ.get("SPACETRACK_IDENTITY")),
+            "password_set": bool(os.environ.get("SPACETRACK_PASSWORD")),
+        }
 
     def _persistable_snapshot(self):
         mission_persistable = persist_mission_config(

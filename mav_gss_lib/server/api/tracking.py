@@ -107,7 +107,7 @@ async def api_tracking_tle_fetch(request: Request) -> dict[str, Any] | JSONRespo
 @router.get("/api/tracking/tle/status", response_model=None)
 async def api_tracking_tle_status(request: Request) -> dict[str, Any]:
     runtime = get_runtime(request)
-    return runtime.tle_fetch.status()
+    return {**runtime.tle_fetch.status(), "spacetrack": runtime.tle_fetch.spacetrack_env_status()}
 
 
 __all__ = ["router"]
