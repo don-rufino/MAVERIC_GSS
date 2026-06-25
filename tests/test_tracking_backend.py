@@ -13,6 +13,9 @@ from mav_gss_lib.platform.tracking import (
     normalize_tracking_config,
     tracking_state,
 )
+from mav_gss_lib.platform.tracking.propagation import satellite_from_lines, TrackingError
+from mav_gss_lib.platform.tracking.models import TrackingTle
+from mav_gss_lib.platform.tracking.config import normalize_tracking_config
 from mav_gss_lib.server.api.tracking import router as tracking_router
 from mav_gss_lib.server.tracking import TrackingService
 from mav_gss_lib.server.tracking._tick import DopplerBroadcaster
@@ -99,8 +102,6 @@ class TestTrackingService(unittest.TestCase):
         self.assertLessEqual(len(body["upcoming_passes"]), 1)
 
 
-from mav_gss_lib.platform.tracking.propagation import satellite_from_lines, TrackingError
-
 class SatelliteFromLinesTests(unittest.TestCase):
     L1 = "1 25544U 98067A   26001.50000000  .00000000  00000-0  00000-0 0  9990"
     L2 = "2 25544  51.6400   0.0000 0000000   0.0000   0.0000 15.50000000000007"
@@ -114,8 +115,6 @@ class SatelliteFromLinesTests(unittest.TestCase):
             satellite_from_lines("X", "1 garbage", "2 garbage")
 
 
-from mav_gss_lib.platform.tracking.models import TrackingTle
-
 class TrackingTleProvenanceTests(unittest.TestCase):
     def test_defaults(self):
         tle = TrackingTle(source="s", name="n", line1="1", line2="2")
@@ -128,8 +127,6 @@ class TrackingTleProvenanceTests(unittest.TestCase):
         self.assertEqual(tle.method, "fetched")
         self.assertEqual(tle.fetched_at_ms, 123)
 
-
-from mav_gss_lib.platform.tracking.config import normalize_tracking_config
 
 class NormalizeTleProvenanceTests(unittest.TestCase):
     def test_legacy_tle_without_method_defaults_manual(self):
@@ -147,6 +144,14 @@ class NormalizeTleProvenanceTests(unittest.TestCase):
         }})
         self.assertEqual(cfg.tle.method, "fetched")
         self.assertEqual(cfg.tle.fetched_at_ms, 999)
+
+    def test_invalid_method_coerced_to_manual(self):
+        cfg = normalize_tracking_config({"tle": {
+            "source": "op", "name": "X",
+            "line1": "1 12345U ...", "line2": "2 12345 ...",
+            "method": "bogus",
+        }})
+        self.assertEqual(cfg.tle.method, "manual")
 
 
 if __name__ == "__main__":

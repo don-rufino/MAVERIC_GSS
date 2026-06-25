@@ -13,6 +13,7 @@ from .models import (
     TrackingFrequencies,
     TrackingStation,
     TrackingTle,
+    TleMethod,
 )
 
 
@@ -46,7 +47,7 @@ def _bool(value: Any, fallback: bool) -> bool:
     return value if isinstance(value, bool) else fallback
 
 
-def _tle_method(value: Any) -> str:
+def _tle_method(value: Any) -> TleMethod:
     return value if value in ("manual", "fetched", "seed") else "manual"
 
 
