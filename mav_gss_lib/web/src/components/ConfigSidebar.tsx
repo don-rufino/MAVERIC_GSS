@@ -354,11 +354,58 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
     })
   }, [])
 
+  const updateTrackingFetch = useCallback((patch: Partial<NonNullable<PlatformTrackingConfig['tle_fetch']>>) => {
+    setCfg((prev) => {
+      if (!prev) return prev
+      const tracking = prev.platform.tracking
+      const next = {
+        ...prev,
+        platform: {
+          ...prev.platform,
+          tracking: {
+            ...(tracking ?? {}),
+            tle_fetch: { identifier: '', auto_refresh: false, refresh_interval_hours: 12,
+                         ...(tracking?.tle_fetch ?? {}), ...patch },
+          } as PlatformTrackingConfig,
+        },
+      }
+      setDirty(true)
+      return next
+    })
+  }, [])
+
+  const [fetchMsg, setFetchMsg] = useState<string>('')
+  const [fetching, setFetching] = useState(false)
+
+  const handleFetchTle = useCallback(async () => {
+    setFetching(true)
+    setFetchMsg('')
+    try {
+      const resp = await authFetch('/api/tracking/tle/fetch', { method: 'POST' })
+      const data = await resp.json()
+      if (data.ok) {
+        const tle = { source: `${data.via} (fetched)`, name: data.name,
+                      line1: data.line1, line2: data.line2, method: 'fetched' as const,
+                      fetched_at_ms: data.tle_epoch_ms }
+        updateTrackingTle(tle)
+        setTleDraft(joinTleBlock(tle))
+        const age = data.age_days != null ? ` · epoch ${data.age_days}d old` : ''
+        setFetchMsg(`Fetched via ${data.via}${age}. Review and Save.`)
+      } else {
+        setFetchMsg(data.detail || 'Fetch failed')
+      }
+    } catch {
+      setFetchMsg('Fetch request failed')
+    } finally {
+      setFetching(false)
+    }
+  }, [updateTrackingTle])
+
   // The textarea holds the raw paste; only the lines that successfully
   // parse are written back, so a partial edit never wipes a good field.
   const handleTleDraftChange = useCallback((text: string) => {
     setTleDraft(text)
-    updateTrackingTle(parseTleBlock(text))
+    updateTrackingTle({ ...parseTleBlock(text), method: 'manual' })
   }, [updateTrackingTle])
 
   const updateMission = useCallback((
@@ -496,6 +543,33 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                       style={{ backgroundColor: colors.bgApp, color: colors.value, border: `1px solid ${colors.borderSubtle}` }}
                     />
                   </label>
+                  <TextField
+                    label="Fetch Identifier"
+                    value={cfg.platform.tracking?.tle_fetch?.identifier ?? ''}
+                    onChange={(v) => updateTrackingFetch({ identifier: v })}
+                  />
+                  <button
+                    type="button"
+                    disabled={fetching || !(cfg.platform.tracking?.tle_fetch?.identifier ?? '').trim()}
+                    onClick={() => { void handleFetchTle() }}
+                    className="text-xs rounded px-2 py-1 self-start disabled:opacity-40"
+                    style={{ border: `1px solid ${colors.borderSubtle}`, color: colors.value }}
+                  >
+                    {fetching ? 'Fetching…' : 'Fetch TLE'}
+                  </button>
+                  {fetchMsg && (
+                    <span className="text-xs" style={{ color: colors.dim }}>{fetchMsg}</span>
+                  )}
+                  <ToggleField
+                    label="Auto-refresh"
+                    value={cfg.platform.tracking?.tle_fetch?.auto_refresh ?? false}
+                    onChange={(v) => updateTrackingFetch({ auto_refresh: v })}
+                  />
+                  <NumberField
+                    label="Refresh (hours)"
+                    value={cfg.platform.tracking?.tle_fetch?.refresh_interval_hours ?? 12}
+                    onChange={(v) => updateTrackingFetch({ refresh_interval_hours: v })}
+                  />
                 </Section>
 
                 {/* Session Info */}
