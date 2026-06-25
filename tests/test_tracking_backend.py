@@ -129,5 +129,25 @@ class TrackingTleProvenanceTests(unittest.TestCase):
         self.assertEqual(tle.fetched_at_ms, 123)
 
 
+from mav_gss_lib.platform.tracking.config import normalize_tracking_config
+
+class NormalizeTleProvenanceTests(unittest.TestCase):
+    def test_legacy_tle_without_method_defaults_manual(self):
+        cfg = normalize_tracking_config({"tle": {
+            "source": "op", "name": "X",
+            "line1": "1 12345U ...", "line2": "2 12345 ...",
+        }})
+        self.assertEqual(cfg.tle.method, "manual")
+
+    def test_method_preserved(self):
+        cfg = normalize_tracking_config({"tle": {
+            "source": "CelesTrak", "name": "X",
+            "line1": "1 12345U ...", "line2": "2 12345 ...",
+            "method": "fetched", "fetched_at_ms": 999,
+        }})
+        self.assertEqual(cfg.tle.method, "fetched")
+        self.assertEqual(cfg.tle.fetched_at_ms, 999)
+
+
 if __name__ == "__main__":
     unittest.main()
