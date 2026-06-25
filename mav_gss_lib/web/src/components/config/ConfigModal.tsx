@@ -7,7 +7,7 @@ import { authFetch } from '@/lib/auth'
 import { parseTleBlock, joinTleBlock } from '@/lib/tle'
 import { Kbd } from '@/components/ui/kbd'
 import { ConfigRail, type RailItem } from './ConfigRail'
-import { SearchContext } from './search'
+import { SearchContext, matchesQuery } from './search'
 import { PaneRenderer, type SettingRow, type SettingPane } from './fields'
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
@@ -502,9 +502,9 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
                   <div className="flex-1 overflow-y-auto p-4 min-w-0">
                     <SearchContext.Provider value={trimmed}>
                       {contentPanes.map((pane) => <PaneRenderer key={pane.id} pane={pane} />)}
-                      {trimmed && !panes.some((p) => p.groups.some((g) => g.rows.length)) && (
-                        <div className="text-xs" style={{ color: colors.dim }}>No settings.</div>
-                      )}
+                      {trimmed && !panes.some((p) => p.groups.some((g) => g.rows.some((r) => matchesQuery(trimmed, r.label, r.description)))) && (
+                      <div className="text-xs" style={{ color: colors.dim }}>No settings match “{trimmed}”.</div>
+                    )}
                     </SearchContext.Provider>
                   </div>
                 </div>
