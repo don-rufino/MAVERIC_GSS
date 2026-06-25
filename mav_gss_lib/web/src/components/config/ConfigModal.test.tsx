@@ -61,7 +61,7 @@ describe('ConfigModal', () => {
     expect(screen.getByText('Catalog identifier')).toBeTruthy()
     expect(screen.getByText('Auto-refresh')).toBeTruthy()
     expect(screen.getByText('Refresh interval')).toBeTruthy()
-    expect(screen.getAllByRole('switch').length >= 1).toBeTruthy()
+    expect(screen.getAllByRole('switch').length).toBe(1)
   })
 
   it('Mission pane renders dynamic mission config', async () => {
@@ -78,6 +78,9 @@ describe('ConfigModal', () => {
     expect(screen.getByText('Version')).toBeTruthy()
     expect(screen.getByText('1.2.3')).toBeTruthy()
     expect(screen.getByText('Commands')).toBeTruthy()
+    expect(screen.getByText('Schema')).toBeTruthy()
+    expect(screen.getByText('Log dir')).toBeTruthy()
+    expect(screen.getByText('Session data')).toBeTruthy()
   })
 
   it('search filters fields across panes', async () => {
