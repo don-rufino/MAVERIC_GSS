@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 _LOG = logging.getLogger(__name__)
 
@@ -21,18 +22,17 @@ _FETCH_HARD_TIMEOUT_S = 30.0   # ceiling on a single refresh attempt
 
 async def tle_fetch_loop(runtime, *, poll_s_override: float | None = None) -> None:
     last_fetch_ms = 0.0
-    import time as _time
     while True:
         try:
             svc = getattr(runtime, "tle_fetch", None)
             settings = svc.settings() if svc is not None else None
             due = False
             if settings is not None and settings.auto_refresh and settings.identifier.strip():
-                now_ms = _time.time() * 1000
+                now_ms = time.time() * 1000
                 interval_ms = settings.refresh_interval_hours * 3_600_000.0
                 due = (last_fetch_ms == 0.0) or (now_ms - last_fetch_ms >= interval_ms)
             if due:
-                last_fetch_ms = _time.time() * 1000
+                last_fetch_ms = time.time() * 1000
                 try:
                     result = await asyncio.wait_for(
                         asyncio.to_thread(svc.refresh_and_persist),
