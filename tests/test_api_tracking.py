@@ -156,7 +156,12 @@ class TleFetchEndpointTests(unittest.TestCase):
     def test_status_ungated(self):
         r = self.client.get("/api/tracking/tle/status")
         self.assertEqual(r.status_code, 200)
-        self.assertIn("ok", r.json())
+        body = r.json()
+        self.assertIn("ok", body)
+        self.assertIn("spacetrack", body)
+        self.assertEqual(set(body["spacetrack"].keys()), {"identity_set", "password_set"})
+        self.assertIsInstance(body["spacetrack"]["identity_set"], bool)
+        self.assertIsInstance(body["spacetrack"]["password_set"], bool)
 
 
 if __name__ == "__main__":
