@@ -62,20 +62,19 @@ def _rad_to_deg(value: float) -> float:
     return value * 180.0 / math.pi
 
 
-def build_satellite(config: TrackingConfig) -> EarthSatellite:
+def satellite_from_lines(name: str, line1: str, line2: str) -> EarthSatellite:
     try:
-        satellite = EarthSatellite(
-            config.tle.line1,
-            config.tle.line2,
-            config.tle.name,
-            _TIMESCALE,
-        )
+        satellite = EarthSatellite(line1, line2, name, _TIMESCALE)
     except Exception as exc:
         raise TrackingError(f"invalid TLE: {exc}") from exc
     error = getattr(getattr(satellite, "model", None), "error", 0)
     if error:
         raise TrackingError(f"invalid TLE: SGP4 error {error}")
     return satellite
+
+
+def build_satellite(config: TrackingConfig) -> EarthSatellite:
+    return satellite_from_lines(config.tle.name, config.tle.line1, config.tle.line2)
 
 
 def station_topos(station: TrackingStation):

@@ -13,9 +13,12 @@ from mav_gss_lib.platform.tracking import (
     normalize_tracking_config,
     tracking_state,
 )
+from mav_gss_lib.platform.tracking.propagation import satellite_from_lines, TrackingError
+from mav_gss_lib.platform.tracking.models import TrackingTle
 from mav_gss_lib.server.api.tracking import router as tracking_router
 from mav_gss_lib.server.tracking import TrackingService
 from mav_gss_lib.server.tracking._tick import DopplerBroadcaster
+from mav_gss_lib.missions.maveric.tracking_defaults import seed_tracking_defaults
 
 
 class TestTrackingDomain(unittest.TestCase):
@@ -97,6 +100,72 @@ class TestTrackingService(unittest.TestCase):
         self.assertEqual(body["doppler"]["mode"], "connected")
         self.assertIn("ground_track", body)
         self.assertLessEqual(len(body["upcoming_passes"]), 1)
+
+
+class SatelliteFromLinesTests(unittest.TestCase):
+    L1 = "1 25544U 98067A   26001.50000000  .00000000  00000-0  00000-0 0  9990"
+    L2 = "2 25544  51.6400   0.0000 0000000   0.0000   0.0000 15.50000000000007"
+
+    def test_builds_from_lines(self):
+        sat = satellite_from_lines("ISS", self.L1, self.L2)
+        self.assertEqual(sat.name, "ISS")
+
+    def test_rejects_garbage(self):
+        with self.assertRaises(TrackingError):
+            satellite_from_lines("X", "1 garbage", "2 garbage")
+
+
+class TrackingTleProvenanceTests(unittest.TestCase):
+    def test_defaults(self):
+        tle = TrackingTle(source="s", name="n", line1="1", line2="2")
+        self.assertEqual(tle.method, "manual")
+        self.assertEqual(tle.fetched_at_ms, 0)
+
+    def test_explicit_method(self):
+        tle = TrackingTle(source="s", name="n", line1="1", line2="2",
+                          method="fetched", fetched_at_ms=123)
+        self.assertEqual(tle.method, "fetched")
+        self.assertEqual(tle.fetched_at_ms, 123)
+
+
+class NormalizeTleProvenanceTests(unittest.TestCase):
+    def test_legacy_tle_without_method_defaults_manual(self):
+        cfg = normalize_tracking_config({"tle": {
+            "source": "op", "name": "X",
+            "line1": "1 12345U ...", "line2": "2 12345 ...",
+        }})
+        self.assertEqual(cfg.tle.method, "manual")
+
+    def test_method_preserved(self):
+        cfg = normalize_tracking_config({"tle": {
+            "source": "CelesTrak", "name": "X",
+            "line1": "1 12345U ...", "line2": "2 12345 ...",
+            "method": "fetched", "fetched_at_ms": 999,
+        }})
+        self.assertEqual(cfg.tle.method, "fetched")
+        self.assertEqual(cfg.tle.fetched_at_ms, 999)
+
+    def test_invalid_method_coerced_to_manual(self):
+        cfg = normalize_tracking_config({"tle": {
+            "source": "op", "name": "X",
+            "line1": "1 12345U ...", "line2": "2 12345 ...",
+            "method": "bogus",
+        }})
+        self.assertEqual(cfg.tle.method, "manual")
+
+
+class SeedTrackingDefaultsTests(unittest.TestCase):
+    def test_seeds_tle_fetch_and_method(self):
+        cfg = {}
+        seed_tracking_defaults(cfg)
+        self.assertEqual(cfg["tracking"]["tle"]["method"], "seed")
+        self.assertEqual(cfg["tracking"]["tle_fetch"]["identifier"], "")
+        self.assertFalse(cfg["tracking"]["tle_fetch"]["auto_refresh"])
+
+    def test_does_not_mark_existing_operator_tle_as_seed(self):
+        cfg = {"tracking": {"tle": {"line1": "1 12345U ...", "line2": "2 12345 ..."}}}
+        seed_tracking_defaults(cfg)
+        self.assertNotIn("method", cfg["tracking"]["tle"])  # left for normalize -> "manual"
 
 
 if __name__ == "__main__":

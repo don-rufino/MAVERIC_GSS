@@ -116,5 +116,48 @@ class TrackingConnectionEndpointTests(unittest.TestCase):
                 self.assertEqual(msg["mode"], "connected")
 
 
+class RuntimeTleFetchWiringTests(unittest.TestCase):
+    def test_runtime_has_tle_fetch_service(self):
+        from mav_gss_lib.server.app import create_app
+        app = create_app()
+        self.assertTrue(hasattr(app.state.runtime, "tle_fetch"))
+        self.assertTrue(callable(app.state.runtime.tle_fetch.fetch_preview))
+
+
+class TleFetchEndpointTests(unittest.TestCase):
+    def setUp(self):
+        from mav_gss_lib.server.app import create_app
+        self.app = create_app()
+        self.client = TestClient(self.app)
+        self.runtime = self.app.state.runtime
+        self.token = self.runtime.session_token
+        from mav_gss_lib.platform.tracking.fetch import FetchResult
+        self.runtime.tle_fetch._fetch_fn = lambda settings, now_ms: FetchResult(
+            ok=True, via="celestrak", name="MAVERIC",
+            line1="1 25544U 98067A   26001.50000000  .00000000  00000-0  00000-0 0  9990",
+            line2="2 25544  51.6400   0.0000 0000000   0.0000   0.0000 15.50000000000007",
+            tle_epoch_ms=1767225600000)
+
+    def tearDown(self):
+        self.client.close()
+
+    def test_fetch_requires_token(self):
+        r = self.client.post("/api/tracking/tle/fetch")
+        self.assertEqual(r.status_code, 403)
+
+    def test_fetch_returns_preview(self):
+        r = self.client.post("/api/tracking/tle/fetch", headers={"x-gss-token": self.token})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["via"], "celestrak")
+        self.assertTrue(body["line1"].startswith("1 25544"))
+
+    def test_status_ungated(self):
+        r = self.client.get("/api/tracking/tle/status")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("ok", r.json())
+
+
 if __name__ == "__main__":
     unittest.main()

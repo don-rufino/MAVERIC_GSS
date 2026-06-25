@@ -13,6 +13,7 @@ from .models import (
     TrackingFrequencies,
     TrackingStation,
     TrackingTle,
+    TleMethod,
 )
 
 
@@ -46,6 +47,10 @@ def _bool(value: Any, fallback: bool) -> bool:
     return value if isinstance(value, bool) else fallback
 
 
+def _tle_method(value: Any) -> TleMethod:
+    return value if value in ("manual", "fetched", "seed") else "manual"
+
+
 def default_station() -> TrackingStation:
     # Reference station with sample coordinates. Operators override via
     # gss.yml `platform.tracking.stations[]`; this default is a
@@ -71,6 +76,7 @@ def default_tracking_config() -> TrackingConfig:
             name="Sample LEO",
             line1=SAMPLE_TLE_LINE1,
             line2=SAMPLE_TLE_LINE2,
+            method="seed",
         ),
         frequencies=TrackingFrequencies(rx_hz=437_000_000.0, tx_hz=437_000_000.0),
         display=TrackingDisplay(day_night_map=True),
@@ -98,6 +104,8 @@ def default_tracking_config_dict() -> dict[str, Any]:
             "name": cfg.tle.name,
             "line1": cfg.tle.line1,
             "line2": cfg.tle.line2,
+            "method": cfg.tle.method,
+            "fetched_at_ms": cfg.tle.fetched_at_ms,
         },
         "frequencies": {
             "rx_hz": cfg.frequencies.rx_hz,
@@ -155,6 +163,8 @@ def normalize_tracking_config(value: Any) -> TrackingConfig:
             name=_string(tle_raw.get("name"), defaults.tle.name),
             line1=_string(tle_raw.get("line1"), defaults.tle.line1),
             line2=_string(tle_raw.get("line2"), defaults.tle.line2),
+            method=_tle_method(tle_raw.get("method")),
+            fetched_at_ms=int(_float(tle_raw.get("fetched_at_ms"), 0.0, min_value=0.0)),
         ),
         frequencies=TrackingFrequencies(
             rx_hz=_float(frequencies_raw.get("rx_hz"), defaults.frequencies.rx_hz, min_value=1.0),

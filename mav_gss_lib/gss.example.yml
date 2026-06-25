@@ -43,6 +43,17 @@ platform:
     gs-laptop-1.local: GS-1
     gs-laptop-2.local: GS-2
 
+  # TLE fetch (OFF by default). The GSS can fetch MAVERIC's TLE from CelesTrak
+  # into platform.tracking.tle once the spacecraft is cataloged. Leave disabled
+  # pre-launch; manual paste remains the primary path until then.
+  # tracking:
+  #   tle_fetch:
+  #     identifier: ""            # MAVERIC NORAD ID / intl-designator / name once cataloged; "" disables fetch
+  #     auto_refresh: false       # set true post-launch to refresh on the interval below
+  #     refresh_interval_hours: 12
+  #   # Space-Track fallback credentials are read from the environment only,
+  #   # never from this file: SPACETRACK_IDENTITY / SPACETRACK_PASSWORD
+
 mission:
   id: maveric
   # mission.config overrides mission-declared editable paths. For MAVERIC:

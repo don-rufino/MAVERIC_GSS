@@ -2,6 +2,7 @@ from pathlib import Path
 import io
 import re
 import tokenize
+import unittest
 
 
 def test_platform_package_public_api_imports():
@@ -97,3 +98,17 @@ def test_platform_package_does_not_encode_maveric_vocabulary():
                 offenders.append((str(path), token.string))
 
     assert offenders == []
+
+
+class OutboundHttpConfinementTests(unittest.TestCase):
+    def test_urllib_request_confined_to_fetch_module(self):
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent / "mav_gss_lib"
+        offenders = []
+        for path in root.rglob("*.py"):
+            if path.name == "fetch.py" and path.parent.name == "tracking":
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if "urllib.request" in text or "http.client" in text:
+                offenders.append(str(path.relative_to(root)))
+        self.assertEqual(offenders, [], f"outbound HTTP must live in tracking/fetch.py only: {offenders}")

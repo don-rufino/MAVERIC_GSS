@@ -45,6 +45,7 @@ from mav_gss_lib.platform.parameter_cache import ParameterCache
 from ._atomics import AtomicStatus
 from .radio import RadioService
 from .rx.service import RxService
+from .tracking.fetch_service import TleFetchService
 from .tracking.service import TrackingService
 from .tx.service import TxService
 
@@ -174,6 +175,7 @@ class WebRuntime:
         self.tx = TxService(self)
         self.radio = RadioService(self)
         self.tracking = TrackingService(self)
+        self.tle_fetch = TleFetchService(self)
         self.radio.add_exit_callback(self.tracking.disengage)
         self.doppler_broadcaster = None  # set by create_app at startup
 

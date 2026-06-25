@@ -23,6 +23,7 @@ SPEED_OF_LIGHT_MPS = 299_792_458.0
 EARTH_RADIUS_KM = 6378.137
 
 DopplerMode = Literal["disconnected", "connected", "sim"]
+TleMethod = Literal["manual", "fetched", "seed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,8 @@ class TrackingTle:
     name: str
     line1: str
     line2: str
+    method: TleMethod = "manual"
+    fetched_at_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)
