@@ -15,7 +15,6 @@ from mav_gss_lib.platform.tracking import (
 )
 from mav_gss_lib.platform.tracking.propagation import satellite_from_lines, TrackingError
 from mav_gss_lib.platform.tracking.models import TrackingTle
-from mav_gss_lib.platform.tracking.config import normalize_tracking_config
 from mav_gss_lib.server.api.tracking import router as tracking_router
 from mav_gss_lib.server.tracking import TrackingService
 from mav_gss_lib.server.tracking._tick import DopplerBroadcaster
