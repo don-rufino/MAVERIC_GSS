@@ -32,6 +32,7 @@ export function ConfigRail({ items, activeId, searching, onSelect, search, onSea
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search settings"
+          aria-label="Search settings"
           className="w-full bg-transparent outline-none text-xs"
           style={{ color: colors.value }}
         />

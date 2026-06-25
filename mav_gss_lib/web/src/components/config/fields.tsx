@@ -51,23 +51,23 @@ function TleBlock({ draft, onChange }: { draft: string; onChange: (v: string) =>
   )
 }
 
-function FetchIdentifier(c: Extract<Control, { kind: 'fetch-identifier' }>) {
+function FetchIdentifier({ value, onChange, onFetch, fetching, fetchMsg, disabled }: Extract<Control, { kind: 'fetch-identifier' }>) {
   return (
     <div>
       <div className="flex gap-2">
-        <GssInput className="flex-1" value={c.value} onChange={(e) => c.onChange(e.target.value)} />
+        <GssInput className="flex-1" value={value} onChange={(e) => onChange(e.target.value)} />
         <button
           type="button"
-          disabled={c.disabled}
-          onClick={c.onFetch}
+          disabled={disabled}
+          onClick={onFetch}
           className="text-xs rounded px-3.5 inline-flex items-center gap-1.5 whitespace-nowrap disabled:opacity-40"
           style={{ border: `1px solid ${colors.active}4D`, color: colors.active }}
         >
           <RefreshCw className="size-3.5" />
-          {c.fetching ? 'Fetching…' : 'Fetch'}
+          {fetching ? 'Fetching…' : 'Fetch'}
         </button>
       </div>
-      {c.fetchMsg && <div className="mt-1.5" style={{ fontSize: '11.5px', color: colors.dim }}>{c.fetchMsg}</div>}
+      {fetchMsg && <div className="mt-1.5" style={{ fontSize: '11.5px', color: colors.dim }}>{fetchMsg}</div>}
     </div>
   )
 }
@@ -132,7 +132,7 @@ export function RowRenderer({ row }: { row: SettingRow }) {
 
 export function GroupRenderer({ group }: { group: SettingGroup }) {
   const query = useContext(SearchContext)
-  const anyVisible = !query || group.rows.some((r) => matchesQuery(query, r.label, r.description))
+  const anyVisible = group.rows.some((r) => matchesQuery(query, r.label, r.description))
   if (!anyVisible) return null
   return (
     <div className="mt-4">
@@ -144,13 +144,13 @@ export function GroupRenderer({ group }: { group: SettingGroup }) {
 
 export function PaneRenderer({ pane }: { pane: SettingPane }) {
   const query = useContext(SearchContext)
-  const visible = !query || pane.groups.some((g) => g.rows.some((r) => matchesQuery(query, r.label, r.description)))
+  const visible = pane.groups.some((g) => g.rows.some((r) => matchesQuery(query, r.label, r.description)))
   if (!visible) return null
   return (
     <div className="mb-2">
       <div className="text-[15px] font-semibold" style={{ color: colors.value }}>{pane.title}</div>
       {pane.description && <div className="text-xs mt-0.5" style={{ color: colors.dim }}>{pane.description}</div>}
-      {pane.groups.map((g, i) => <GroupRenderer key={i} group={g} />)}
+      {pane.groups.map((g) => <GroupRenderer key={g.title} group={g} />)}
     </div>
   )
 }
