@@ -1,4 +1,4 @@
-import { useContext } from 'react'
+import { useContext, useEffect, useRef } from 'react'
 import { colors } from '@/lib/colors'
 import { GssInput } from '@/components/ui/gss-input'
 import { Switch } from '@/components/ui/switch'
@@ -32,24 +32,23 @@ function isStacked(c: Control): boolean {
 }
 
 function TleBlock({ draft, onChange }: { draft: string; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft])
   return (
-    <div className="flex rounded-md overflow-hidden" style={{ backgroundColor: colors.bgApp, border: `1px solid ${colors.borderSubtle}` }}>
-      <div
-        className="shrink-0 w-7 text-center py-2 font-mono leading-[1.85] select-none"
-        style={{ fontSize: '10.5px', color: colors.sep, backgroundColor: colors.bgPanel, borderRight: `1px solid ${colors.borderSubtle}` }}
-      >
-        ·<br />1<br />2
-      </div>
-      <textarea
-        value={draft}
-        onChange={(e) => onChange(e.target.value)}
-        rows={3}
-        spellCheck={false}
-        placeholder={'SATNAME\n1 NNNNNU ...\n2 NNNNN ...'}
-        className="w-full font-mono leading-[1.85] px-2.5 py-2 resize-y bg-transparent outline-none"
-        style={{ fontSize: '11px', color: colors.value, letterSpacing: '-0.2px' }}
-      />
-    </div>
+    <textarea
+      ref={ref}
+      value={draft}
+      onChange={(e) => onChange(e.target.value)}
+      spellCheck={false}
+      placeholder={'SATNAME\n1 NNNNNU ...\n2 NNNNN ...'}
+      className="w-full font-mono leading-[1.7] rounded-md px-2.5 py-2 outline-none resize-none overflow-hidden"
+      style={{ fontSize: '11px', minHeight: '4.5rem', color: colors.value, backgroundColor: colors.bgApp, border: `1px solid ${colors.borderSubtle}`, letterSpacing: '-0.2px' }}
+    />
   )
 }
 

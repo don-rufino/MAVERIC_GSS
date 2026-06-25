@@ -445,7 +445,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       id: 'tracking', title: 'Tracking', description: 'Orbit propagation and Doppler tuning source.',
       groups: [
         { title: 'Element set', rows: [
-          { id: 'tle_source', label: 'TLE source', description: 'Origin label for the current elements.', control: { kind: 'text', stacked: true, value: cfg.platform.tracking?.tle?.source ?? '', onChange: (v) => updateTrackingTle({ source: v }) } },
+          { id: 'tle_source', label: 'TLE source', description: 'Where the current elements came from.', control: { kind: 'info', value: cfg.platform.tracking?.tle?.source || (cfg.platform.tracking?.tle?.method === 'manual' ? 'Manual entry' : '—') } },
           { id: 'tle', label: 'Two-line elements (TLE)', description: 'Name, line 1, line 2 — applied live on the next tick.', control: { kind: 'tle', draft: tleDraft, onChange: handleTleDraftChange } },
         ]},
         { title: 'Auto-fetch', rows: autoFetchRows },
@@ -485,7 +485,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
           <motion.div
             ref={panelRef}
             onClick={(e) => e.stopPropagation()}
-            className="w-[680px] max-w-[94vw] max-h-[84vh] rounded-lg border shadow-overlay flex flex-col overflow-hidden"
+            className="w-[760px] max-w-[94vw] max-h-[84vh] rounded-lg border shadow-overlay flex flex-col overflow-hidden"
             style={{ backgroundColor: colors.bgPanelRaised, borderColor: colors.borderStrong }}
             initial={animateOnMount ? { scale: 0.98, opacity: 0 } : false}
             animate={{ scale: 1, opacity: 1 }}

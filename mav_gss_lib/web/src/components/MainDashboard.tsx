@@ -43,7 +43,7 @@ export function ConfigModalSkeleton() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: colors.modalBackdrop }}>
       <div
-        className="w-[680px] max-w-[94vw] h-[60vh] rounded-lg border animate-pulse"
+        className="w-[760px] max-w-[94vw] h-[60vh] rounded-lg border animate-pulse"
         style={{ backgroundColor: colors.bgPanelRaised, borderColor: colors.borderStrong }}
       />
     </div>
