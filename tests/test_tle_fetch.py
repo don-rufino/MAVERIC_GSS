@@ -173,3 +173,27 @@ class FetchTleTests(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertEqual(len(r.candidates), 3)   # celestrak's candidates win
         self.assertIn("3", r.detail)
+
+    def test_provider_spacetrack_skips_celestrak(self):
+        seen = []
+        def router(url):
+            seen.append(url)
+            return io.BytesIO(self.GOOD)
+        r = fetch_tle(TleFetchSettings(identifier="25544", provider="spacetrack"),
+                      now_ms=EPOCH_2026_001_MS, http_opener=_FakeOpener(router=router),
+                      env={"SPACETRACK_IDENTITY": "u", "SPACETRACK_PASSWORD": "p"})
+        self.assertTrue(r.ok)
+        self.assertEqual(r.via, "spacetrack")
+        self.assertFalse(any("celestrak" in u for u in seen))
+
+    def test_provider_spacetrack_without_creds_fails_clean(self):
+        r = fetch_tle(TleFetchSettings(identifier="25544", provider="spacetrack"),
+                      now_ms=EPOCH_2026_001_MS, http_opener=_FakeOpener(body=self.GOOD), env={})
+        self.assertFalse(r.ok)
+        self.assertIn("credentials", r.detail.lower())
+
+    def test_provider_celestrak_is_default_and_unchanged(self):
+        r = fetch_tle(TleFetchSettings(identifier="25544"), now_ms=EPOCH_2026_001_MS,
+                      http_opener=_FakeOpener(body=self.GOOD), env={})
+        self.assertTrue(r.ok)
+        self.assertEqual(r.via, "celestrak")

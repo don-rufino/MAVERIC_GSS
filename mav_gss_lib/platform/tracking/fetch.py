@@ -119,6 +119,7 @@ class TleFetchSettings:
     identifier: str = ""
     auto_refresh: bool = False
     refresh_interval_hours: float = 12.0
+    provider: str = "celestrak"          # "celestrak" | "spacetrack"
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +218,8 @@ def fetch_tle(settings: TleFetchSettings, *, now_ms: int, http_opener=None,
     if not (settings.identifier or "").strip():
         return FetchResult(ok=False, detail="no identifier configured (fetch disabled)")
     try:
+        if settings.provider == "spacetrack":
+            return _fetch_spacetrack(http_opener, settings.identifier, env, now_ms=now_ms)
         primary = _fetch_celestrak(http_opener, settings.identifier, now_ms=now_ms)
         if primary.ok:
             return primary
