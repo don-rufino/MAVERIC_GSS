@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -96,7 +95,7 @@ class ValidateTleTests(unittest.TestCase):
 import io
 import urllib.error
 from mav_gss_lib.platform.tracking.fetch import (
-    FetchResult, TleFetchSettings, fetch_tle,
+    TleFetchSettings, fetch_tle,
 )
 
 
@@ -154,3 +153,23 @@ class FetchTleTests(unittest.TestCase):
                       http_opener=_FakeOpener(error=urllib.error.URLError("boom")),
                       env={})
         self.assertFalse(r.ok)  # no exception escapes
+
+    def test_multiple_candidates_surface_without_picking(self):
+        multi = (f"OBJ-A\n{ISS_L1}\n{ISS_L2}\nOBJ-B\n{ISS_L1}\n{ISS_L2}\n").encode()
+        r = fetch_tle(TleFetchSettings(identifier="2026-001"), now_ms=EPOCH_2026_001_MS,
+                      http_opener=_FakeOpener(body=multi), env={})
+        self.assertFalse(r.ok)
+        self.assertIsNone(r.via)
+        self.assertEqual(len(r.candidates), 2)
+
+    def test_both_fail_prefers_celestrak_candidate_detail(self):
+        ct = (f"C-A\n{ISS_L1}\n{ISS_L2}\nC-B\n{ISS_L1}\n{ISS_L2}\nC-C\n{ISS_L1}\n{ISS_L2}\n").encode()
+        st = (f"S-A\n{ISS_L1}\n{ISS_L2}\nS-B\n{ISS_L1}\n{ISS_L2}\n").encode()
+        def router(url):
+            return io.BytesIO(ct if "celestrak" in url else st)
+        r = fetch_tle(TleFetchSettings(identifier="2026-001"), now_ms=EPOCH_2026_001_MS,
+                      http_opener=_FakeOpener(router=router),
+                      env={"SPACETRACK_IDENTITY": "u", "SPACETRACK_PASSWORD": "p"})
+        self.assertFalse(r.ok)
+        self.assertEqual(len(r.candidates), 3)   # celestrak's candidates win
+        self.assertIn("3", r.detail)

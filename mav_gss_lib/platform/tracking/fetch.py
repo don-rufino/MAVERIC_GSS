@@ -10,6 +10,7 @@ Author: Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import logging
+import os
 import re
 import urllib.error
 import urllib.parse
@@ -210,7 +211,6 @@ def fetch_tle(settings: TleFetchSettings, *, now_ms: int, http_opener=None,
     Space-Track fallback fires on ANY CelesTrak failure (403, network, timeout,
     empty, malformed, validation-rejected), but only when env creds exist."""
     if env is None:
-        import os
         env = dict(os.environ)
     if http_opener is None:
         http_opener = _default_opener()
@@ -223,8 +223,12 @@ def fetch_tle(settings: TleFetchSettings, *, now_ms: int, http_opener=None,
         fallback = _fetch_spacetrack(http_opener, settings.identifier, env, now_ms=now_ms)
         if fallback.ok:
             return fallback
-        candidates = primary.candidates or fallback.candidates
-        detail = primary.detail if not fallback.candidates else fallback.detail
+        if primary.candidates:
+            candidates, detail = primary.candidates, primary.detail
+        elif fallback.candidates:
+            candidates, detail = fallback.candidates, fallback.detail
+        else:
+            candidates, detail = (), primary.detail
         return FetchResult(ok=False, detail=detail, candidates=candidates)
     except Exception as exc:  # defensive: never let the fetch crash a caller
         _LOG.warning("tle fetch unexpected error: %s", type(exc).__name__)
