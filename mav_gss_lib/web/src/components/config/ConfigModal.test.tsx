@@ -1,0 +1,96 @@
+import { render, screen, fireEvent, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { ConfigModal } from './ConfigModal'
+
+const CONFIG = {
+  platform: {
+    rx: { zmq_addr: 'tcp://127.0.0.1:52001', tx_blackout_ms: 0 },
+    tx: { zmq_addr: 'tcp://127.0.0.1:52002', delay_ms: 200, frequency: '437.575 MHz' },
+    tracking: {
+      tle: { source: 'CelesTrak', name: 'X', line1: '1 99999U', line2: '2 99999' },
+      tle_fetch: { identifier: '99999', auto_refresh: false, refresh_interval_hours: 12 },
+      frequencies: { rx_hz: 437575000, tx_hz: 437575000 },
+    },
+  },
+  mission: { id: 'maveric', name: 'MAVERIC', config: { csp: { source: 1, dest: 5 }, imaging: { thumb_prefix: 'thumb_' } } },
+}
+const STATUS = { version: '1.2.3', schema_path: '/x/maveric.yml', schema_count: 42, log_dir: '/var/log/gss', session_log_json: '/var/log/gss/json/session_x.jsonl' }
+
+beforeEach(() => {
+  global.fetch = vi.fn((url: RequestInfo | URL) => {
+    const body = String(url).includes('/api/status') ? STATUS : CONFIG
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response)
+  }) as unknown as typeof fetch
+})
+
+async function openModal() {
+  render(<ConfigModal open={true} onClose={() => {}} />)
+  await screen.findByText('Save & Close')
+}
+
+function rail() {
+  return screen.getByRole('navigation', { name: 'Settings categories' })
+}
+
+describe('ConfigModal', () => {
+  it('lists all four rail categories', async () => {
+    await openModal()
+    const r = rail()
+    expect(within(r).getByRole('button', { name: /Mission/ })).toBeTruthy()
+    expect(within(r).getByRole('button', { name: /Radio \/ RF/ })).toBeTruthy()
+    expect(within(r).getByRole('button', { name: /Tracking/ })).toBeTruthy()
+    expect(within(r).getByRole('button', { name: /About/ })).toBeTruthy()
+  })
+
+  it('Radio/RF pane keeps every transport + timing setting', async () => {
+    await openModal()
+    fireEvent.click(within(rail()).getByText('Radio / RF'))
+    expect(screen.getByText('RX frequency')).toBeTruthy()
+    expect(screen.getByText('TX frequency')).toBeTruthy()
+    expect(screen.getByText('RX ZMQ address')).toBeTruthy()
+    expect(screen.getByText('TX ZMQ address')).toBeTruthy()
+    expect(screen.getByText('TX delay')).toBeTruthy()
+    expect(screen.getByText('TX → RX blackout')).toBeTruthy()
+  })
+
+  it('Tracking pane keeps TLE + auto-fetch settings and renders a switch', async () => {
+    await openModal()
+    fireEvent.click(within(rail()).getByText('Tracking'))
+    expect(screen.getByText('TLE source')).toBeTruthy()
+    expect(screen.getByText('Two-line elements (TLE)')).toBeTruthy()
+    expect(screen.getByText('Catalog identifier')).toBeTruthy()
+    expect(screen.getByText('Auto-refresh')).toBeTruthy()
+    expect(screen.getByText('Refresh interval')).toBeTruthy()
+    expect(screen.getAllByRole('switch').length >= 1).toBeTruthy()
+  })
+
+  it('Mission pane renders dynamic mission config', async () => {
+    await openModal()
+    fireEvent.click(within(rail()).getByRole('button', { name: /Mission/ }))
+    expect(screen.getByText('Csp')).toBeTruthy()
+    expect(screen.getByText('Imaging')).toBeTruthy()
+    expect(screen.getByText('Thumb Prefix')).toBeTruthy()
+  })
+
+  it('About pane shows read-only session info', async () => {
+    await openModal()
+    fireEvent.click(within(rail()).getByText('About'))
+    expect(screen.getByText('Version')).toBeTruthy()
+    expect(screen.getByText('1.2.3')).toBeTruthy()
+    expect(screen.getByText('Commands')).toBeTruthy()
+  })
+
+  it('search filters fields across panes', async () => {
+    await openModal()
+    fireEvent.change(screen.getByPlaceholderText('Search settings'), { target: { value: 'blackout' } })
+    expect(screen.getByText('TX → RX blackout')).toBeTruthy()
+    expect(screen.queryByText('RX frequency')).toBeNull()
+    expect(screen.queryByText('Auto-refresh')).toBeNull()
+  })
+
+  it('shows an empty-state when the search matches nothing', async () => {
+    await openModal()
+    fireEvent.change(screen.getByPlaceholderText('Search settings'), { target: { value: 'zzzzznomatch' } })
+    expect(screen.getByText(/No settings match/)).toBeTruthy()
+  })
+})
