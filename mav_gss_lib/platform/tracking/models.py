@@ -41,6 +41,8 @@ class TrackingTle:
     name: str
     line1: str
     line2: str
+    method: str = "manual"        # "manual" | "fetched" | "seed"
+    fetched_at_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)

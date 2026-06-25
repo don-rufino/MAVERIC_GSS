@@ -114,5 +114,20 @@ class SatelliteFromLinesTests(unittest.TestCase):
             satellite_from_lines("X", "1 garbage", "2 garbage")
 
 
+from mav_gss_lib.platform.tracking.models import TrackingTle
+
+class TrackingTleProvenanceTests(unittest.TestCase):
+    def test_defaults(self):
+        tle = TrackingTle(source="s", name="n", line1="1", line2="2")
+        self.assertEqual(tle.method, "manual")
+        self.assertEqual(tle.fetched_at_ms, 0)
+
+    def test_explicit_method(self):
+        tle = TrackingTle(source="s", name="n", line1="1", line2="2",
+                          method="fetched", fetched_at_ms=123)
+        self.assertEqual(tle.method, "fetched")
+        self.assertEqual(tle.fetched_at_ms, 123)
+
+
 if __name__ == "__main__":
     unittest.main()
