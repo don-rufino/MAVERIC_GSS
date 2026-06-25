@@ -116,5 +116,13 @@ class TrackingConnectionEndpointTests(unittest.TestCase):
                 self.assertEqual(msg["mode"], "connected")
 
 
+class RuntimeTleFetchWiringTests(unittest.TestCase):
+    def test_runtime_has_tle_fetch_service(self):
+        from mav_gss_lib.server.app import create_app
+        app = create_app()
+        self.assertTrue(hasattr(app.state.runtime, "tle_fetch"))
+        self.assertTrue(callable(app.state.runtime.tle_fetch.fetch_preview))
+
+
 if __name__ == "__main__":
     unittest.main()
