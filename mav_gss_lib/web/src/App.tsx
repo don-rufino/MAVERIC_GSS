@@ -15,7 +15,7 @@ import { Toaster } from '@/components/ui/sonner'
 import {
   MainDashboard,
   RxCrcToastSentinel,
-  ConfigSidebarSkeleton,
+  ConfigModalSkeleton,
   LogViewerSkeleton,
   HelpModalSkeleton,
   CommandPaletteSkeleton,
@@ -32,7 +32,7 @@ import { isInputFocused } from '@/lib/utils'
 import { authFetch } from '@/lib/auth'
 import type { CommandPaletteActions } from '@/components/shared/overlays/CommandPalette'
 
-const ConfigSidebar = lazy(() => import('@/components/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
+const ConfigModal = lazy(() => import('@/components/config/ConfigModal').then((m) => ({ default: m.ConfigModal })))
 const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => ({ default: m.LogViewer })))
 const HelpModal = lazy(() => import('@/components/shared/dialogs/HelpModal').then((m) => ({ default: m.HelpModal })))
 const CommandPalette = lazy(() => import('@/components/shared/overlays/CommandPalette').then((m) => ({ default: m.CommandPalette })))
@@ -200,8 +200,8 @@ function AppShell() {
       />
       {/* Lazy modals */}
       {showConfig && (
-        <Suspense fallback={<ConfigSidebarSkeleton />}>
-          <ConfigSidebar open={showConfig} onClose={() => { setShowConfig(false); fetch('/api/config').then(r => r.json()).then(setConfig) }} />
+        <Suspense fallback={<ConfigModalSkeleton />}>
+          <ConfigModal open={showConfig} onClose={() => { setShowConfig(false); fetch('/api/config').then(r => r.json()).then(setConfig) }} />
         </Suspense>
       )}
       {showLogs && (

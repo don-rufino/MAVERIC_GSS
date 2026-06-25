@@ -11,6 +11,7 @@ import { showToast } from '@/components/shared/overlays/StatusToast'
 import { Skeleton } from '@/components/ui/skeleton'
 import { packetDisplayLabel, packetFlags } from '@/lib/rxPacket'
 import type { GssConfig } from '@/lib/types'
+import { colors } from '@/lib/colors'
 
 /** Sentinel that watches the packet stream for CRC failures and toasts them.
  *  Rendered at the dashboard root so only this tiny node rerenders per flush. */
@@ -38,22 +39,13 @@ function RxPanelWithPackets(props: Omit<ComponentProps<typeof RxPanel>, 'packets
 }
 
 // Lazy-load skeletons are kept here for the Suspense fallbacks used at the shell level
-export function ConfigSidebarSkeleton() {
+export function ConfigModalSkeleton() {
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/70" />
-      <div className="w-96 h-full p-4 border-l bg-card shadow-overlay border-border">
-        <div className="flex items-center justify-between mb-4">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-6 w-6 rounded-sm" />
-        </div>
-        <div className="space-y-4">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </div>
-      </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: colors.modalBackdrop }}>
+      <div
+        className="w-[680px] max-w-[94vw] h-[60vh] rounded-lg border animate-pulse"
+        style={{ backgroundColor: colors.bgPanelRaised, borderColor: colors.borderStrong }}
+      />
     </div>
   )
 }
