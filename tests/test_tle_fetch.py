@@ -91,3 +91,66 @@ class ValidateTleTests(unittest.TestCase):
     def test_rejects_stale_epoch(self):
         with self.assertRaises(TrackingError):
             validate_tle("ISS", ISS_L1, ISS_L2, now_ms=EPOCH_2026_001_MS + 60 * 86_400_000)
+
+
+import io
+import urllib.error
+from mav_gss_lib.platform.tracking.fetch import (
+    FetchResult, TleFetchSettings, fetch_tle,
+)
+
+
+class _FakeOpener:
+    """Stand-in for a urllib OpenerDirector — exposes `.open(req, timeout)`."""
+    def __init__(self, *, body=b"", error=None, router=None):
+        self._body = body
+        self._error = error
+        self._router = router
+
+    def open(self, req, timeout=None):
+        if self._router is not None:
+            return self._router(req.full_url)
+        if self._error is not None:
+            raise self._error
+        return io.BytesIO(self._body)
+
+
+class FetchTleTests(unittest.TestCase):
+    GOOD = f"MAVERIC\n{ISS_L1}\n{ISS_L2}\n".encode()
+
+    def test_blank_identifier_skips(self):
+        r = fetch_tle(TleFetchSettings(identifier=""), now_ms=EPOCH_2026_001_MS,
+                      http_opener=_FakeOpener(body=self.GOOD), env={})
+        self.assertFalse(r.ok)
+        self.assertIsNone(r.via)
+        self.assertIn("no identifier", r.detail.lower())
+
+    def test_celestrak_success(self):
+        r = fetch_tle(TleFetchSettings(identifier="25544"), now_ms=EPOCH_2026_001_MS,
+                      http_opener=_FakeOpener(body=self.GOOD), env={})
+        self.assertTrue(r.ok)
+        self.assertEqual(r.via, "celestrak")
+        self.assertEqual(r.line1, ISS_L1)
+
+    def test_celestrak_no_gp_data_no_creds_fails_clean(self):
+        r = fetch_tle(TleFetchSettings(identifier="99999999"), now_ms=EPOCH_2026_001_MS,
+                      http_opener=_FakeOpener(body=b"No GP data found"), env={})
+        self.assertFalse(r.ok)
+        self.assertIsNone(r.via)
+
+    def test_celestrak_failure_falls_back_to_spacetrack(self):
+        def router(url):
+            if "celestrak" in url:
+                raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+            return io.BytesIO(self.GOOD)   # space-track login + query
+        r = fetch_tle(TleFetchSettings(identifier="25544"), now_ms=EPOCH_2026_001_MS,
+                      http_opener=_FakeOpener(router=router),
+                      env={"SPACETRACK_IDENTITY": "u", "SPACETRACK_PASSWORD": "p"})
+        self.assertTrue(r.ok)
+        self.assertEqual(r.via, "spacetrack")
+
+    def test_never_raises_on_network_error(self):
+        r = fetch_tle(TleFetchSettings(identifier="25544"), now_ms=EPOCH_2026_001_MS,
+                      http_opener=_FakeOpener(error=urllib.error.URLError("boom")),
+                      env={})
+        self.assertFalse(r.ok)  # no exception escapes

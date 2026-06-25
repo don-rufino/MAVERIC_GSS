@@ -111,3 +111,121 @@ def validate_tle(name: str, line1: str, line2: str, *, now_ms: int) -> int:
     if age_days > MAX_EPOCH_AGE_DAYS:
         raise TrackingError(f"TLE epoch age {age_days:.1f} d exceeds {MAX_EPOCH_AGE_DAYS:.0f} d")
     return epoch_ms
+
+
+@dataclass(frozen=True, slots=True)
+class TleFetchSettings:
+    identifier: str = ""
+    auto_refresh: bool = False
+    refresh_interval_hours: float = 12.0
+
+
+@dataclass(frozen=True, slots=True)
+class FetchResult:
+    ok: bool
+    detail: str = ""
+    via: str | None = None          # "celestrak" | "spacetrack" | None
+    name: str = ""
+    line1: str = ""
+    line2: str = ""
+    tle_epoch_ms: int = 0
+    candidates: tuple[dict, ...] = field(default_factory=tuple)
+
+
+def _default_opener():
+    return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+
+
+def _http_get(opener, url: str, *, data: bytes | None = None) -> str:
+    req = urllib.request.Request(url, data=data, headers={"User-Agent": USER_AGENT})
+    with opener.open(req, timeout=HTTP_TIMEOUT_S) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
+def _select(blocks: list[tuple[str, str, str]], *, now_ms: int):
+    """Return (chosen_dict | None, candidate_list). Raises TrackingError if the
+    single block fails validation. Multiple blocks become candidates."""
+    candidates = [{"name": n, "line1": l1, "line2": l2} for (n, l1, l2) in blocks]
+    if len(blocks) != 1:
+        return None, candidates
+    name, l1, l2 = blocks[0]
+    epoch = validate_tle(name, l1, l2, now_ms=now_ms)
+    return {"name": name, "line1": l1, "line2": l2, "epoch": epoch}, candidates
+
+
+def _fetch_celestrak(opener, identifier: str, *, now_ms: int) -> FetchResult:
+    kind, value = detect_identifier(identifier)
+    try:
+        text = _http_get(opener, celestrak_url(kind, value))
+    except (urllib.error.URLError, OSError) as exc:
+        return FetchResult(ok=False, detail=f"celestrak request failed: {type(exc).__name__}")
+    blocks = parse_tle_blocks(text)
+    if not blocks:
+        return FetchResult(ok=False, detail="celestrak returned no usable TLE")
+    try:
+        chosen, candidates = _select(blocks, now_ms=now_ms)
+    except TrackingError as exc:
+        return FetchResult(ok=False, detail=f"celestrak TLE rejected: {exc}")
+    if chosen is None:
+        return FetchResult(ok=False, detail=f"celestrak returned {len(candidates)} objects",
+                           candidates=tuple(candidates))
+    return FetchResult(ok=True, via="celestrak", name=chosen["name"],
+                       line1=chosen["line1"], line2=chosen["line2"], tle_epoch_ms=chosen["epoch"])
+
+
+def _fetch_spacetrack(opener, identifier: str, env: dict, *, now_ms: int) -> FetchResult:
+    user = env.get("SPACETRACK_IDENTITY")
+    pwd = env.get("SPACETRACK_PASSWORD")
+    if not user or not pwd:
+        return FetchResult(ok=False, detail="space-track credentials not set")
+    kind, value = detect_identifier(identifier)
+    predicate = {"catnr": "NORAD_CAT_ID", "intdes": "OBJECT_ID", "name": "OBJECT_NAME"}[kind]
+    login = urllib.parse.urlencode({"identity": user, "password": pwd}).encode()
+    query = (f"{SPACETRACK_BASE}/basicspacedata/query/class/gp/{predicate}/"
+             f"{urllib.parse.quote(value)}/orderby/{urllib.parse.quote('EPOCH desc')}"
+             f"/limit/1/format/tle")
+    try:
+        _http_get(opener, f"{SPACETRACK_BASE}/ajaxauth/login", data=login)
+        text = _http_get(opener, query)
+    except (urllib.error.URLError, OSError):
+        return FetchResult(ok=False, detail="space-track request failed")
+    blocks = parse_tle_blocks(text)
+    if not blocks:
+        return FetchResult(ok=False, detail="space-track returned no usable TLE")
+    try:
+        chosen, candidates = _select(blocks, now_ms=now_ms)
+    except TrackingError as exc:
+        return FetchResult(ok=False, detail=f"space-track TLE rejected: {exc}")
+    if chosen is None:
+        return FetchResult(ok=False, detail=f"space-track returned {len(candidates)} objects",
+                           candidates=tuple(candidates))
+    return FetchResult(ok=True, via="spacetrack", name=chosen["name"],
+                       line1=chosen["line1"], line2=chosen["line2"], tle_epoch_ms=chosen["epoch"])
+
+
+def fetch_tle(settings: TleFetchSettings, *, now_ms: int, http_opener=None,
+              env: dict | None = None) -> FetchResult:
+    """Fetch + validate MAVERIC's TLE. Never raises — failures land in .detail.
+
+    Space-Track fallback fires on ANY CelesTrak failure (403, network, timeout,
+    empty, malformed, validation-rejected), but only when env creds exist."""
+    if env is None:
+        import os
+        env = dict(os.environ)
+    if http_opener is None:
+        http_opener = _default_opener()
+    if not (settings.identifier or "").strip():
+        return FetchResult(ok=False, detail="no identifier configured (fetch disabled)")
+    try:
+        primary = _fetch_celestrak(http_opener, settings.identifier, now_ms=now_ms)
+        if primary.ok:
+            return primary
+        fallback = _fetch_spacetrack(http_opener, settings.identifier, env, now_ms=now_ms)
+        if fallback.ok:
+            return fallback
+        candidates = primary.candidates or fallback.candidates
+        detail = primary.detail if not fallback.candidates else fallback.detail
+        return FetchResult(ok=False, detail=detail, candidates=candidates)
+    except Exception as exc:  # defensive: never let the fetch crash a caller
+        _LOG.warning("tle fetch unexpected error: %s", type(exc).__name__)
+        return FetchResult(ok=False, detail="tle fetch failed")
