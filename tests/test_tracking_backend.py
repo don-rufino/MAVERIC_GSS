@@ -18,6 +18,7 @@ from mav_gss_lib.platform.tracking.models import TrackingTle
 from mav_gss_lib.server.api.tracking import router as tracking_router
 from mav_gss_lib.server.tracking import TrackingService
 from mav_gss_lib.server.tracking._tick import DopplerBroadcaster
+from mav_gss_lib.missions.maveric.tracking_defaults import seed_tracking_defaults
 
 
 class TestTrackingDomain(unittest.TestCase):
@@ -151,6 +152,20 @@ class NormalizeTleProvenanceTests(unittest.TestCase):
             "method": "bogus",
         }})
         self.assertEqual(cfg.tle.method, "manual")
+
+
+class SeedTrackingDefaultsTests(unittest.TestCase):
+    def test_seeds_tle_fetch_and_method(self):
+        cfg = {}
+        seed_tracking_defaults(cfg)
+        self.assertEqual(cfg["tracking"]["tle"]["method"], "seed")
+        self.assertEqual(cfg["tracking"]["tle_fetch"]["identifier"], "")
+        self.assertFalse(cfg["tracking"]["tle_fetch"]["auto_refresh"])
+
+    def test_does_not_mark_existing_operator_tle_as_seed(self):
+        cfg = {"tracking": {"tle": {"line1": "1 12345U ...", "line2": "2 12345 ..."}}}
+        seed_tracking_defaults(cfg)
+        self.assertNotIn("method", cfg["tracking"]["tle"])  # left for normalize -> "manual"
 
 
 if __name__ == "__main__":

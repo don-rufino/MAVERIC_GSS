@@ -24,6 +24,10 @@ MAVERIC_TLE_NAME = "MAVERIC"
 MAVERIC_TLE_SOURCE = "MAVERIC local TLE"
 MAVERIC_FREQ_HZ = 437_575_000.0
 
+# Pre-launch: identifier unknown. Operators paste MAVERIC's NORAD ID /
+# international designator / name once it is cataloged; "" keeps fetch disabled.
+MAVERIC_TLE_IDENTIFIER = ""
+
 # USC / Southern California ground-station reference. MAVERIC's
 # operations site; operators at other stations override via gss.yml.
 MAVERIC_STATION_ID = "usc"
@@ -50,10 +54,21 @@ def seed_tracking_defaults(platform_cfg: dict[str, Any]) -> None:
 
     tle = tracking.setdefault("tle", {})
     if isinstance(tle, dict):
+        seeded = "line1" not in tle
         tle.setdefault("source", MAVERIC_TLE_SOURCE)
         tle.setdefault("name", MAVERIC_TLE_NAME)
         tle.setdefault("line1", MAVERIC_TLE_LINE1)
         tle.setdefault("line2", MAVERIC_TLE_LINE2)
+        if seeded:
+            # Only mark as seed when WE supplied the lines; an operator's
+            # pre-existing TLE must stay "manual" (inferred by normalize).
+            tle.setdefault("method", "seed")
+
+    fetch = tracking.setdefault("tle_fetch", {})
+    if isinstance(fetch, dict):
+        fetch.setdefault("identifier", MAVERIC_TLE_IDENTIFIER)
+        fetch.setdefault("auto_refresh", False)
+        fetch.setdefault("refresh_interval_hours", 12)
 
     frequencies = tracking.setdefault("frequencies", {})
     if isinstance(frequencies, dict):
@@ -78,6 +93,7 @@ __all__ = [
     "MAVERIC_TLE_LINE2",
     "MAVERIC_TLE_NAME",
     "MAVERIC_TLE_SOURCE",
+    "MAVERIC_TLE_IDENTIFIER",
     "MAVERIC_FREQ_HZ",
     "MAVERIC_STATION_ID",
     "MAVERIC_STATION_NAME",
