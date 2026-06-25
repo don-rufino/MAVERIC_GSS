@@ -309,6 +309,8 @@ export interface PlatformTrackingConfig {
     name: string
     line1: string
     line2: string
+    method?: 'manual' | 'fetched' | 'seed'
+    fetched_at_ms?: number
   }
   frequencies: {
     rx_hz: number
@@ -316,6 +318,11 @@ export interface PlatformTrackingConfig {
   }
   display: {
     day_night_map: boolean
+  }
+  tle_fetch?: {
+    identifier: string
+    auto_refresh: boolean
+    refresh_interval_hours: number
   }
 }
 
