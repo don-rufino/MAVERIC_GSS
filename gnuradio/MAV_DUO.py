@@ -58,17 +58,23 @@ class _PttGate(gr.basic_block):
     are set once at init and left alone. The pair (toggle_mask) flips to its
     `live_value` during transmit and to the complement at idle/RX. The PA is
     always powered, so the pair must reach the live/TX state and the relays must
-    settle BEFORE any RF, and must not flip back until RF has drained. Per TX PDU:
+    settle BEFORE any RF, and must not flip back until RF has drained. TX gain is
+    gated with the same sequence: the sink idles at idle_gain (0 dB) so the TX LO
+    feedthrough cannot land in the receive passband between bursts, and burst_gain
+    is applied only while the switch is off the RX position. Per TX PDU:
       1. drive the pair live       (e.g. GPIO0 HIGH / GPIO2 LOW)
-      2. wait lead_s               (relays settle cold, before any RF)
-      3. forward the PDU           (PA drives the antenna)
-      4. hold for air-time + tail_s, then flip the pair back to idle/RX
-                                   (relays move only after RF is gone)
+      2. raise TX gain to burst_gain()   (RX already disconnected by the switch)
+      3. wait lead_s               (relays settle cold, before any RF)
+      4. forward the PDU           (PA drives the antenna)
+      5. hold for air-time + tail_s, then drop TX gain to idle_gain BEFORE
+         flipping the pair back to idle/RX (leak silenced before RX reconnects;
+         relays move only after RF is gone)
     Sequences are serialized so back-to-back commands never flip mid-burst.
     """
 
     def __init__(self, usrp_sink, bank="FP0", toggle_mask=0x1, live_value=0x1,
-                 lead_s=1.0, tail_s=1.0, baud=9600):
+                 lead_s=1.0, tail_s=1.0, baud=9600,
+                 burst_gain=lambda: 0.0, idle_gain=0.0):
         gr.basic_block.__init__(self, name="ptt_gate", in_sig=[], out_sig=[])
         self.sink = usrp_sink
         self.bank = bank
@@ -77,6 +83,8 @@ class _PttGate(gr.basic_block):
         self.lead_s = lead_s
         self.tail_s = tail_s
         self.baud = baud
+        self.burst_gain = burst_gain
+        self.idle_gain = idle_gain
         self._lock = threading.Lock()
         self.message_port_register_in(pmt.intern("pdu_in"))
         self.message_port_register_out(pmt.intern("pdu_out"))
@@ -96,12 +104,15 @@ class _PttGate(gr.basic_block):
     def _handle(self, msg):
         with self._lock:
             air_s = self._air_seconds(msg)
+            gain_db = float(self.burst_gain())
             self._line(True)                                   # live: GPIO0 HIGH, GPIO2 LOW
-            print(f"[PTT] TX key  -> GPIO0 HIGH / GPIO2 LOW, lead {self.lead_s:.1f}s", flush=True)
+            self.sink.set_gain(gain_db, 0)                     # loud only while the switch is off RX
+            print(f"[PTT] TX key  -> GPIO0 HIGH / GPIO2 LOW, gain {gain_db:.0f} dB, lead {self.lead_s:.1f}s", flush=True)
             time.sleep(self.lead_s)                            # cold-switch settle, pre-RF
             self.message_port_pub(pmt.intern("pdu_out"), msg)  # PA drives antenna
             print(f"[PTT] RF out  -> air {air_s:.2f}s, tail {self.tail_s:.1f}s", flush=True)
             time.sleep(air_s + self.tail_s)                    # hold until RF fully drained
+            self.sink.set_gain(self.idle_gain, 0)              # silence TX LO leak before RX reconnects
             self._line(False)                                  # idle: GPIO0 LOW, GPIO2 HIGH
             print("[PTT] RX       -> GPIO0 LOW / GPIO2 HIGH", flush=True)
 
@@ -189,7 +200,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.uhd_usrp_source_0.set_samp_rate(samp_rate)
         # No synchronization enforced.
 
-        self.uhd_usrp_source_0.set_center_freq(rx_freq, 0)
+        self.uhd_usrp_source_0.set_center_freq(uhd.tune_request(rx_freq, 250e3), 0)
         self.uhd_usrp_source_0.set_antenna("RX2", 0)
         self.uhd_usrp_source_0.set_gain(rx_gain, 0)
         self.uhd_usrp_sink_0 = uhd.usrp_sink(
@@ -205,9 +216,9 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.uhd_usrp_sink_0.set_samp_rate(samp_ratetx)
         # No synchronization enforced.
 
-        self.uhd_usrp_sink_0.set_center_freq(tx_freq, 0)
+        self.uhd_usrp_sink_0.set_center_freq(uhd.tune_request(tx_freq, -400e3), 0)
         self.uhd_usrp_sink_0.set_antenna('TX/RX', 0)
-        self.uhd_usrp_sink_0.set_gain(rf_gain, 0)
+        self.uhd_usrp_sink_0.set_gain(0, 0)
         
         # ==================================================
         # B210 GPIO -> H-bridge PTT  (external PA + physical relays)
@@ -241,7 +252,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.ptt_gate = _PttGate(
             self.uhd_usrp_sink_0, bank="FP0",
             toggle_mask=(LIVE_PIN | INV_PIN), live_value=LIVE_PIN,
-            lead_s=1.5, tail_s=0.2, baud=baud)
+            lead_s=1.5, tail_s=0.2, baud=baud,
+            burst_gain=self.get_rf_gain, idle_gain=0.0)
         
         
         # ==================================================
@@ -329,7 +341,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
             1024, #size
             window.WIN_BLACKMAN_hARRIS, #wintype
             0, #fc
-            samp_rate, #bw
+            (samp_rate/5), #bw
             "", #name
             1, #number of inputs
             None # parent
@@ -368,7 +380,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
             1024, #size
             window.WIN_BLACKMAN_hARRIS, #wintype
             0, #fc
-            samp_rate, #bw
+            (samp_rate/5), #bw
             "", #name
             1,
             None # parent
@@ -531,7 +543,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
     def set_tx_freq(self, tx_freq):
         self.tx_freq = tx_freq
         self.qtgui_freq_sink_x_0.set_frequency_range(self.tx_freq, self.samp_ratetx)
-        self.uhd_usrp_sink_0.set_center_freq(self.tx_freq, 0)
+        self.uhd_usrp_sink_0.set_center_freq(uhd.tune_request(self.tx_freq, -400e3), 0)
 
     def get_tx_amp(self):
         return self.tx_amp
@@ -560,8 +572,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
-        self.qtgui_freq_sink_x_1.set_frequency_range(0, self.samp_rate)
-        self.qtgui_waterfall_sink_x_0.set_frequency_range(0, self.samp_rate)
+        self.qtgui_freq_sink_x_1.set_frequency_range(0, (self.samp_rate/5))
+        self.qtgui_waterfall_sink_x_0.set_frequency_range(0, (self.samp_rate/5))
         self.uhd_usrp_source_0.set_samp_rate(self.samp_rate)
 
     def get_rx_freq(self):
@@ -569,7 +581,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_rx_freq(self, rx_freq):
         self.rx_freq = rx_freq
-        self.uhd_usrp_source_0.set_center_freq(self.rx_freq, 0)
+        self.uhd_usrp_source_0.set_center_freq(uhd.tune_request(self.rx_freq, 250e3), 0)
 
     def get_rx_actual_freq_label(self):
         return self.rx_actual_freq_label
@@ -589,8 +601,9 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         return self.rf_gain
 
     def set_rf_gain(self, rf_gain):
+        # Burst gain only: applied by _PttGate at key-up. Hardware idles at
+        # 0 dB so the TX LO feedthrough stays quiet while listening.
         self.rf_gain = rf_gain
-        self.uhd_usrp_sink_0.set_gain(self.rf_gain, 0)
 
     def get_modindex(self):
         return self.modindex

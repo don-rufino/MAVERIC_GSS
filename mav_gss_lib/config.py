@@ -84,6 +84,13 @@ _DEFAULTS = {
             "rx_zmq_addr": "tcp://127.0.0.1:52003",
             "tx_zmq_addr": "tcp://127.0.0.1:52004",
             "tick_period_s": 1.0,
+            # Fixed RF-LO placement relative to each nominal frequency. Doppler
+            # is applied as a DSP shift around these parked LOs so the AD9361
+            # synthesizers are never retuned mid-pass (retunes + near-identical
+            # RX/TX LO frequencies generate beat spurs and injection pulling).
+            # Must match the lo_offset in gnuradio/MAV_DUO.py's initial tunes.
+            "rx_lo_offset_hz": 250_000.0,
+            "tx_lo_offset_hz": -400_000.0,
         },
     },
     "general": {

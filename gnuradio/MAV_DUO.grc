@@ -96,7 +96,7 @@ blocks:
 - name: rf_gain
   id: variable_qtgui_range
   parameters:
-    comment: SDR RF TX gain
+    comment: SDR RF TX burst gain (applied by the PTT gate during TX; hardware idles at 0 dB)
     gui_hint: 0,1,1,1
     label: TX Gain (dB)
     min_len: '200'
@@ -543,7 +543,7 @@ blocks:
     autoscale: 'False'
     average: '1.0'
     axislabels: 'True'
-    bw: samp_rate
+    bw: samp_rate/5
     color1: '"blue"'
     color10: '"dark blue"'
     color2: '"red"'
@@ -622,7 +622,7 @@ blocks:
     alpha8: '1.0'
     alpha9: '1.0'
     axislabels: 'True'
-    bw: samp_rate
+    bw: samp_rate/5
     color1: '0'
     color10: '0'
     color2: '0'
@@ -786,7 +786,7 @@ blocks:
     bw7: '0'
     bw8: '0'
     bw9: '0'
-    center_freq0: tx_freq
+    center_freq0: uhd.tune_request(tx_freq, -400e3)
     center_freq1: '0'
     center_freq10: '0'
     center_freq11: '0'
@@ -830,7 +830,7 @@ blocks:
     comment: ''
     dev_addr: '""'
     dev_args: '""'
-    gain0: rf_gain
+    gain0: '0'
     gain1: '0'
     gain10: '0'
     gain11: '0'
@@ -1063,7 +1063,7 @@ blocks:
     bw7: '0'
     bw8: '0'
     bw9: '0'
-    center_freq0: rx_freq
+    center_freq0: uhd.tune_request(rx_freq, 250e3)
     center_freq1: '0'
     center_freq10: '0'
     center_freq11: '0'

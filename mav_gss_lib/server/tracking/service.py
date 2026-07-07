@@ -49,11 +49,22 @@ class NullDopplerSink:
 SinkFactory = Callable[..., DopplerSink]
 
 
-def _default_sink_factory(*, rx_addr: str, tx_addr: str) -> DopplerSink:
+def _default_sink_factory(
+    *,
+    rx_addr: str,
+    tx_addr: str,
+    rx_lo_offset_hz: float = 0.0,
+    tx_lo_offset_hz: float = 0.0,
+) -> DopplerSink:
     # Lazy import keeps pyzmq + pmt out of the import chain when tracking is
     # imported in a context that never engages (e.g., unit tests).
     from mav_gss_lib.server.tracking.sink_zmq import ZmqDopplerSink
-    return ZmqDopplerSink(rx_addr=rx_addr, tx_addr=tx_addr)
+    return ZmqDopplerSink(
+        rx_addr=rx_addr,
+        tx_addr=tx_addr,
+        rx_lo_offset_hz=rx_lo_offset_hz,
+        tx_lo_offset_hz=tx_lo_offset_hz,
+    )
 
 
 class TrackingService:
@@ -95,6 +106,8 @@ class TrackingService:
         sink = self._sink_factory(
             rx_addr=control["rx_zmq_addr"],
             tx_addr=control["tx_zmq_addr"],
+            rx_lo_offset_hz=float(control.get("rx_lo_offset_hz", 0.0)),
+            tx_lo_offset_hz=float(control.get("tx_lo_offset_hz", 0.0)),
         )
         with self._sink_lock:
             self._sink = sink

@@ -25,7 +25,7 @@ def _correction(rx_tune: float, tx_tune: float) -> DopplerCorrection:
 
 
 class ZmqDopplerSinkTests(unittest.TestCase):
-    def test_publishes_freq_to_each_port(self) -> None:
+    def test_publishes_fixed_lo_manual_tune_to_each_port(self) -> None:
         ctx = zmq.Context.instance()
         rx_sub = ctx.socket(zmq.SUB)
         tx_sub = ctx.socket(zmq.SUB)
@@ -35,6 +35,8 @@ class ZmqDopplerSinkTests(unittest.TestCase):
         sink = ZmqDopplerSink(
             rx_addr="tcp://127.0.0.1:0",
             tx_addr="tcp://127.0.0.1:0",
+            rx_lo_offset_hz=250_000.0,
+            tx_lo_offset_hz=-400_000.0,
         )
         try:
             rx_sub.connect(sink.rx_endpoint)
@@ -47,13 +49,27 @@ class ZmqDopplerSinkTests(unittest.TestCase):
             tx_sub.RCVTIMEO = 1500
             rx_msg = pmt.deserialize_str(rx_sub.recv())
             tx_msg = pmt.deserialize_str(tx_sub.recv())
+
+            def field(msg, key):
+                return pmt.to_double(pmt.dict_ref(msg, pmt.intern(key), pmt.PMT_NIL))
+
+            # LO parked at nominal + offset, independent of the doppler tune.
+            self.assertAlmostEqual(field(rx_msg, "lo_freq"), 437_825_000.0)
+            self.assertAlmostEqual(field(tx_msg, "lo_freq"), 437_175_000.0)
+            # DSP shift carries all of the doppler: lo_freq + dsp_freq = tune.
+            self.assertAlmostEqual(field(rx_msg, "dsp_freq"), -225_200.0)
+            self.assertAlmostEqual(field(tx_msg, "dsp_freq"), 425_210.0)
             self.assertAlmostEqual(
-                pmt.to_double(pmt.dict_ref(rx_msg, pmt.intern("freq"), pmt.PMT_NIL)),
-                437_599_800.0,
+                field(rx_msg, "lo_freq") + field(rx_msg, "dsp_freq"), 437_599_800.0
             )
             self.assertAlmostEqual(
-                pmt.to_double(pmt.dict_ref(tx_msg, pmt.intern("freq"), pmt.PMT_NIL)),
-                437_600_210.0,
+                field(tx_msg, "lo_freq") + field(tx_msg, "dsp_freq"), 437_600_210.0
+            )
+            # Bare "freq" must be absent: it would override the manual policy.
+            self.assertTrue(
+                pmt.equal(
+                    pmt.dict_ref(rx_msg, pmt.intern("freq"), pmt.PMT_NIL), pmt.PMT_NIL
+                )
             )
         finally:
             sink.close()
