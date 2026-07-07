@@ -98,7 +98,7 @@ blocks:
   parameters:
     comment: SDR RF TX gain
     gui_hint: 0,1,1,1
-    label: RF Gain (dBm)
+    label: TX Gain (dB)
     min_len: '200'
     orient: QtCore.Qt.Horizontal
     rangeType: float
@@ -112,6 +112,27 @@ blocks:
     bus_source: false
     bus_structure: null
     coordinate: [816, 316.0]
+    rotation: 0
+    state: enabled
+- name: rx_gain
+  id: variable_qtgui_range
+  parameters:
+    comment: SDR RF RX gain (B210 max 76 dB)
+    gui_hint: 4,0,1,2
+    label: RX Gain (dB)
+    min_len: '200'
+    orient: QtCore.Qt.Horizontal
+    rangeType: float
+    start: '0'
+    step: '1'
+    stop: '76'
+    value: '40'
+    widget: counter_slider
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [816, 444.0]
     rotation: 0
     state: enabled
 - name: samp_rate
@@ -334,6 +355,7 @@ blocks:
       self.top_grid_layout.setRowStretch(1, 0)
       self.top_grid_layout.setRowStretch(2, 1)
       self.top_grid_layout.setRowStretch(3, 1)
+      self.top_grid_layout.setRowStretch(4, 0)
   states:
     bus_sink: false
     bus_source: false
@@ -1149,7 +1171,7 @@ blocks:
     dc_offs_enb9: default
     dev_addr: '""'
     dev_args: '""'
-    gain0: '40'
+    gain0: rx_gain
     gain1: '0'
     gain10: '0'
     gain11: '0'

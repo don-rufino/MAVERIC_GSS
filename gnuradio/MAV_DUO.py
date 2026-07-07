@@ -44,6 +44,7 @@ def snipfcn_layout_stretch_snippet(self):
     self.top_grid_layout.setRowStretch(1, 0)
     self.top_grid_layout.setRowStretch(2, 1)
     self.top_grid_layout.setRowStretch(3, 1)
+    self.top_grid_layout.setRowStretch(4, 0)
 
 
 def snippets_main_after_init(tb):
@@ -152,6 +153,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.samp_rate = samp_rate = 1000000
         self.rx_freq = rx_freq = 437.575e6
         self.rx_actual_freq_label = rx_actual_freq_label = rx_actual_freq
+        self.rx_gain = rx_gain = 40
         self.rf_gain = rf_gain = 50
         self.modindex = modindex = 1/1.5
         self.baud = baud = 9600
@@ -162,11 +164,18 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         ##################################################
 
         self._rf_gain_range = qtgui.Range(0, 89, 1, 50, 200)
-        self._rf_gain_win = qtgui.RangeWidget(self._rf_gain_range, self.set_rf_gain, "RF Gain (dBm)", "counter_slider", float, QtCore.Qt.Horizontal)
+        self._rf_gain_win = qtgui.RangeWidget(self._rf_gain_range, self.set_rf_gain, "TX Gain (dB)", "counter_slider", float, QtCore.Qt.Horizontal)
         self.top_grid_layout.addWidget(self._rf_gain_win, 0, 1, 1, 1)
         for r in range(0, 1):
             self.top_grid_layout.setRowStretch(r, 1)
         for c in range(1, 2):
+            self.top_grid_layout.setColumnStretch(c, 1)
+        self._rx_gain_range = qtgui.Range(0, 76, 1, 40, 200)
+        self._rx_gain_win = qtgui.RangeWidget(self._rx_gain_range, self.set_rx_gain, "RX Gain (dB)", "counter_slider", float, QtCore.Qt.Horizontal)
+        self.top_grid_layout.addWidget(self._rx_gain_win, 4, 0, 1, 2)
+        for r in range(4, 5):
+            self.top_grid_layout.setRowStretch(r, 1)
+        for c in range(0, 2):
             self.top_grid_layout.setColumnStretch(c, 1)
         self.uhd_usrp_source_0 = uhd.usrp_source(
             ",".join(("", "")),
@@ -182,7 +191,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
         self.uhd_usrp_source_0.set_center_freq(rx_freq, 0)
         self.uhd_usrp_source_0.set_antenna("RX2", 0)
-        self.uhd_usrp_source_0.set_gain(40, 0)
+        self.uhd_usrp_source_0.set_gain(rx_gain, 0)
         self.uhd_usrp_sink_0 = uhd.usrp_sink(
             ",".join(("", "")),
             uhd.stream_args(
@@ -568,6 +577,13 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
     def set_rx_actual_freq_label(self, rx_actual_freq_label):
         self.rx_actual_freq_label = rx_actual_freq_label
         Qt.QMetaObject.invokeMethod(self._rx_actual_freq_label_label, "setText", Qt.Q_ARG("QString", str(self._rx_actual_freq_label_formatter(self.rx_actual_freq_label))))
+
+    def get_rx_gain(self):
+        return self.rx_gain
+
+    def set_rx_gain(self, rx_gain):
+        self.rx_gain = rx_gain
+        self.uhd_usrp_source_0.set_gain(self.rx_gain, 0)
 
     def get_rf_gain(self):
         return self.rf_gain
