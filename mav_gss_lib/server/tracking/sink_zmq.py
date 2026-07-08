@@ -9,7 +9,10 @@ the AD9361 synthesizers once per second re-runs PLL lock + calibration and,
 with the RX/TX LOs only kHz apart, the two synths cross-couple into beat
 spurs and injection pulling inside the receive passband. The parked-LO
 offsets also keep the TX LO feedthrough and the RX DC spike outside the
-decoder band. lo_offset values must match MAV_DUO.py's initial tunes."""
+decoder band. The offsets reach MAV_DUO automatically: RadioService
+injects GSS_RX_LO_OFFSET_HZ / GSS_TX_LO_OFFSET_HZ from the same
+tracking.control source at radio spawn; the flowgraph's literals are
+hand-launch fallbacks only."""
 
 from __future__ import annotations
 

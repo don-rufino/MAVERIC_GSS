@@ -118,24 +118,37 @@ class _PttGate(gr.basic_block):
                 print(f"[PTT] RF out  -> gain {gain_db:.0f} dB, air {air_s:.2f}s, tail {self.tail_s:.1f}s", flush=True)
                 time.sleep(air_s + self.tail_s)                    # hold until RF fully drained
             except Exception as exc:
-                print(f"[PTT] ERROR   -> {exc!r}; forcing idle/RX", flush=True)
+                try:
+                    print(f"[PTT] ERROR   -> {exc!r}; forcing idle/RX", flush=True)
+                except Exception:
+                    pass
             finally:
                 self._safe_idle()
 
     def _safe_idle(self):
         # Restore idle even mid-failure, in leak-safe order: gain to idle
-        # first, relay back to RX second. Each step is guarded separately so
-        # a dead UHD control channel cannot leave the switch driven to TX.
+        # first, relay back to RX second. Both hardware steps run before any
+        # printing (stdout is a pipe to the GSS supervisor and can itself
+        # raise if the server died), and each is guarded separately so a
+        # dead UHD control channel cannot leave the switch driven to TX.
+        gain_err = line_err = None
         try:
             self.sink.set_gain(self.idle_gain, 0)
         except Exception as exc:
-            print(f"[PTT] ERROR   -> idle gain restore failed: {exc!r}", flush=True)
+            gain_err = exc
         try:
             self._line(False)                                  # idle: GPIO0 LOW, GPIO2 HIGH
         except Exception as exc:
-            print(f"[PTT] ERROR   -> RX switch restore failed: {exc!r}", flush=True)
-        else:
-            print("[PTT] RX       -> GPIO0 LOW / GPIO2 HIGH", flush=True)
+            line_err = exc
+        try:
+            if gain_err is not None:
+                print(f"[PTT] ERROR   -> idle gain restore failed: {gain_err!r}", flush=True)
+            if line_err is not None:
+                print(f"[PTT] ERROR   -> RX switch restore failed: {line_err!r}", flush=True)
+            else:
+                print("[PTT] RX       -> GPIO0 LOW / GPIO2 HIGH", flush=True)
+        except Exception:
+            pass
 
 
 class MAV_DUO(gr.top_block, Qt.QWidget):

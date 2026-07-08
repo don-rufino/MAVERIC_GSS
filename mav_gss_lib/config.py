@@ -260,8 +260,16 @@ def get_tracking_control(platform_cfg: dict) -> dict:
     and fallback values cannot diverge from the defaults.
     """
     control = (platform_cfg.get("tracking") or {}).get("control") or {}
-    defaults = _DEFAULTS["tracking"]["control"]
-    return {key: type(default)(control.get(key, default)) for key, default in defaults.items()}
+    merged: dict = {}
+    for key, default in _DEFAULTS["tracking"]["control"].items():
+        try:
+            merged[key] = type(default)(control.get(key, default))
+        except (TypeError, ValueError):
+            # A malformed value must degrade to the canonical default, not
+            # raise: the 1 Hz doppler tick loop reads this and a raised
+            # exception there kills the task for the rest of the session.
+            merged[key] = default
+    return merged
 
 
 def get_rx_zmq_addr(cfg: dict) -> str:
