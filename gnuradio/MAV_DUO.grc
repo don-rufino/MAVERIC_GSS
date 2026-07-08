@@ -528,7 +528,7 @@ blocks:
     tr_tag: '""'
     type: complex
     units: dB
-    update_time: '0.2'
+    update_time: '0.05'
     width1: '1'
     width10: '1'
     width2: '1'
@@ -609,7 +609,7 @@ blocks:
     tr_tag: '""'
     type: complex
     units: dB
-    update_time: '0.2'
+    update_time: '0.05'
     width1: '1'
     width10: '1'
     width2: '1'
@@ -682,7 +682,7 @@ blocks:
     nconnections: '1'
     showports: 'False'
     type: complex
-    update_time: '0.2'
+    update_time: '0.05'
     wintype: window.WIN_BLACKMAN_hARRIS
   states:
     bus_sink: false
