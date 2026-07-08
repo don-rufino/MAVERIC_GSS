@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from mav_gss_lib.config import resolve_project_path
+from mav_gss_lib.config import get_tracking_control, resolve_project_path
 
 from .._broadcast import broadcast_safe
 
@@ -152,11 +152,17 @@ class RadioService:
             frequencies = tracking.get("frequencies") if isinstance(tracking.get("frequencies"), dict) else {}
             rx_hz = _parse_frequency_hz(rx_cfg.get("frequency"), _parse_frequency_hz(frequencies.get("rx_hz")))
             tx_hz = _parse_frequency_hz(tx_cfg.get("frequency"), _parse_frequency_hz(frequencies.get("tx_hz")))
+            control = get_tracking_control(platform_cfg)
         env: dict[str, str] = {}
         if rx_hz is not None:
             env["GSS_RX_FREQ_HZ"] = str(rx_hz)
         if tx_hz is not None:
             env["GSS_TX_FREQ_HZ"] = str(tx_hz)
+        # Parked-LO placement for MAV_DUO's rx_lo_offset / tx_lo_offset
+        # variables, single-sourced from tracking.control so the flowgraph
+        # and the doppler sink can never disagree on where the LOs sit.
+        env["GSS_RX_LO_OFFSET_HZ"] = str(control["rx_lo_offset_hz"])
+        env["GSS_TX_LO_OFFSET_HZ"] = str(control["tx_lo_offset_hz"])
         return env
 
     def command(self) -> list[str]:

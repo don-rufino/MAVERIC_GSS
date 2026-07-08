@@ -88,8 +88,9 @@ _DEFAULTS = {
             # is applied as a DSP shift around these parked LOs so the AD9361
             # synthesizers are never retuned mid-pass (retunes + near-identical
             # RX/TX LO frequencies generate beat spurs and injection pulling).
-            # Must match gnuradio/MAV_DUO's rx_lo_offset / tx_lo_offset
-            # variables (separate process; no shared source possible).
+            # RadioService injects these into the MAV_DUO child process as
+            # GSS_RX_LO_OFFSET_HZ / GSS_TX_LO_OFFSET_HZ; the flowgraph's
+            # literal fallbacks apply only when it is launched by hand.
             "rx_lo_offset_hz": 250_000.0,
             "tx_lo_offset_hz": -400_000.0,
         },

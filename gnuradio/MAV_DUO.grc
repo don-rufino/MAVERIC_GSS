@@ -48,8 +48,8 @@ blocks:
 - name: rx_lo_offset
   id: variable
   parameters:
-    comment: "RX LO parks this far above rx_freq; doppler rides the DSP NCO.\nMust match tracking.control.rx_lo_offset_hz in gss.yml."
-    value: 250e3
+    comment: "RX LO parks this far above rx_freq; doppler rides the DSP NCO.\nSingle-sourced from tracking.control.rx_lo_offset_hz via the GSS_RX_LO_OFFSET_HZ\nenv var RadioService injects; the literal is the standalone-launch fallback."
+    value: float(__import__('os').environ.get('GSS_RX_LO_OFFSET_HZ', 250e3))
   states:
     bus_sink: false
     bus_source: false
@@ -60,8 +60,8 @@ blocks:
 - name: tx_lo_offset
   id: variable
   parameters:
-    comment: "TX LO parks this far below tx_freq; keeps TX LO leak + LO-vs-LO\nbeat products out of the RX passband. Must match tracking.control.tx_lo_offset_hz."
-    value: -400e3
+    comment: "TX LO parks this far below tx_freq; keeps TX LO leak + LO-vs-LO\nbeat products out of the RX passband. Single-sourced from tracking.control.tx_lo_offset_hz\nvia GSS_TX_LO_OFFSET_HZ; the literal is the standalone-launch fallback."
+    value: float(__import__('os').environ.get('GSS_TX_LO_OFFSET_HZ', -400e3))
   states:
     bus_sink: false
     bus_source: false

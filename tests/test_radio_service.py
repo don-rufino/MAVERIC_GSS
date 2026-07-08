@@ -91,6 +91,24 @@ class RadioServiceConfigTests(unittest.TestCase):
         self.assertEqual(svc._frequency_env()["GSS_RX_FREQ_HZ"], "437610000.0")
         self.assertEqual(svc._frequency_env()["GSS_TX_FREQ_HZ"], "437620000.0")
 
+    def test_frequency_env_carries_lo_offsets_from_control_defaults(self):
+        rt = _fake_runtime({"enabled": True})
+        svc = RadioService(rt)
+        env = svc._frequency_env()
+        self.assertEqual(env["GSS_RX_LO_OFFSET_HZ"], "250000.0")
+        self.assertEqual(env["GSS_TX_LO_OFFSET_HZ"], "-400000.0")
+
+    def test_frequency_env_carries_configured_lo_offsets(self):
+        rt = _fake_runtime({"enabled": True})
+        rt.platform_cfg["tracking"]["control"] = {
+            "rx_lo_offset_hz": 111_000.0,
+            "tx_lo_offset_hz": -222_000.0,
+        }
+        svc = RadioService(rt)
+        env = svc._frequency_env()
+        self.assertEqual(env["GSS_RX_LO_OFFSET_HZ"], "111000.0")
+        self.assertEqual(env["GSS_TX_LO_OFFSET_HZ"], "-222000.0")
+
 
 class RadioServiceLoopBindingTests(unittest.TestCase):
     def test_schedule_broadcast_no_loop_is_silent(self):
