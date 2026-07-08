@@ -250,6 +250,19 @@ def resolve_project_path(path_value: str | Path, *, base_dir: str | Path | None 
     return (root / path).resolve()
 
 
+def get_tracking_control(platform_cfg: dict) -> dict:
+    """Live tracking.control merged over the canonical defaults, type-coerced.
+
+    The single reader for the control block: every key in
+    _DEFAULTS["tracking"]["control"] flows through automatically, so a new
+    control key can never be silently dropped by a hand-written whitelist
+    and fallback values cannot diverge from the defaults.
+    """
+    control = (platform_cfg.get("tracking") or {}).get("control") or {}
+    defaults = _DEFAULTS["tracking"]["control"]
+    return {key: type(default)(control.get(key, default)) for key, default in defaults.items()}
+
+
 def get_rx_zmq_addr(cfg: dict) -> str:
     return cfg.get("rx", {}).get("zmq_addr", DEFAULT_RX_ZMQ_ADDR)
 

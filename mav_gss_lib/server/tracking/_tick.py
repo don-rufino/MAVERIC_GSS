@@ -10,11 +10,12 @@ import logging
 import time
 from typing import TYPE_CHECKING, AsyncIterator
 
+from mav_gss_lib.config import get_tracking_control
+
 if TYPE_CHECKING:
     from mav_gss_lib.server.state import WebRuntime
 
 
-_DEFAULT_PERIOD_S = 1.0
 _LOG = logging.getLogger(__name__)
 
 
@@ -88,12 +89,8 @@ async def doppler_tick_loop(
 
 def _resolve_period(runtime: "WebRuntime") -> float:
     with runtime.cfg_lock:
-        tracking_cfg = (runtime.platform_cfg or {}).get("tracking") or {}
-        control = tracking_cfg.get("control") or {}
-    try:
-        return max(0.1, float(control.get("tick_period_s", _DEFAULT_PERIOD_S)))
-    except (TypeError, ValueError):
-        return _DEFAULT_PERIOD_S
+        control = get_tracking_control(runtime.platform_cfg or {})
+    return max(0.1, control["tick_period_s"])
 
 
 __all__ = ["DopplerBroadcaster", "doppler_tick_loop"]

@@ -26,6 +26,7 @@ from mav_gss_lib.platform.tracking import (
     tracking_state,
     upcoming_passes,
 )
+from mav_gss_lib.config import get_tracking_control
 from mav_gss_lib.platform.tracking.models import DopplerMode
 from mav_gss_lib.platform.tracking.propagation import look_angles_at, doppler_correction
 
@@ -206,15 +207,7 @@ class TrackingService:
 
     def _control_config(self) -> dict:
         with self.runtime.cfg_lock:
-            tracking_cfg = (self.runtime.platform_cfg or {}).get("tracking") or {}
-            control = tracking_cfg.get("control") or {}
-            return {
-                "rx_zmq_addr": str(control.get("rx_zmq_addr", "tcp://127.0.0.1:52003")),
-                "tx_zmq_addr": str(control.get("tx_zmq_addr", "tcp://127.0.0.1:52004")),
-                "tick_period_s": float(control.get("tick_period_s", 1.0)),
-                "rx_lo_offset_hz": float(control.get("rx_lo_offset_hz", 0.0)),
-                "tx_lo_offset_hz": float(control.get("tx_lo_offset_hz", 0.0)),
-            }
+            return get_tracking_control(self.runtime.platform_cfg or {})
 
     def config_model(self):
         with self.runtime.cfg_lock:

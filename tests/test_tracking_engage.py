@@ -9,6 +9,13 @@ from mav_gss_lib.server.tracking.service import (
 )
 
 
+_BASE_CONTROL = {
+    "rx_zmq_addr": "tcp://127.0.0.1:0",
+    "tx_zmq_addr": "tcp://127.0.0.1:0",
+    "tick_period_s": 1.0,
+}
+
+
 class _FakeRuntime:
     def __init__(self, control: dict | None = None) -> None:
         self.platform_cfg = {
@@ -26,11 +33,7 @@ class _FakeRuntime:
                 },
                 "frequencies": {"rx_hz": 437_575_000.0, "tx_hz": 437_575_000.0},
                 "display": {"day_night_map": True},
-                "control": control or {
-                    "rx_zmq_addr": "tcp://127.0.0.1:0",
-                    "tx_zmq_addr": "tcp://127.0.0.1:0",
-                    "tick_period_s": 1.0,
-                },
+                "control": {**_BASE_CONTROL, **(control or {})},
             }
         }
         self.cfg_lock = threading.Lock()
@@ -48,13 +51,10 @@ class TrackingEngageTests(unittest.TestCase):
         self.assertIs(service._sink, active_sink)
         self.assertEqual(service.doppler_mode, "connected")
 
-    def test_engage_forwards_lo_offsets_from_control_config(self) -> None:
+    def test_engage_forwards_control_config_to_sink_factory(self) -> None:
         runtime = _FakeRuntime(control={
-            "rx_zmq_addr": "tcp://127.0.0.1:0",
-            "tx_zmq_addr": "tcp://127.0.0.1:0",
-            "tick_period_s": 1.0,
-            "rx_lo_offset_hz": 250_000.0,
-            "tx_lo_offset_hz": -400_000.0,
+            "rx_lo_offset_hz": 111_000.0,
+            "tx_lo_offset_hz": -222_000.0,
         })
         captured: dict = {}
 
@@ -65,8 +65,12 @@ class TrackingEngageTests(unittest.TestCase):
         service = TrackingService(runtime, sink_factory=factory)
         service.engage()
 
-        self.assertEqual(captured["rx_lo_offset_hz"], 250_000.0)
-        self.assertEqual(captured["tx_lo_offset_hz"], -400_000.0)
+        self.assertEqual(captured, {
+            "rx_addr": "tcp://127.0.0.1:0",
+            "tx_addr": "tcp://127.0.0.1:0",
+            "rx_lo_offset_hz": 111_000.0,
+            "tx_lo_offset_hz": -222_000.0,
+        })
 
     def test_disengage_restores_null_sink_and_closes_previous(self) -> None:
         runtime = _FakeRuntime()
