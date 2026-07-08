@@ -63,8 +63,8 @@ class _PttGate(gr.basic_block):
     feedthrough cannot land in the receive passband between bursts, and burst_gain
     is applied only while the switch is off the RX position. Per TX PDU:
       1. drive the pair live       (e.g. GPIO0 HIGH / GPIO2 LOW)
-      2. raise TX gain to burst_gain()   (RX already disconnected by the switch)
-      3. wait lead_s               (relays settle cold, before any RF)
+      2. wait lead_s               (relays settle cold, before any RF)
+      3. raise TX gain to burst_gain()   (switch has left RX; still pre-RF)
       4. forward the PDU           (PA drives the antenna)
       5. hold for air-time + tail_s, then drop TX gain to idle_gain BEFORE
          flipping the pair back to idle/RX (leak silenced before RX reconnects;
@@ -106,11 +106,11 @@ class _PttGate(gr.basic_block):
             air_s = self._air_seconds(msg)
             gain_db = float(self.burst_gain())
             self._line(True)                                   # live: GPIO0 HIGH, GPIO2 LOW
-            self.sink.set_gain(gain_db, 0)                     # loud only while the switch is off RX
-            print(f"[PTT] TX key  -> GPIO0 HIGH / GPIO2 LOW, gain {gain_db:.0f} dB, lead {self.lead_s:.1f}s", flush=True)
+            print(f"[PTT] TX key  -> GPIO0 HIGH / GPIO2 LOW, lead {self.lead_s:.1f}s", flush=True)
             time.sleep(self.lead_s)                            # cold-switch settle, pre-RF
+            self.sink.set_gain(gain_db, 0)                     # raise gain only once the switch is off RX
             self.message_port_pub(pmt.intern("pdu_out"), msg)  # PA drives antenna
-            print(f"[PTT] RF out  -> air {air_s:.2f}s, tail {self.tail_s:.1f}s", flush=True)
+            print(f"[PTT] RF out  -> gain {gain_db:.0f} dB, air {air_s:.2f}s, tail {self.tail_s:.1f}s", flush=True)
             time.sleep(air_s + self.tail_s)                    # hold until RF fully drained
             self.sink.set_gain(self.idle_gain, 0)              # silence TX LO leak before RX reconnects
             self._line(False)                                  # idle: GPIO0 LOW, GPIO2 HIGH
