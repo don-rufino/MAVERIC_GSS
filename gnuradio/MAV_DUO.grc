@@ -33,16 +33,40 @@ options:
     state: enabled
 
 blocks:
-- name: band
+- name: rx_decim
   id: variable
   parameters:
-    comment: RX display bandwidth
-    value: '25000'
+    comment: RX decimation 1Msps -> 200ksps for satellite_decoder + displays
+    value: '5'
   states:
     bus_sink: false
     bus_source: false
     bus_structure: null
     coordinate: [248, 408.0]
+    rotation: 0
+    state: enabled
+- name: rx_lo_offset
+  id: variable
+  parameters:
+    comment: "RX LO parks this far above rx_freq; doppler rides the DSP NCO.\nMust match tracking.control.rx_lo_offset_hz in gss.yml."
+    value: 250e3
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [472, 272.0]
+    rotation: 0
+    state: enabled
+- name: tx_lo_offset
+  id: variable
+  parameters:
+    comment: "TX LO parks this far below tx_freq; keeps TX LO leak + LO-vs-LO\nbeat products out of the RX passband. Must match tracking.control.tx_lo_offset_hz."
+    value: -400e3
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [472, 328.0]
     rotation: 0
     state: enabled
 - name: baud
@@ -306,7 +330,7 @@ blocks:
     affinity: ''
     alias: ''
     comment: Decimate 1Msps to 200ksps for satellite_decoder
-    decim: '5'
+    decim: rx_decim
     maxoutbuf: '0'
     minoutbuf: '0'
     samp_delay: '0'
@@ -543,7 +567,7 @@ blocks:
     autoscale: 'False'
     average: '1.0'
     axislabels: 'True'
-    bw: samp_rate/5
+    bw: samp_rate/rx_decim
     color1: '"blue"'
     color10: '"dark blue"'
     color2: '"red"'
@@ -622,7 +646,7 @@ blocks:
     alpha8: '1.0'
     alpha9: '1.0'
     axislabels: 'True'
-    bw: samp_rate/5
+    bw: samp_rate/rx_decim
     color1: '0'
     color10: '0'
     color2: '0'
@@ -709,7 +733,7 @@ blocks:
     name: ''
     norad: '0'
     options: '""'
-    samp_rate: '200000'
+    samp_rate: int(samp_rate/rx_decim)
   states:
     bus_sink: false
     bus_source: false
@@ -786,7 +810,7 @@ blocks:
     bw7: '0'
     bw8: '0'
     bw9: '0'
-    center_freq0: uhd.tune_request(tx_freq, -400e3)
+    center_freq0: uhd.tune_request(tx_freq, tx_lo_offset)
     center_freq1: '0'
     center_freq10: '0'
     center_freq11: '0'
@@ -1063,7 +1087,7 @@ blocks:
     bw7: '0'
     bw8: '0'
     bw9: '0'
-    center_freq0: uhd.tune_request(rx_freq, 250e3)
+    center_freq0: uhd.tune_request(rx_freq, rx_lo_offset)
     center_freq1: '0'
     center_freq10: '0'
     center_freq11: '0'
