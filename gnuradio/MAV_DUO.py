@@ -102,18 +102,39 @@ class _PttGate(gr.basic_block):
             return 0.5  # conservative fallback if payload length is unavailable
 
     def _handle(self, msg):
+        # Never let an exception escape: it would kill this block's message
+        # thread for the rest of the session (GR logs it and the thread
+        # exits), and the finally guarantees the switch cannot stay latched
+        # on TX with the gain up.
         with self._lock:
-            air_s = self._air_seconds(msg)
-            gain_db = float(self.burst_gain())
-            self._line(True)                                   # live: GPIO0 HIGH, GPIO2 LOW
-            print(f"[PTT] TX key  -> GPIO0 HIGH / GPIO2 LOW, lead {self.lead_s:.1f}s", flush=True)
-            time.sleep(self.lead_s)                            # cold-switch settle, pre-RF
-            self.sink.set_gain(gain_db, 0)                     # raise gain only once the switch is off RX
-            self.message_port_pub(pmt.intern("pdu_out"), msg)  # PA drives antenna
-            print(f"[PTT] RF out  -> gain {gain_db:.0f} dB, air {air_s:.2f}s, tail {self.tail_s:.1f}s", flush=True)
-            time.sleep(air_s + self.tail_s)                    # hold until RF fully drained
-            self.sink.set_gain(self.idle_gain, 0)              # silence TX LO leak before RX reconnects
+            try:
+                air_s = self._air_seconds(msg)
+                gain_db = float(self.burst_gain())
+                self._line(True)                                   # live: GPIO0 HIGH, GPIO2 LOW
+                print(f"[PTT] TX key  -> GPIO0 HIGH / GPIO2 LOW, lead {self.lead_s:.1f}s", flush=True)
+                time.sleep(self.lead_s)                            # cold-switch settle, pre-RF
+                self.sink.set_gain(gain_db, 0)                     # raise gain only once the switch is off RX
+                self.message_port_pub(pmt.intern("pdu_out"), msg)  # PA drives antenna
+                print(f"[PTT] RF out  -> gain {gain_db:.0f} dB, air {air_s:.2f}s, tail {self.tail_s:.1f}s", flush=True)
+                time.sleep(air_s + self.tail_s)                    # hold until RF fully drained
+            except Exception as exc:
+                print(f"[PTT] ERROR   -> {exc!r}; forcing idle/RX", flush=True)
+            finally:
+                self._safe_idle()
+
+    def _safe_idle(self):
+        # Restore idle even mid-failure, in leak-safe order: gain to idle
+        # first, relay back to RX second. Each step is guarded separately so
+        # a dead UHD control channel cannot leave the switch driven to TX.
+        try:
+            self.sink.set_gain(self.idle_gain, 0)
+        except Exception as exc:
+            print(f"[PTT] ERROR   -> idle gain restore failed: {exc!r}", flush=True)
+        try:
             self._line(False)                                  # idle: GPIO0 LOW, GPIO2 HIGH
+        except Exception as exc:
+            print(f"[PTT] ERROR   -> RX switch restore failed: {exc!r}", flush=True)
+        else:
             print("[PTT] RX       -> GPIO0 LOW / GPIO2 HIGH", flush=True)
 
 
