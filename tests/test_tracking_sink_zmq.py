@@ -56,11 +56,12 @@ class ZmqDopplerSinkTests(unittest.TestCase):
             # LO parked at nominal + offset, independent of the doppler tune.
             self.assertAlmostEqual(field(rx_msg, "lo_freq"), 437_825_000.0)
             self.assertAlmostEqual(field(tx_msg, "lo_freq"), 437_175_000.0)
-            # DSP shift carries all of the doppler: lo_freq + dsp_freq = tune.
-            self.assertAlmostEqual(field(rx_msg, "dsp_freq"), -225_200.0)
+            # DSP shift carries all of the doppler. UHD manual-policy NCO
+            # conventions: RX center = lo - dsp, TX center = lo + dsp.
+            self.assertAlmostEqual(field(rx_msg, "dsp_freq"), 225_200.0)
             self.assertAlmostEqual(field(tx_msg, "dsp_freq"), 425_210.0)
             self.assertAlmostEqual(
-                field(rx_msg, "lo_freq") + field(rx_msg, "dsp_freq"), 437_599_800.0
+                field(rx_msg, "lo_freq") - field(rx_msg, "dsp_freq"), 437_599_800.0
             )
             self.assertAlmostEqual(
                 field(tx_msg, "lo_freq") + field(tx_msg, "dsp_freq"), 437_600_210.0

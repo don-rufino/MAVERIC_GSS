@@ -55,13 +55,17 @@ class ZmqDopplerSink:
         return self._tx.getsockopt(zmq.LAST_ENDPOINT).decode()
 
     def publish(self, correction: DopplerCorrection) -> None:
+        # UHD manual-policy NCO conventions (multi_usrp.cpp, RX_SIGN=+1 /
+        # TX_SIGN=-1): RX center = lo_freq - dsp_freq, TX center = lo_freq +
+        # dsp_freq. The tune_request.hpp doc comment claims the opposite RX
+        # sign and is contradicted by the implementation.
+        rx_lo_hz = correction.rx_hz + self._rx_lo_offset_hz
+        tx_lo_hz = correction.tx_hz + self._tx_lo_offset_hz
         rx_payload = _tune_message(
-            lo_hz=correction.rx_hz + self._rx_lo_offset_hz,
-            target_hz=correction.rx_tune_hz,
+            lo_hz=rx_lo_hz, dsp_hz=rx_lo_hz - correction.rx_tune_hz
         )
         tx_payload = _tune_message(
-            lo_hz=correction.tx_hz + self._tx_lo_offset_hz,
-            target_hz=correction.tx_tune_hz,
+            lo_hz=tx_lo_hz, dsp_hz=correction.tx_tune_hz - tx_lo_hz
         )
         with self._lock:
             if self._closed:
@@ -83,18 +87,16 @@ class ZmqDopplerSink:
                 self._tx.close(linger=250)
 
 
-def _tune_message(*, lo_hz: float, target_hz: float) -> bytes:
+def _tune_message(*, lo_hz: float, dsp_hz: float) -> bytes:
     # Manual-policy tune: gr-uhd combines lo_freq + dsp_freq from one dict
     # into a single tune_request with both policies MANUAL, so the RF
-    # synthesizer holds lo_hz while the DSP NCO places target_hz at baseband
-    # center. UHD's dsp_freq convention is (target - LO) for both RX and TX.
+    # synthesizer holds lo_hz while the DSP NCO applies dsp_hz. The dsp sign
+    # is direction-dependent; publish() encodes it per UHD's conventions.
     # Explicit chan=0 so the command is unambiguous against any future
     # multi-channel build of MAV_DUO.
     msg = pmt.make_dict()
     msg = pmt.dict_add(msg, pmt.intern("lo_freq"), pmt.from_double(float(lo_hz)))
-    msg = pmt.dict_add(
-        msg, pmt.intern("dsp_freq"), pmt.from_double(float(target_hz) - float(lo_hz))
-    )
+    msg = pmt.dict_add(msg, pmt.intern("dsp_freq"), pmt.from_double(float(dsp_hz)))
     msg = pmt.dict_add(msg, pmt.intern("chan"), pmt.from_long(0))
     return pmt.serialize_str(msg)
 

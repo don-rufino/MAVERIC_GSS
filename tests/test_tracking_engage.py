@@ -48,6 +48,26 @@ class TrackingEngageTests(unittest.TestCase):
         self.assertIs(service._sink, active_sink)
         self.assertEqual(service.doppler_mode, "connected")
 
+    def test_engage_forwards_lo_offsets_from_control_config(self) -> None:
+        runtime = _FakeRuntime(control={
+            "rx_zmq_addr": "tcp://127.0.0.1:0",
+            "tx_zmq_addr": "tcp://127.0.0.1:0",
+            "tick_period_s": 1.0,
+            "rx_lo_offset_hz": 250_000.0,
+            "tx_lo_offset_hz": -400_000.0,
+        })
+        captured: dict = {}
+
+        def factory(**kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        service = TrackingService(runtime, sink_factory=factory)
+        service.engage()
+
+        self.assertEqual(captured["rx_lo_offset_hz"], 250_000.0)
+        self.assertEqual(captured["tx_lo_offset_hz"], -400_000.0)
+
     def test_disengage_restores_null_sink_and_closes_previous(self) -> None:
         runtime = _FakeRuntime()
         active_sink = MagicMock()

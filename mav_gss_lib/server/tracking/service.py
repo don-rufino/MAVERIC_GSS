@@ -106,8 +106,8 @@ class TrackingService:
         sink = self._sink_factory(
             rx_addr=control["rx_zmq_addr"],
             tx_addr=control["tx_zmq_addr"],
-            rx_lo_offset_hz=float(control.get("rx_lo_offset_hz", 0.0)),
-            tx_lo_offset_hz=float(control.get("tx_lo_offset_hz", 0.0)),
+            rx_lo_offset_hz=control["rx_lo_offset_hz"],
+            tx_lo_offset_hz=control["tx_lo_offset_hz"],
         )
         with self._sink_lock:
             self._sink = sink
@@ -212,6 +212,8 @@ class TrackingService:
                 "rx_zmq_addr": str(control.get("rx_zmq_addr", "tcp://127.0.0.1:52003")),
                 "tx_zmq_addr": str(control.get("tx_zmq_addr", "tcp://127.0.0.1:52004")),
                 "tick_period_s": float(control.get("tick_period_s", 1.0)),
+                "rx_lo_offset_hz": float(control.get("rx_lo_offset_hz", 0.0)),
+                "tx_lo_offset_hz": float(control.get("tx_lo_offset_hz", 0.0)),
             }
 
     def config_model(self):
