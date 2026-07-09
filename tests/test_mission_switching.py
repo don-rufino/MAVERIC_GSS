@@ -1,5 +1,6 @@
 """Mission switching: per-mission config files, discovery, switch endpoint."""
 
+import copy
 import threading
 
 import pytest
@@ -44,6 +45,46 @@ def test_load_split_config_unforced_uses_file(monkeypatch, tmp_path):
     monkeypatch.delenv("GSS_MISSION", raising=False)
     _, mission_id, _ = config.load_split_config(path=str(cfg_file))
     assert mission_id == "maveric"
+
+
+def test_real_launch_ignores_hand_edited_mission_id(monkeypatch, tmp_path):
+    """A hand-edited mission.id in gss.yml must NOT run a non-default mission
+    out of gss.yml — that path let astrocast overwrite MAVERIC's csp routing.
+    Real launches (no explicit path) resolve to GSS_MISSION or MAVERIC only.
+    """
+    gss = tmp_path / "gss.yml"
+    gss.write_text(
+        "platform: {}\n"
+        "mission:\n"
+        "  id: astrocast\n"           # hand-edited to a non-default mission
+        "  config:\n"
+        "    csp:\n"
+        "      destination: 8\n"
+        "      dest_port: 24\n"
+    )
+    monkeypatch.setattr(config, "_DEFAULT_GSS_PATH", gss)
+    monkeypatch.setattr(config, "_LIB_DIR", tmp_path)
+    monkeypatch.delenv("GSS_MISSION", raising=False)
+
+    # Real launch (no explicit path): stays on MAVERIC + gss.yml, csp intact.
+    assert config._active_gss_path() == gss
+    platform_cfg, mission_id, mission_cfg = config.load_split_config()
+    assert mission_id == "maveric"
+    assert mission_cfg["csp"]["destination"] == 8
+    assert mission_cfg["csp"]["dest_port"] == 24
+
+
+def test_astrocast_radio_script_survives_real_default_merge(tmp_path):
+    """Regression for the radio.script default leak: through the real
+    _DEFAULTS platform merge, astrocast must resolve its own flowgraph."""
+    from mav_gss_lib.platform.loader import load_mission_spec_from_split
+
+    defaults = copy.deepcopy(config._DEFAULTS)
+    defaults.pop("general", None)
+    platform_cfg = config.deep_merge(defaults, {})
+    assert "script" not in platform_cfg["radio"]  # platform default is neutral
+    load_mission_spec_from_split(platform_cfg, "astrocast", {}, data_dir=tmp_path)
+    assert platform_cfg["radio"]["script"] == "gnuradio/MAV_ASTROCAST.py"
 
 
 # ── mission discovery ────────────────────────────────────────────────────

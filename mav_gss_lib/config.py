@@ -86,9 +86,13 @@ _DEFAULTS = {
         "tx_blackout_ms": 0,
     },
     "radio": {
+        # No default `script` here: the flowgraph is mission-specific, so
+        # each mission's build() seeds its own (MAVERIC -> MAV_DUO.py via the
+        # RadioService DEFAULT_RADIO_SCRIPT fallback, astrocast -> MAV_ASTROCAST.py).
+        # A platform default would pre-fill the key and defeat a mission's
+        # setdefault, so a non-MAVERIC mission could never override it.
         "enabled": True,
         "autostart": False,
-        "script": "gnuradio/MAV_DUO.py",
         "log_lines": 1000,
         "stop_timeout_s": 8.0,
     },
@@ -185,6 +189,7 @@ def load_split_config(path: str | None = None) -> tuple[dict, str, dict]:
     file and the platform defaults. Operator files must use the native
     `{platform, mission}` shape.
     """
+    explicit_path = path is not None
     if path is None:
         path = str(_active_gss_path())
     raw = {}
@@ -213,10 +218,19 @@ def load_split_config(path: str | None = None) -> tuple[dict, str, dict]:
     mission_section = native.get("mission", {})
     if not isinstance(mission_section, dict):
         mission_section = {}
-    mission_id = str(mission_section.get("id") or _DEFAULTS["general"]["mission"])
     forced_mission = os.environ.get("GSS_MISSION", "").strip()
-    if forced_mission:
-        mission_id = forced_mission
+    if explicit_path:
+        # Tools/tests targeting a specific file honor that file's mission.id.
+        mission_id = forced_mission or str(mission_section.get("id") or DEFAULT_MISSION)
+    else:
+        # Real launches: the active mission is GSS_MISSION (set by the mission
+        # switcher / --mission) or MAVERIC. gss.yml's mission.id does NOT
+        # select a non-default mission — otherwise a hand-edited mission.id
+        # would run e.g. astrocast out of gss.yml, and the first config save
+        # (a TLE fetch, a settings edit) would persist that mission's
+        # csp-less config over gss.yml and silently drop MAVERIC's routing.
+        # Non-MAVERIC missions get their own gss.<id>.yml via GSS_MISSION.
+        mission_id = forced_mission or DEFAULT_MISSION
     mission_cfg = copy.deepcopy(mission_section.get("config", {}))
     if not isinstance(mission_cfg, dict):
         mission_cfg = {}
