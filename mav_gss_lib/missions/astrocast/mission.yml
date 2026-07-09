@@ -1,0 +1,89 @@
+# Astrocast 0.1 mission database (RX-only).
+#
+# Downlink protocol reverse-engineered by Daniel Estevez:
+#   https://destevez.net/2018/12/decoding-astrocast-0-1/
+#   https://destevez.net/2019/03/new-decoders-for-astrocast-0-1/
+# Beacon payload is ASCII sentences; the mission codec re-tokenizes them
+# into whitespace-separated tokens for the ascii_tokens walker layout.
+# The 9k6 CCSDS download payload is undocumented and logged raw.
+schema_version: 1
+id: astrocast
+name: "Astrocast 0.1"
+header:
+  version: "1.0.0"
+  date: "2026-07-09"
+  description: "Astrocast 0.1 RX-only declarative mission database"
+
+parameter_types:
+  utc_token:
+    kind: string
+    encoding: ascii_token
+    description: "ISO-8601 UTC timestamp derived from the 48-bit HK clock (1/65536 s ticks since 2016-01-01)"
+  volts_f:
+    kind: float
+    unit: "V"
+    description: "System voltage from the HK beacon"
+  milliamps_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mA"
+    description: "System current from the HK beacon"
+  celsius_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "degC"
+    description: "Temperature from the HK beacon"
+  dbm_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "dBm"
+    description: "Receiver RSSI from the HK beacon"
+  hertz_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "Hz"
+    description: "Receiver AFC frequency offset from the HK beacon"
+  flags_token:
+    kind: string
+    encoding: ascii_token
+    description: "HK format-flags byte (0x-prefixed hex)"
+
+parameters:
+  clock_utc:    { type: utc_token,   domain: beacon, description: "Spacecraft clock (UTC)" }
+  voltage:      { type: volts_f,     domain: beacon }
+  current:      { type: milliamps_i, domain: beacon }
+  temperature:  { type: celsius_i,   domain: beacon }
+  rssi:         { type: dbm_i,       domain: beacon }
+  afc_offset:   { type: hertz_i,     domain: beacon }
+  hk_flags:     { type: flags_token, domain: beacon }
+
+sequence_containers:
+  beacon_hk:
+    domain: beacon
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: beacon
+    entry_list:
+      - { name: clock_utc }
+      - { name: voltage }
+      - { name: current }
+      - { name: temperature }
+      - { name: rssi }
+      - { name: afc_offset }
+      - { name: hk_flags }
+
+ui:
+  rx_columns:
+    - { id: type,  label: type,      width: 52,  path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,       width: 64,  path: header.src }
+    - { id: clock, label: s/c clock, width: 150, path: beacon.clock_utc }
+    - { id: volt,  label: volts,     width: 56,  align: right, path: beacon.voltage_v }
+    - { id: temp,  label: degC,      width: 48,  align: right, path: beacon.temp_c }
+    - { id: rssi,  label: rssi,      width: 52,  align: right, path: beacon.rssi_dbm }
+    - { id: afc,   label: afc Hz,    width: 60,  align: right, path: beacon.afc_hz }
