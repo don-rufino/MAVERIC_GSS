@@ -1,0 +1,38 @@
+# Astrocast 0.1 decoder definition for gr-satellites (SatYAML).
+# Source: gr-satellites 5.7.0 python/satyaml/Astrocast_0_1.yml (GPL-3.0).
+# Loaded by MAV_ASTROCAST.py via satellites.core.gr_satellites_flowgraph.
+name: Astrocast 0.1
+norad: 43798
+data:
+  &tlm Telemetry:
+    unknown
+  &tlm_9k6 9k6 Telemetry:
+    unknown
+transmitters:
+  1k2 FSK FX.25 NRZ-I downlink:
+    frequency: 437.150e+6
+    modulation: FSK
+    baudrate: 1200
+    deviation: 1200
+    framing: Astrocast FX.25 NRZ-I
+    data:
+    - *tlm
+  1k2 FSK FX.25 NRZ downlink:
+    frequency: 437.150e+6
+    modulation: FSK
+    baudrate: 1200
+    deviation: 1200
+    framing: Astrocast FX.25 NRZ
+    data:
+    - *tlm
+  9k6 FSK downlink:
+    frequency: 437.150e+6
+    modulation: FSK
+    baudrate: 9600
+    deviation: 4800
+    framing: CCSDS Reed-Solomon
+    frame size: 1115
+    RS basis: dual
+    RS interleaving: 5
+    data:
+    - *tlm_9k6
