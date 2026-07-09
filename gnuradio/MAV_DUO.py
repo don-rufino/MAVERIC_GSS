@@ -37,6 +37,10 @@ import satellites.core
 import sip
 import threading
 import pmt
+import os
+import struct
+import traceback
+import numpy as np
 
 
 def snipfcn_layout_stretch_snippet(self):
@@ -149,6 +153,117 @@ class _PttGate(gr.basic_block):
                 print("[PTT] RX       -> GPIO0 LOW / GPIO2 HIGH", flush=True)
         except Exception:
             pass
+
+
+class _WaterfallLogger(gr.sync_block):
+    """Post-pass waterfall recorder for the decimated RX stream.
+
+    Appends timestamped 1024-bin dB rows to waterfall_<start>.dat while the
+    flowgraph runs; stop() renders a SatNOGS-style PNG via waterfall_render
+    and deletes the .dat on success. Hard crashes leave the .dat behind, so
+    __init__ sweeps the output dir for leftovers and renders them in a
+    background thread. Every failure path prints and disables the block —
+    waterfall capture must never take down the radio.
+    """
+
+    FFT_SIZE = 1024
+    FFTS_PER_ROW = 20  # ~9.8 rows/s at 200 ksps
+
+    def __init__(self):
+        gr.sync_block.__init__(self, name="waterfall_logger",
+                               in_sig=[np.complex64], out_sig=None)
+        self._file = None
+        self._dat_path = ""
+        self._render_mod = None
+        raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
+        self._center_hz = float(raw_center) if raw_center else None
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            if script_dir not in sys.path:
+                sys.path.insert(0, script_dir)
+            import waterfall_render
+            self._render_mod = waterfall_render
+            out_dir = os.environ.get("GSS_WATERFALL_DIR") or os.path.join(script_dir, "waterfalls")
+            os.makedirs(out_dir, exist_ok=True)
+            orphans = [os.path.join(out_dir, name) for name in sorted(os.listdir(out_dir))
+                       if name.startswith("waterfall_") and name.endswith(".dat")]
+            if orphans:
+                threading.Thread(target=self._render_orphans, args=(orphans,),
+                                 daemon=True, name="waterfall-orphans").start()
+            stem = time.strftime("waterfall_%Y%m%dT%H%M%SZ", time.gmtime())
+            self._dat_path = os.path.join(out_dir, stem + ".dat")
+            self._file = open(self._dat_path, "ab")
+            self._win = np.asarray(window.blackmanharris(self.FFT_SIZE), dtype=np.float32)
+            self._buf = np.empty(0, dtype=np.complex64)
+            self._acc = np.zeros(self.FFT_SIZE, dtype=np.float64)
+            self._nacc = 0
+        except Exception:
+            traceback.print_exc()
+            print("waterfall_logger: init failed; waterfall capture disabled", flush=True)
+            self._close_quietly()
+
+    def _close_quietly(self):
+        try:
+            if self._file is not None:
+                self._file.close()
+        except Exception:
+            pass
+        self._file = None
+
+    def _render_orphans(self, paths):
+        for path in paths:
+            try:
+                png = self._render_mod.render(path, delete_dat=True,
+                                              center_freq_hz=self._center_hz)
+                if png is None:
+                    print(f"waterfall_logger: removed empty leftover {path}", flush=True)
+                else:
+                    print(f"waterfall_logger: rendered leftover {png}", flush=True)
+            except Exception:
+                traceback.print_exc()
+                print(f"waterfall_logger: leftover render failed; kept {path}", flush=True)
+
+    def work(self, input_items, output_items):
+        n_in = len(input_items[0])
+        if self._file is None:
+            return n_in
+        try:
+            self._buf = np.concatenate((self._buf, input_items[0]))
+            while self._buf.size >= self.FFT_SIZE:
+                chunk = self._buf[:self.FFT_SIZE]
+                self._buf = self._buf[self.FFT_SIZE:]
+                spec = np.fft.fft(chunk * self._win)
+                self._acc += spec.real ** 2 + spec.imag ** 2
+                self._nacc += 1
+                if self._nacc >= self.FFTS_PER_ROW:
+                    mean_power = self._acc / (self._nacc * self.FFT_SIZE ** 2)
+                    row = 10.0 * np.log10(mean_power + 1e-20)
+                    row = np.fft.fftshift(row).astype("<f4")
+                    self._file.write(struct.pack("<d", time.time()) + row.tobytes())
+                    self._file.flush()
+                    self._acc[:] = 0.0
+                    self._nacc = 0
+        except Exception:
+            traceback.print_exc()
+            print("waterfall_logger: capture failed; waterfall disabled for this run", flush=True)
+            self._close_quietly()
+        return n_in
+
+    def stop(self):
+        if self._file is None:
+            return True
+        self._close_quietly()
+        try:
+            png = self._render_mod.render(self._dat_path, delete_dat=True,
+                                          center_freq_hz=self._center_hz)
+            if png is None:
+                print("waterfall_logger: empty capture; nothing to render", flush=True)
+            else:
+                print(f"waterfall_logger: saved {png}", flush=True)
+        except Exception:
+            traceback.print_exc()
+            print(f"waterfall_logger: render failed; kept {self._dat_path}", flush=True)
+        return True
 
 
 class MAV_DUO(gr.top_block, Qt.QWidget):
@@ -509,6 +624,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.pdu_pdu_to_tagged_stream_0 = pdu.pdu_to_tagged_stream(gr.types.byte_t, 'packet_len')
         self.fir_filter_xxx_1 = filter.fir_filter_ccc(rx_decim, [0.000332675437675789,-0.0003077496658079326,-0.0005765556124970317,-0.00011316717427689582,0.0005280854529701173,0.0005271750269457698,-0.0001697568513918668,-0.0007128709694370627,-0.0003659247304312885,0.0005136664258316159,0.0008155554533004761,5.7438082876615226e-05,-0.0008846476557664573,-0.0007628710591234267,0.0004127955762669444,0.0012023845920339227,0.0004748026258312166,-0.0010086969705298543,-0.0013431194238364697,9.995983418775722e-05,0.0016230839537456632,0.0011655620764940977,-0.0009432621882297099,-0.0020785757806152105,-0.0005570970242843032,0.0019362160237506032,0.0021571165416389704,-0.0005106113385409117,-0.0028525725938379765,-0.0016568709397688508,0.0019336760742589831,0.003387211123481393,0.0004655412049032748,-0.003454529447481036,-0.0032212010119110346,0.0013689876068383455,0.0046819280833005905,0.0021136386785656214,-0.0035935540217906237,-0.00515820411965251,3.445093100358828e-17,0.00575077161192894,0.004466922953724861,-0.002929744776338339,-0.007238117977976799,-0.0023611208889633417,0.006200101692229509,0.007423438131809235,-0.0011174040846526623,-0.009085707366466522,-0.0057998886331915855,0.005560645833611488,0.010719634592533112,0.0021501574665308,-0.010186892002820969,-0.01026318408548832,0.003317480208352208,0.013918614946305752,0.00710933655500412,-0.009897337295114994,-0.015542840585112572,-0.0010805262718349695,0.01640382409095764,0.013931216672062874,-0.007421362679451704,-0.02128412388265133,-0.00828002393245697,0.017346151173114777,0.02280677668750286,-0.0016788907814770937,-0.027019726112484932,-0.019278328865766525,0.015544342808425426,0.03423699364066124,0.009204991161823273,-0.032225217670202255,-0.03633292764425278,0.008750508539378643,0.0500480942428112,0.029977144673466682,-0.036387741565704346,-0.0669822171330452,-0.009797654114663601,0.07862082123756409,0.08094607293605804,-0.03907700628042221,-0.15815693140029907,-0.0901409462094307,0.21769128739833832,0.5918497443199158,0.7601303458213806,0.5918497443199158,0.21769128739833832,-0.0901409462094307,-0.15815693140029907,-0.03907700628042221,0.08094607293605804,0.07862082123756409,-0.009797654114663601,-0.0669822171330452,-0.036387741565704346,0.029977144673466682,0.0500480942428112,0.008750508539378643,-0.03633292764425278,-0.032225217670202255,0.009204991161823273,0.03423699364066124,0.015544342808425426,-0.019278328865766525,-0.027019726112484932,-0.0016788907814770937,0.02280677668750286,0.017346151173114777,-0.00828002393245697,-0.02128412388265133,-0.007421362679451704,0.013931216672062874,0.01640382409095764,-0.0010805262718349695,-0.015542840585112572,-0.009897337295114994,0.00710933655500412,0.013918614946305752,0.003317480208352208,-0.01026318408548832,-0.010186892002820969,0.0021501574665308,0.010719634592533112,0.005560645833611488,-0.0057998886331915855,-0.009085707366466522,-0.0011174040846526623,0.007423438131809235,0.006200101692229509,-0.0023611208889633417,-0.007238117977976799,-0.002929744776338339,0.004466922953724861,0.00575077161192894,3.445093100358828e-17,-0.00515820411965251,-0.0035935540217906237,0.0021136386785656214,0.0046819280833005905,0.0013689876068383455,-0.0032212010119110346,-0.003454529447481036,0.0004655412049032748,0.003387211123481393,0.0019336760742589831,-0.0016568709397688508,-0.0028525725938379765,-0.0005106113385409117,0.0021571165416389704,0.0019362160237506032,-0.0005570970242843032,-0.0020785757806152105,-0.0009432621882297099,0.0011655620764940977,0.0016230839537456632,9.995983418775722e-05,-0.0013431194238364697,-0.0010086969705298543,0.0004748026258312166,0.0012023845920339227,0.0004127955762669444,-0.0007628710591234267,-0.0008846476557664573,5.7438082876615226e-05,0.0008155554533004761,0.0005136664258316159,-0.0003659247304312885,-0.0007128709694370627,-0.0001697568513918668,0.0005271750269457698,0.0005280854529701173,-0.00011316717427689582,-0.0005765556124970317,-0.0003077496658079326,0.000332675437675789])
         self.fir_filter_xxx_1.declare_sample_delay(0)
+        self.waterfall_logger = _WaterfallLogger()
         self.digital_gfsk_mod_0 = digital.gfsk_mod(
             samples_per_symbol=(int(samp_ratetx/baud)),
             sensitivity=((pi*modindex) / int(samp_ratetx/baud)),
@@ -535,6 +651,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_freq_sink_x_1, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_waterfall_sink_x_0, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.satellites_satellite_decoder_0, 0))
+        self.connect((self.fir_filter_xxx_1, 0), (self.waterfall_logger, 0))
         self.connect((self.pdu_pdu_to_tagged_stream_0, 0), (self.digital_gfsk_mod_0, 0))
         self.connect((self.uhd_usrp_source_0, 0), (self.fir_filter_xxx_1, 0))
 

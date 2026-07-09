@@ -324,6 +324,145 @@ blocks:
     coordinate: [584, 500.0]
     rotation: 0
     state: enabled
+- name: epy_block_waterfall
+  id: epy_block
+  parameters:
+    _source_code: |
+      """Waterfall autosave logger (mirror of _WaterfallLogger in MAV_DUO.py).
+
+      Appends timestamped 1024-bin dB rows to waterfall_<start>.dat; stop()
+      renders a SatNOGS-style PNG via waterfall_render and deletes the .dat
+      on success. Orphaned .dat files from hard crashes render on next start.
+      """
+
+      import os
+      import struct
+      import sys
+      import threading
+      import time
+      import traceback
+
+      import numpy as np
+      from gnuradio import gr
+      from gnuradio.fft import window
+
+
+      class blk(gr.sync_block):
+          """Log RX FFT rows; render PNG on stop."""
+
+          FFT_SIZE = 1024
+          FFTS_PER_ROW = 20
+
+          def __init__(self):
+              gr.sync_block.__init__(self, name="waterfall_logger",
+                                     in_sig=[np.complex64], out_sig=None)
+              self._file = None
+              self._dat_path = ""
+              self._render_mod = None
+              raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
+              self._center_hz = float(raw_center) if raw_center else None
+              try:
+                  script_dir = os.path.dirname(os.path.abspath(__file__))
+                  if script_dir not in sys.path:
+                      sys.path.insert(0, script_dir)
+                  import waterfall_render
+                  self._render_mod = waterfall_render
+                  out_dir = os.environ.get("GSS_WATERFALL_DIR") or os.path.join(script_dir, "waterfalls")
+                  os.makedirs(out_dir, exist_ok=True)
+                  orphans = [os.path.join(out_dir, name) for name in sorted(os.listdir(out_dir))
+                             if name.startswith("waterfall_") and name.endswith(".dat")]
+                  if orphans:
+                      threading.Thread(target=self._render_orphans, args=(orphans,),
+                                       daemon=True, name="waterfall-orphans").start()
+                  stem = time.strftime("waterfall_%Y%m%dT%H%M%SZ", time.gmtime())
+                  self._dat_path = os.path.join(out_dir, stem + ".dat")
+                  self._file = open(self._dat_path, "ab")
+                  self._win = np.asarray(window.blackmanharris(self.FFT_SIZE), dtype=np.float32)
+                  self._buf = np.empty(0, dtype=np.complex64)
+                  self._acc = np.zeros(self.FFT_SIZE, dtype=np.float64)
+                  self._nacc = 0
+              except Exception:
+                  traceback.print_exc()
+                  print("waterfall_logger: init failed; waterfall capture disabled", flush=True)
+                  self._close_quietly()
+
+          def _close_quietly(self):
+              try:
+                  if self._file is not None:
+                      self._file.close()
+              except Exception:
+                  pass
+              self._file = None
+
+          def _render_orphans(self, paths):
+              for path in paths:
+                  try:
+                      png = self._render_mod.render(path, delete_dat=True,
+                                                    center_freq_hz=self._center_hz)
+                      if png is None:
+                          print(f"waterfall_logger: removed empty leftover {path}", flush=True)
+                      else:
+                          print(f"waterfall_logger: rendered leftover {png}", flush=True)
+                  except Exception:
+                      traceback.print_exc()
+                      print(f"waterfall_logger: leftover render failed; kept {path}", flush=True)
+
+          def work(self, input_items, output_items):
+              n_in = len(input_items[0])
+              if self._file is None:
+                  return n_in
+              try:
+                  self._buf = np.concatenate((self._buf, input_items[0]))
+                  while self._buf.size >= self.FFT_SIZE:
+                      chunk = self._buf[:self.FFT_SIZE]
+                      self._buf = self._buf[self.FFT_SIZE:]
+                      spec = np.fft.fft(chunk * self._win)
+                      self._acc += spec.real ** 2 + spec.imag ** 2
+                      self._nacc += 1
+                      if self._nacc >= self.FFTS_PER_ROW:
+                          mean_power = self._acc / (self._nacc * self.FFT_SIZE ** 2)
+                          row = 10.0 * np.log10(mean_power + 1e-20)
+                          row = np.fft.fftshift(row).astype("<f4")
+                          self._file.write(struct.pack("<d", time.time()) + row.tobytes())
+                          self._file.flush()
+                          self._acc[:] = 0.0
+                          self._nacc = 0
+              except Exception:
+                  traceback.print_exc()
+                  print("waterfall_logger: capture failed; waterfall disabled for this run", flush=True)
+                  self._close_quietly()
+              return n_in
+
+          def stop(self):
+              if self._file is None:
+                  return True
+              self._close_quietly()
+              try:
+                  png = self._render_mod.render(self._dat_path, delete_dat=True,
+                                                center_freq_hz=self._center_hz)
+                  if png is None:
+                      print("waterfall_logger: empty capture; nothing to render", flush=True)
+                  else:
+                      print(f"waterfall_logger: saved {png}", flush=True)
+              except Exception:
+                  traceback.print_exc()
+                  print(f"waterfall_logger: render failed; kept {self._dat_path}", flush=True)
+              return True
+    affinity: ''
+    alias: ''
+    comment: 'Waterfall autosave: logs FFT rows during the run, renders a PNG on
+      stop, sweeps crash leftovers on start. Mirrors _WaterfallLogger in MAV_DUO.py.'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: ('Log RX FFT rows; render PNG on stop.', 'blk', [], [('0', 'complex',
+      1)], [], 'Log RX FFT rows; render PNG on stop.', [])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1240, 996.0]
+    rotation: 0
+    state: enabled
 - name: fir_filter_xxx_1
   id: fir_filter_xxx
   parameters:
@@ -1533,6 +1672,7 @@ connections:
 - [blocks_wavfile_source_0, '0', blocks_float_to_complex_0, '0']
 - [blocks_wavfile_source_0, '1', blocks_float_to_complex_0, '1']
 - [digital_gfsk_mod_0, '0', blocks_multiply_const_vxx_0, '0']
+- [fir_filter_xxx_1, '0', epy_block_waterfall, '0']
 - [fir_filter_xxx_1, '0', qtgui_freq_sink_x_1, '0']
 - [fir_filter_xxx_1, '0', qtgui_waterfall_sink_x_0, '0']
 - [fir_filter_xxx_1, '0', satellites_satellite_decoder_0, '0']
