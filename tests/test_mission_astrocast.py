@@ -153,3 +153,46 @@ def test_mission_yml_parses_standalone():
         "clock_utc", "voltage", "current", "temperature",
         "rssi", "afc_offset", "hk_flags",
     }
+
+
+def test_end_to_end_parameters_via_platform_runtime(tmp_path):
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "astrocast", {},
+    )
+    assert runtime.walker is not None
+
+    result = runtime.process_rx(NRZI_META, BEACON_FRAME_1)
+    packet = result.packet
+    values = {update.name: update for update in packet.parameters}
+    assert values["beacon.voltage"].value == pytest.approx(3.415)
+    assert values["beacon.voltage"].unit == "V"
+    assert values["beacon.current"].value == 57
+    assert values["beacon.temperature"].value == 12
+    assert values["beacon.rssi"].value == -85
+    assert values["beacon.afc_offset"].value == 9338
+    assert values["beacon.clock_utc"].value == "2019-03-04T10:15:34+00:00"
+    assert values["beacon.hk_flags"].value == "0xEC"
+    assert packet.flags.is_unknown is False
+
+
+def test_9k6_frame_is_opaque_telemetry(tmp_path):
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "astrocast", {},
+    )
+    result = runtime.process_rx(NINE_K6_META, NINE_K6_FRAME)
+    packet = result.packet
+    assert packet.frame_type == "CCSDS-RS"
+    assert packet.mission["facts"]["header"]["type"] == "TLM"
+    assert packet.parameters == ()
+    assert packet.flags.is_unknown is False
+
+
+def test_garbage_fx25_frame_does_not_crash(tmp_path):
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "astrocast", {},
+    )
+    result = runtime.process_rx(NRZI_META, b"\x00\x01\x02garbage-no-sentences")
+    packet = result.packet
+    assert packet.flags.is_unknown is True
+    assert packet.parameters == ()
+    assert packet.warnings  # header-not-found and/or no-sentence warning
