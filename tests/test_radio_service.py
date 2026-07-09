@@ -71,6 +71,15 @@ class RadioServiceConfigTests(unittest.TestCase):
         self.assertEqual(result["state"], "stopped")
         self.assertIn("disabled", result["error"].lower())
 
+    def test_frequency_env_includes_absolute_waterfall_dir(self):
+        svc = RadioService(_fake_runtime())
+        env = svc._frequency_env()
+        waterfall_dir = env["GSS_WATERFALL_DIR"]
+        self.assertTrue(os.path.isabs(waterfall_dir))
+        self.assertEqual(os.path.basename(waterfall_dir), "waterfalls")
+        # _fake_runtime has no general.log_dir, so the default "logs" applies
+        self.assertEqual(os.path.basename(os.path.dirname(waterfall_dir)), "logs")
+
     def test_frequency_env_reads_split_rx_tx_config(self):
         rt = _fake_runtime({"enabled": True})
         rt.platform_cfg["rx"]["frequency"] = "437.7 MHz"

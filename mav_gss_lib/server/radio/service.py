@@ -153,6 +153,8 @@ class RadioService:
             rx_hz = _parse_frequency_hz(rx_cfg.get("frequency"), _parse_frequency_hz(frequencies.get("rx_hz")))
             tx_hz = _parse_frequency_hz(tx_cfg.get("frequency"), _parse_frequency_hz(frequencies.get("tx_hz")))
             control = get_tracking_control(platform_cfg)
+            general = platform_cfg.get("general") if isinstance(platform_cfg.get("general"), dict) else {}
+            log_dir_raw = str(general.get("log_dir", "logs"))
         env: dict[str, str] = {}
         if rx_hz is not None:
             env["GSS_RX_FREQ_HZ"] = str(rx_hz)
@@ -163,6 +165,9 @@ class RadioService:
         # and the doppler sink can never disagree on where the LOs sit.
         env["GSS_RX_LO_OFFSET_HZ"] = str(control["rx_lo_offset_hz"])
         env["GSS_TX_LO_OFFSET_HZ"] = str(control["tx_lo_offset_hz"])
+        # Absolute on purpose: the radio child runs with cwd=gnuradio/, so a
+        # relative log_dir would land waterfall PNGs inside the flowgraph dir.
+        env["GSS_WATERFALL_DIR"] = str(resolve_project_path(log_dir_raw) / "waterfalls")
         return env
 
     def command(self) -> list[str]:
