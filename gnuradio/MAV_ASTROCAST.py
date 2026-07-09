@@ -68,6 +68,11 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
 
         tb.rx_freq = float(os.environ.get("GSS_RX_FREQ_HZ", DEFAULT_RX_FREQ_HZ))
         tb.rx_lo_offset = float(os.environ.get("GSS_RX_LO_OFFSET_HZ", DEFAULT_RX_LO_OFFSET_HZ))
+        # Log the tuning intent BEFORE touching the USRP so the Radio logs
+        # show the target frequency even if the device open fails.
+        print(f"MAV_ASTROCAST RX {tb.rx_freq/1e6:.6f} MHz "
+              f"(LO parked {tb.rx_lo_offset/1e3:+.0f} kHz), "
+              f"{SAMP_RATE//RX_DECIM} sps into decoder", flush=True)
         tb.uhd_usrp_source_0 = uhd.usrp_source(
             ",".join(("", "")),
             uhd.stream_args(cpu_format="fc32", args='', channels=list(range(0, 1))),
@@ -78,9 +83,6 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
             uhd.tune_request(tb.rx_freq, tb.rx_lo_offset), 0)
         tb.uhd_usrp_source_0.set_antenna("RX2", 0)
         tb.uhd_usrp_source_0.set_gain(RX_GAIN, 0)
-        print(f"MAV_ASTROCAST RX {tb.rx_freq/1e6:.6f} MHz "
-              f"(LO parked {tb.rx_lo_offset/1e3:+.0f} kHz), "
-              f"{SAMP_RATE//RX_DECIM} sps into decoder", flush=True)
 
         tb.rx_lpf = gr_filter.fir_filter_ccf(
             RX_DECIM, firdes.low_pass(1, SAMP_RATE, 50e3, 10e3))
