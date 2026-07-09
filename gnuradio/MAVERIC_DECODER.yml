@@ -36,6 +36,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 4800
+    deviation: 1600
     framing: AX100 ASM+Golay
     data:
       - *tlm
@@ -43,6 +44,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 9600
+    deviation: 3200
     framing: AX100 ASM+Golay
     data:
       - *tlm
@@ -50,6 +52,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 19200
+    deviation: 6400
     framing: AX100 ASM+Golay
     data:
       - *tlm
@@ -57,6 +60,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 38400
+    deviation: 12800
     framing: AX100 ASM+Golay
     data:
       - *tlm
@@ -66,6 +70,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 4800
+    deviation: 1600
     framing: AX.25 G3RUH
     data:
       - *tlm
@@ -73,6 +78,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 9600
+    deviation: 3200
     framing: AX.25 G3RUH
     data:
       - *tlm
@@ -80,6 +86,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 19200
+    deviation: 6400
     framing: AX.25 G3RUH
     data:
       - *tlm
@@ -87,6 +94,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 38400
+    deviation: 12800
     framing: AX.25 G3RUH
     data:
       - *tlm
