@@ -24,9 +24,16 @@ def _parse_cli_into_env() -> None:
              "block gss.yml / mission.yml save-back. Use for fake_flight "
              "test sessions when you want zero-trace operations state.",
     )
+    parser.add_argument(
+        "--mission", metavar="ID",
+        help="Mission package to run (loads/persists its own gss.<ID>.yml "
+             "operator config; plain launches keep maveric's gss.yml).",
+    )
     args, _ = parser.parse_known_args()
     if args.ephemeral:
         os.environ["GSS_EPHEMERAL"] = "1"
+    if args.mission:
+        os.environ["GSS_MISSION"] = args.mission.strip()
 
 
 _parse_cli_into_env()
@@ -63,15 +70,16 @@ if __name__ == "__main__":
     mission_name = runtime.mission_name
     mission = runtime.mission_id
     print(f"{mission_name} GSS Web -> {url}")
-    # Skip the auto-open when the updater restarted us. `_reexec` sets
-    # MAV_UPDATE_APPLIED in the new process env for exactly this kind of
-    # signal — the operator's existing browser tab is already polling
-    # /api/status and will reload itself once uvicorn is ready, so spawning
-    # a second tab just leaves them with duplicates. Read non-destructively
-    # so `check_for_updates` can still pop it later to render the UI's
+    # Skip the auto-open when a self-restart brought us up: the updater sets
+    # MAV_UPDATE_APPLIED and the mission switcher sets MAV_MISSION_SWITCHED
+    # in the new process env for exactly this kind of signal — the operator's
+    # existing browser tab is already polling /api/status and will reload
+    # itself once uvicorn is ready, so spawning a second tab just leaves
+    # them with duplicates. MAV_UPDATE_APPLIED is read non-destructively so
+    # `check_for_updates` can still pop it later to render the UI's
     # "Updated to <sha>" label. Read happens before the thread starts, which
     # is before uvicorn's lifespan schedules the check — race-free.
-    if not os.environ.get("MAV_UPDATE_APPLIED"):
+    if not os.environ.get("MAV_UPDATE_APPLIED") and not os.environ.get("MAV_MISSION_SWITCHED"):
         threading.Thread(
             target=_wait_for_server_and_open,
             args=(url, HOST, PORT),

@@ -140,6 +140,7 @@ def test_build_seeds_rx_frequency_and_tracking(tmp_path):
     mission_cfg: dict = {}
     load_mission_spec_from_split(platform_cfg, "astrocast", mission_cfg, data_dir=tmp_path)
     assert platform_cfg["rx"]["frequency"] == "437.150 MHz"
+    assert platform_cfg["radio"]["script"] == "gnuradio/MAV_ASTROCAST.py"
     assert platform_cfg["tracking"]["frequencies"]["rx_hz"] == 437_150_000.0
     assert mission_cfg["mission_name"] == "Astrocast 0.1"
 

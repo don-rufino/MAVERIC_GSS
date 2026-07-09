@@ -30,6 +30,19 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_GSS_PATH = _LIB_DIR / "gss.yml"
 
 
+def _active_gss_path() -> Path:
+    """Operator config path for the active mission (GSS_MISSION env).
+
+    maveric (or unset) keeps the legacy gss.yml; any other mission gets its
+    own gss.<id>.yml so per-mission platform state (frequencies, TLE, radio
+    script) never cross-contaminates between missions.
+    """
+    mission = os.environ.get("GSS_MISSION", "").strip()
+    if mission and mission != DEFAULT_MISSION:
+        return _LIB_DIR / f"gss.{mission}.yml"
+    return _DEFAULT_GSS_PATH
+
+
 def _read_version() -> str:
     """Single source of truth: web/package.json."""
     pkg_json = _LIB_DIR / "web" / "package.json"
@@ -173,7 +186,7 @@ def load_split_config(path: str | None = None) -> tuple[dict, str, dict]:
     `{platform, mission}` shape.
     """
     if path is None:
-        path = str(_DEFAULT_GSS_PATH)
+        path = str(_active_gss_path())
     raw = {}
     if os.path.isfile(path):
         with open(path, "r") as f:
@@ -201,6 +214,9 @@ def load_split_config(path: str | None = None) -> tuple[dict, str, dict]:
     if not isinstance(mission_section, dict):
         mission_section = {}
     mission_id = str(mission_section.get("id") or _DEFAULTS["general"]["mission"])
+    forced_mission = os.environ.get("GSS_MISSION", "").strip()
+    if forced_mission:
+        mission_id = forced_mission
     mission_cfg = copy.deepcopy(mission_section.get("config", {}))
     if not isinstance(mission_cfg, dict):
         mission_cfg = {}
@@ -288,8 +304,8 @@ def get_generated_commands_dir(cfg: dict) -> Path:
 
 
 def get_operator_config_path() -> Path:
-    """Return the on-disk path for the operator gss.yml (used by /api/selfcheck)."""
-    return _DEFAULT_GSS_PATH
+    """Return the on-disk path for the active operator config (used by /api/selfcheck)."""
+    return _active_gss_path()
 
 
 def save_operator_config(cfg: dict, path: str | None = None) -> None:
@@ -299,7 +315,7 @@ def save_operator_config(cfg: dict, path: str | None = None) -> None:
     if the process is killed mid-write.
     """
     if path is None:
-        path = str(_DEFAULT_GSS_PATH)
+        path = str(_active_gss_path())
     dir_name = os.path.dirname(path) or "."
     try:
         prev_mode = os.stat(path).st_mode & 0o777

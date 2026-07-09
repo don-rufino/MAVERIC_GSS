@@ -41,6 +41,7 @@ from .ws.update import schedule_update_check
 from .ws.tx import router as tx_router
 from .ws.alarms import router as alarms_router
 from .api.parameters import router as parameters_router
+from .api.mission import router as mission_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
 from mav_gss_lib.platform.alarms.dispatch import make_dispatch
 from mav_gss_lib.platform.alarms.evaluators.container import evaluate_containers
@@ -427,6 +428,7 @@ def create_app() -> FastAPI:
     app.include_router(preflight_router)
     app.include_router(alarms_router)
     app.include_router(parameters_router)
+    app.include_router(mission_router)
 
     if runtime.mission.http is not None:
         for router in runtime.mission.http.routers:

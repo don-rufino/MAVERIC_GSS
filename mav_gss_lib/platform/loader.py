@@ -10,6 +10,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .contract.mission import MissionContext, MissionSpec
 
 _SPEC_LOG = logging.getLogger("mav_gss_lib.platform.spec")
@@ -24,6 +26,27 @@ def _forward_parse_warnings(mission: Any) -> None:
     """
     for w in getattr(mission, "parse_warnings", ()):
         _SPEC_LOG.warning(str(w))
+
+
+def discover_missions() -> list[dict[str, str]]:
+    """List deployable missions: packages under missions/ that ship a
+    mission.yml (fixture missions don't, so they never surface here).
+
+    Returns [{"id", "name"}] sorted by id; name falls back to the id when
+    the YAML is unreadable or has no top-level name.
+    """
+    missions_root = Path(__file__).resolve().parent.parent / "missions"
+    found: list[dict[str, str]] = []
+    for yml in sorted(missions_root.glob("*/mission.yml")):
+        mission_id = yml.parent.name
+        name = mission_id
+        try:
+            raw = yaml.safe_load(yml.read_text(encoding="utf-8")) or {}
+            name = str(raw.get("name") or mission_id)
+        except Exception:
+            pass
+        found.append({"id": mission_id, "name": name})
+    return found
 
 
 def load_mission_spec_from_split(

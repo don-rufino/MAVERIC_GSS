@@ -228,11 +228,16 @@ def _stream_subprocess(
 def _reexec(
     python: "str | Path | None" = None,
     extra_env: Optional[dict[str, str]] = None,
+    argv: "Optional[list[str]]" = None,
 ) -> None:
-    """Replace current process with a fresh invocation of MAV_WEB.py. Never returns."""
+    """Replace current process with a fresh invocation of MAV_WEB.py. Never returns.
+
+    `argv` overrides the re-executed script argv (defaults to sys.argv) —
+    the mission switcher uses it to swap the `--mission` flag.
+    """
     if extra_env:
         for k, v in extra_env.items():
             os.environ[k] = v
     interpreter = str(python) if python is not None else sys.executable
-    argv = [interpreter, *sys.argv]
-    os.execv(interpreter, argv)
+    script_argv = list(argv) if argv is not None else sys.argv
+    os.execv(interpreter, [interpreter, *script_argv])

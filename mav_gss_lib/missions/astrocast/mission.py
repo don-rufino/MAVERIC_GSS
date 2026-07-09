@@ -21,6 +21,7 @@ MISSION_DIR = Path(__file__).resolve().parent
 MISSION_YML_PATH = MISSION_DIR / "mission.yml"
 
 _RX_DEFAULTS = {"frequency": "437.150 MHz"}
+_RADIO_DEFAULTS = {"script": "gnuradio/MAV_ASTROCAST.py"}
 _MISSION_NAME = "Astrocast 0.1"
 
 
@@ -31,6 +32,10 @@ def _seed(mission_cfg: dict, platform_cfg: dict) -> None:
     if isinstance(rx, dict):
         for key, value in _RX_DEFAULTS.items():
             rx.setdefault(key, value)
+    radio = platform_cfg.setdefault("radio", {})
+    if isinstance(radio, dict):
+        for key, value in _RADIO_DEFAULTS.items():
+            radio.setdefault(key, value)
     seed_tracking_defaults(platform_cfg)
 
 
