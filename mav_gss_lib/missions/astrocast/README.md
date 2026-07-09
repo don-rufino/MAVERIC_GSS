@@ -46,6 +46,10 @@ cd gnuradio
 python3 MAV_ASTROCAST.py --wavfile /path/to/astrocast.wav
 ```
 
+The flowgraph opens a MAV_DUO-style Qt window (RX spectrum; plus
+waterfall, gain slider, and achieved-frequency readout in USRP mode).
+Pass `--headless` for scripted or SSH use.
+
 Frames publish on `tcp://127.0.0.1:52001` in the same PDU format the
 GSS RX service consumes, so a running dashboard populates from replay.
 
