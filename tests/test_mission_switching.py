@@ -74,6 +74,25 @@ def test_real_launch_ignores_hand_edited_mission_id(monkeypatch, tmp_path):
     assert mission_cfg["csp"]["dest_port"] == 24
 
 
+def test_maveric_csp_defaults_are_real_routing_not_zero():
+    """Defense in depth: a missing csp block seeds MAVERIC's real routing
+    (spacecraft node 8, port 24), never a silent node-0 address. Operator
+    gss.yml values still win."""
+    from mav_gss_lib.missions.maveric.mission import _CSP_DEFAULTS, _seed
+
+    assert _CSP_DEFAULTS["destination"] == 8
+    assert _CSP_DEFAULTS["dest_port"] == 24
+
+    seeded: dict = {}
+    _seed(seeded, {})
+    assert seeded["csp"]["destination"] == 8
+    assert seeded["csp"]["dest_port"] == 24
+
+    overridden = {"csp": {"destination": 5}}
+    _seed(overridden, {})
+    assert overridden["csp"]["destination"] == 5  # operator value wins
+
+
 def test_astrocast_radio_script_survives_real_default_merge(tmp_path):
     """Regression for the radio.script default leak: through the real
     _DEFAULTS platform merge, astrocast must resolve its own flowgraph."""

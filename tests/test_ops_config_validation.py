@@ -37,11 +37,13 @@ class TestMissionDefaultsSeeding(unittest.TestCase):
         mission_cfg: dict = {}
         _seed(mission_cfg, platform_cfg)
 
-        # csp / imaging gap-filled with placeholder defaults.
+        # csp / imaging gap-filled with MAVERIC's real defaults.
         self.assertIn("csp", mission_cfg)
         self.assertIn("imaging", mission_cfg)
         self.assertEqual(mission_cfg["imaging"]["thumb_prefix"], "tn_")
-        self.assertEqual(mission_cfg["csp"]["dest_port"], 0)
+        # Real uplink routing, not neutral zeros (spacecraft node 8 / port 24).
+        self.assertEqual(mission_cfg["csp"]["destination"], 8)
+        self.assertEqual(mission_cfg["csp"]["dest_port"], 24)
 
         # RX/TX defaults gap-fill onto platform_cfg.
         self.assertIn("frequency", platform_cfg["rx"])

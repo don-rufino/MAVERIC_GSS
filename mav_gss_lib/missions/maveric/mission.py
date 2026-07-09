@@ -29,9 +29,13 @@ from mav_gss_lib.platform.contract.mission import HttpOps
 MISSION_DIR = Path(os.path.abspath(os.path.dirname(__file__)))
 MISSION_YML_PATH = MISSION_DIR / "mission.yml"
 
+# Real MAVERIC uplink routing (spacecraft CSP node 8, command service port
+# 24), not neutral zeros: if the operator csp block is ever missing, seeding
+# these keeps commands correctly addressed instead of silently routing to
+# node 0. Operator gss.yml values still override (merged.update(existing)).
 _CSP_DEFAULTS = {
-    "priority": 2, "source": 0, "destination": 0,
-    "dest_port": 0, "src_port": 0, "flags": 0, "csp_crc": True,
+    "priority": 2, "source": 0, "destination": 8,
+    "dest_port": 24, "src_port": 0, "flags": 0, "csp_crc": True,
 }
 _IMAGING_DEFAULTS = {"thumb_prefix": "tn_"}
 _RX_DEFAULTS = {"frequency": "437.575 MHz"}
