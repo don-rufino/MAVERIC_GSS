@@ -21,9 +21,12 @@ MISSION_DIR = Path(__file__).resolve().parent
 MISSION_YML_PATH = MISSION_DIR / "mission.yml"
 
 _RX_DEFAULTS = {"frequency": "437.150 MHz"}
+_MISSION_NAME = "Astrocast 0.1"
 
 
-def _seed(platform_cfg: dict) -> None:
+def _seed(mission_cfg: dict, platform_cfg: dict) -> None:
+    if isinstance(mission_cfg, dict):
+        mission_cfg.setdefault("mission_name", _MISSION_NAME)
     rx = platform_cfg.setdefault("rx", {})
     if isinstance(rx, dict):
         for key, value in _RX_DEFAULTS.items():
@@ -32,11 +35,11 @@ def _seed(platform_cfg: dict) -> None:
 
 
 def build(ctx: MissionContext) -> MissionSpec:
-    _seed(ctx.platform_config)
+    _seed(ctx.mission_config, ctx.platform_config)
     mission = parse_yaml(MISSION_YML_PATH, plugins={})
     return MissionSpec(
         id="astrocast",
-        name=ctx.mission_config.get("mission_name") or "Astrocast 0.1",
+        name=ctx.mission_config.get("mission_name") or _MISSION_NAME,
         packets=AstrocastPacketOps(),
         spec_root=mission,
         config=MissionConfigSpec(),
