@@ -21,19 +21,21 @@ RSSI (dBm), AFC offset (Hz), and a format-flags byte. These emit as
 
 ## Enabling
 
-In `gss.yml`:
+Switch missions the **switcher** way — never by hand-editing `gss.yml`:
 
-```yaml
-mission:
-  id: astrocast
-platform:
-  radio:
-    script: gnuradio/MAV_ASTROCAST.py
-```
+- In the app: Config gear → Mission → **Active Mission** dropdown → confirm.
+  The server restarts into astrocast and the page reloads.
+- From the terminal: `python3 MAV_WEB.py --mission astrocast`.
 
-Restart `MAV_WEB.py`. The Radio tab supervises the Astrocast flowgraph;
-Doppler engage/disengage works unchanged (RX-only — TX tune messages
-publish but nothing subscribes).
+Astrocast keeps its own operator config in `gss.astrocast.yml` (seeded on
+first run: 437.150 MHz, TLE 43798, `MAV_ASTROCAST.py`). MAVERIC keeps
+`gss.yml`. **Do not set `mission.id: astrocast` in `gss.yml`** — plain
+launches always run MAVERIC, and a non-default mission running out of
+`gss.yml` would overwrite MAVERIC's config on the next save. Use the
+dropdown or `--mission` so each mission reads and writes its own file.
+
+The Radio tab supervises the Astrocast flowgraph; Doppler engage/disengage
+works unchanged (RX-only — TX tune messages publish but nothing subscribes).
 
 ## Offline replay
 
