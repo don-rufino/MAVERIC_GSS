@@ -376,6 +376,12 @@ export interface GssConfig {
   }
 }
 
+// Deployable mission entry from GET /api/missions (mission switcher).
+export interface MissionInfo {
+  id: string
+  name: string
+}
+
 // ---- Preflight ----
 
 export interface PreflightCheck {

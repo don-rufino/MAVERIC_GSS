@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { colors } from '@/lib/colors'
-import type { GssConfig, PlatformTrackingConfig } from '@/lib/types'
+import type { GssConfig, MissionInfo, PlatformTrackingConfig } from '@/lib/types'
 import { X, Settings, Rocket, Radio, Satellite, Info } from 'lucide-react'
 import { authFetch } from '@/lib/auth'
 import { parseTleBlock, joinTleBlock } from '@/lib/tle'
+import { waitForMissionThenReload } from '@/lib/restart'
 import { Kbd } from '@/components/ui/kbd'
+import { ConfirmDialog } from '@/components/shared/dialogs/ConfirmDialog'
 import { ConfigRail, type RailItem } from './ConfigRail'
 import { SearchContext, matchesQuery } from './search'
 import { PaneRenderer, type SettingRow, type SettingPane } from './fields'
@@ -110,6 +112,10 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
   const [activeCategory, setActiveCategory] = useState('radio')
   const [search, setSearch] = useState('')
   const [credStatus, setCredStatus] = useState<{ identity_set: boolean; password_set: boolean } | null>(null)
+  const [missions, setMissions] = useState<MissionInfo[]>([])
+  const [pendingSwitch, setPendingSwitch] = useState<MissionInfo | null>(null)
+  const [switchingTo, setSwitchingTo] = useState<MissionInfo | null>(null)
+  const [switchError, setSwitchError] = useState<string | null>(null)
 
   useEffect(() => {
     hasLoadedConfigModal = true
@@ -194,6 +200,10 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       .then((r) => r.json())
       .then((d) => setCredStatus(d.spacetrack ?? null))
       .catch(() => {})
+    fetch('/api/missions')
+      .then((r) => r.json())
+      .then((d) => setMissions(Array.isArray(d.missions) ? d.missions : []))
+      .catch(() => {})
   }, [open])
 
   const handleSave = useCallback(async () => {
@@ -224,8 +234,32 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       setTleDraft(joinTleBlock(initialRef.current.platform.tracking?.tle ?? {}))
     }
     setDirty(false)
+    setPendingSwitch(null)
     onClose()
   }, [onClose])
+
+  const handleConfirmSwitch = useCallback(async () => {
+    if (!pendingSwitch) return
+    const target = pendingSwitch
+    setPendingSwitch(null)
+    setSwitchError(null)
+    try {
+      const response = await authFetch('/api/mission/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: target.id }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        setSwitchError(String(data.error ?? `switch failed (${response.status})`))
+        return
+      }
+      setSwitchingTo(target)
+      void waitForMissionThenReload(target.id)
+    } catch {
+      setSwitchError('switch request failed')
+    }
+  }, [pendingSwitch])
 
   const updatePlatform = useCallback(<K extends keyof GssConfig['platform']>(
     section: K,
@@ -388,6 +422,28 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
     const out: SettingPane[] = []
 
     const missionGroups: SettingPane['groups'] = []
+    if (missions.length > 0) {
+      missionGroups.push({
+        title: 'Active Mission',
+        rows: [{
+          id: 'active_mission',
+          label: 'Mission',
+          description: switchError
+            ? `Switch failed: ${switchError}`
+            : 'Switching stops the radio process and restarts the server.',
+          control: {
+            kind: 'select',
+            value: cfg.mission.id,
+            options: missions.map((m) => ({ value: m.id, label: m.name })),
+            onChange: (v) => {
+              if (v === cfg.mission.id) return
+              const target = missions.find((m) => m.id === v)
+              if (target) setPendingSwitch(target)
+            },
+          },
+        }],
+      })
+    }
     const scalars = Object.entries(cfg.mission.config).filter(([, v]) => !isRecord(v))
     if (scalars.length) {
       missionGroups.push({
@@ -465,7 +521,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       out.push({ id: 'about', title: 'About', description: 'Session and build details.', groups: [{ title: 'Session', rows }] })
     }
     return out
-  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingFetch, updateTrackingTle])
+  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, missions, switchError, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingFetch, updateTrackingTle])
 
   const trimmed = search.trim()
   const contentPanes = trimmed ? panes : panes.filter((p) => p.id === activeCategory)
@@ -554,6 +610,39 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
               </>
             )}
           </motion.div>
+
+          <ConfirmDialog
+            open={pendingSwitch !== null}
+            title="Switch mission?"
+            detail={pendingSwitch
+              ? `Switches to ${pendingSwitch.name}, stops the radio process, and restarts the server. The page reloads when the new mission is up.`
+              : ''}
+            variant="caution"
+            onCancel={() => setPendingSwitch(null)}
+            onConfirm={() => { void handleConfirmSwitch() }}
+          />
+
+          {switchingTo && (
+            <div
+              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3"
+              style={{ backgroundColor: `${colors.bgApp}F5` }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="text-sm font-bold" style={{ color: colors.label }}>
+                Switching to {switchingTo.name}
+              </span>
+              <span className="text-xs" style={{ color: colors.dim }}>
+                Server restarting — the page reloads when the new mission is up…
+              </span>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-2 px-3.5 py-1.5 rounded text-xs border"
+                style={{ color: colors.label, borderColor: colors.borderStrong }}
+              >
+                RELOAD
+              </button>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
