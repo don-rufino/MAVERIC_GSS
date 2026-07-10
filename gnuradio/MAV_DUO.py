@@ -158,7 +158,7 @@ class _PttGate(gr.basic_block):
 class _WaterfallLogger(gr.sync_block):
     """Post-pass waterfall recorder for the decimated RX stream.
 
-    Appends timestamped 1024-bin dB rows to waterfall_<start>.dat while the
+    Appends timestamped 1024-bin dB rows to waterfall_<mission>_<start>.dat while the
     flowgraph runs; stop() renders a SatNOGS-style PNG via waterfall_render
     and deletes the .dat on success. Hard crashes leave the .dat behind, so
     __init__ sweeps the output dir for leftovers and renders them in a
@@ -190,7 +190,8 @@ class _WaterfallLogger(gr.sync_block):
             if orphans:
                 threading.Thread(target=self._render_orphans, args=(orphans,),
                                  daemon=True, name="waterfall-orphans").start()
-            stem = time.strftime("waterfall_%Y%m%dT%H%M%SZ", time.gmtime())
+            mission = os.environ.get("GSS_MISSION") or "maveric"
+            stem = "waterfall_%s_%s" % (mission, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
             self._dat_path = os.path.join(out_dir, stem + ".dat")
             self._file = open(self._dat_path, "ab")
             self._win = np.asarray(window.blackmanharris(self.FFT_SIZE), dtype=np.float32)
@@ -307,13 +308,13 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.zmq_port_tx = zmq_port_tx = "52002"
         self.zmq_port_rx = zmq_port_rx = "52001"
         self.tx_lo_offset = tx_lo_offset = float(__import__('os').environ.get('GSS_TX_LO_OFFSET_HZ', -400e3))
-        self.tx_freq = tx_freq = 437.575e6
+        self.tx_freq = tx_freq = float(__import__('os').environ.get('GSS_TX_FREQ_HZ', 437.575e6))
         self.tx_amp = tx_amp = 0.7
         self.tx_actual_freq_label = tx_actual_freq_label = tx_actual_freq
         self.samp_ratetx = samp_ratetx = 2400000
         self.samp_rate = samp_rate = 1000000
         self.rx_lo_offset = rx_lo_offset = float(__import__('os').environ.get('GSS_RX_LO_OFFSET_HZ', 250e3))
-        self.rx_freq = rx_freq = 437.575e6
+        self.rx_freq = rx_freq = float(__import__('os').environ.get('GSS_RX_FREQ_HZ', 437.575e6))
         self.rx_decim = rx_decim = 5
         self.rx_actual_freq_label = rx_actual_freq_label = rx_actual_freq
         self.rx_gain = rx_gain = 40

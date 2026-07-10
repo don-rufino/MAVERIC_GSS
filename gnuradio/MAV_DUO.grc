@@ -84,8 +84,8 @@ blocks:
 - name: rx_freq
   id: variable
   parameters:
-    comment: RX center frequency (overridden at runtime by /ws/tracking doppler)
-    value: 437.575e6
+    comment: "RX center frequency. Seeded from the GSS_RX_FREQ_HZ env var RadioService\ninjects (config rx.frequency / tracking.frequencies.rx_hz); the literal is the\nstandalone-launch fallback. Doppler retunes live via 52003."
+    value: float(__import__('os').environ.get('GSS_RX_FREQ_HZ', 437.575e6))
   states:
     bus_sink: false
     bus_source: false
@@ -96,8 +96,8 @@ blocks:
 - name: tx_freq
   id: variable
   parameters:
-    comment: TX center frequency (overridden at runtime by /ws/tracking doppler)
-    value: 437.575e6
+    comment: "TX center frequency. Seeded from the GSS_TX_FREQ_HZ env var RadioService\ninjects (config tx.frequency / tracking.frequencies.tx_hz); the literal is the\nstandalone-launch fallback. Doppler retunes live via 52004."
+    value: float(__import__('os').environ.get('GSS_TX_FREQ_HZ', 437.575e6))
   states:
     bus_sink: false
     bus_source: false
@@ -374,7 +374,8 @@ blocks:
                   if orphans:
                       threading.Thread(target=self._render_orphans, args=(orphans,),
                                        daemon=True, name="waterfall-orphans").start()
-                  stem = time.strftime("waterfall_%Y%m%dT%H%M%SZ", time.gmtime())
+                  mission = os.environ.get("GSS_MISSION") or "maveric"
+                  stem = "waterfall_%s_%s" % (mission, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
                   self._dat_path = os.path.join(out_dir, stem + ".dat")
                   self._file = open(self._dat_path, "ab")
                   self._win = np.asarray(window.blackmanharris(self.FFT_SIZE), dtype=np.float32)
