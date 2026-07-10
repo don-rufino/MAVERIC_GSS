@@ -168,6 +168,11 @@ class RadioService:
         # Absolute on purpose: the radio child runs with cwd=gnuradio/, so a
         # relative log_dir would land waterfall PNGs inside the flowgraph dir.
         env["GSS_WATERFALL_DIR"] = str(resolve_project_path(log_dir_raw) / "waterfalls")
+        # Mission id rides into the flowgraph so waterfall captures carry the
+        # active mission in their filenames.
+        mission_id = str(self.runtime.mission_id or "")
+        if mission_id:
+            env["GSS_MISSION"] = mission_id
         return env
 
     def command(self) -> list[str]:

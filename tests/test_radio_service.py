@@ -118,6 +118,16 @@ class RadioServiceConfigTests(unittest.TestCase):
         self.assertEqual(env["GSS_RX_LO_OFFSET_HZ"], "111000.0")
         self.assertEqual(env["GSS_TX_LO_OFFSET_HZ"], "-222000.0")
 
+    def test_frequency_env_carries_mission_id(self):
+        svc = RadioService(_fake_runtime())
+        self.assertEqual(svc._frequency_env()["GSS_MISSION"], "maveric")
+
+    def test_frequency_env_omits_empty_mission_id(self):
+        rt = _fake_runtime()
+        rt.mission_id = ""
+        svc = RadioService(rt)
+        self.assertNotIn("GSS_MISSION", svc._frequency_env())
+
 
 class RadioServiceLoopBindingTests(unittest.TestCase):
     def test_schedule_broadcast_no_loop_is_silent(self):
