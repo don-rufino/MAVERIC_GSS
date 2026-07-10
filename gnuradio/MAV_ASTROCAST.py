@@ -6,7 +6,9 @@ achieved-frequency readout) supervised by the GSS RadioService (set
 `platform.radio.script: gnuradio/MAV_ASTROCAST.py`). Decodes the 1k2 FSK
 FX.25 beacon on 437.150 MHz via gr-satellites
 (ASTROCAST_DECODER.yml), running both NRZ-I and legacy NRZ failsafe
-deframers. Deframed PDUs publish on the GSS RX frame bus.
+deframers. Seven overlapping real-demodulation bins provide immediate
+carrier-offset coverage; a narrow AFC decoder remains in parallel for weak
+signals. Deframed PDUs publish on the GSS RX frame bus.
 
 Input modes:
   default          USRP B210 (same subdev/antenna/gain conventions as
@@ -28,11 +30,13 @@ import threading
 import time
 
 import numpy as np
+import pmt
 
-from gnuradio import blocks, gr, zeromq
+from gnuradio import analog, blocks, gr, zeromq
 from gnuradio import filter as gr_filter
 from gnuradio.filter import firdes
 
+import satellites
 import satellites.components.datasinks
 import satellites.core
 
@@ -49,18 +53,23 @@ RX_DECIM = 5
 RX_GAIN = 40
 WAV_SAMP_RATE = 48_000
 DECODER_OPTIONS = "--clk_limit 0.008"
+BEACON_DEVIATION_HZ = 1_200.0
 
 DEFAULT_AFC_SEARCH_HZ = 20_000.0
 DEFAULT_AFC_BIAS_HZ = 0.0
-AFC_CHANNEL_CUTOFF_HZ = 4_000.0
-AFC_CHANNEL_TRANSITION_HZ = 2_000.0
-AFC_CHANNEL_DECIM = 10
+BEACON_CHANNEL_CUTOFF_HZ = 4_000.0
+BEACON_CHANNEL_TRANSITION_HZ = 2_000.0
+BEACON_CHANNEL_DECIM = 10
+BEACON_BIN_CENTERS_HZ = (
+    -18_000.0, -12_000.0, -6_000.0, 0.0, 6_000.0, 12_000.0, 18_000.0,
+)
 AFC_TRACK_HALF_WIDTH_HZ = 3_000.0
 AFC_SMOOTHING = 0.35
 AFC_MIN_UPDATE_HZ = 25.0
 AFC_CONFIRMATIONS = 3
 AFC_CONFIRM_TOLERANCE_HZ = 250.0
 AFC_TRACK_JUMP_HZ = 500.0
+PDU_DEDUP_TTL_S = 0.5
 
 FRAME_ZMQ_ADDR = "tcp://127.0.0.1:52001"
 DOPPLER_ZMQ_ADDR = "tcp://127.0.0.1:52003"
@@ -175,6 +184,56 @@ class _BeaconAfcSink(gr.sync_block):
         return len(samples)
 
 
+class _PduDeduplicator(gr.basic_block):
+    """Merge parallel decoder outputs without publishing the same frame twice."""
+
+    def __init__(self, ttl_s=PDU_DEDUP_TTL_S):
+        gr.basic_block.__init__(self, name="astrocast_pdu_deduplicator",
+                                in_sig=None, out_sig=None)
+        self._ttl_s = float(ttl_s)
+        self._seen = {}
+        self._lock = threading.Lock()
+        self.message_port_register_in(pmt.intern("in"))
+        self.message_port_register_out(pmt.intern("out"))
+        self.set_msg_handler(pmt.intern("in"), self._handle)
+
+    def _accept_payload(self, payload, *, now=None):
+        """Return True once per payload within the short parallel-path window."""
+        timestamp = time.monotonic() if now is None else float(now)
+        key = bytes(payload)
+        with self._lock:
+            cutoff = timestamp - self._ttl_s
+            self._seen = {
+                candidate: seen_at
+                for candidate, seen_at in self._seen.items()
+                if seen_at > cutoff
+            }
+            previous = self._seen.get(key)
+            if previous is not None and timestamp - previous < self._ttl_s:
+                return False
+            self._seen[key] = timestamp
+            return True
+
+    @staticmethod
+    def _payload_bytes(msg):
+        if not pmt.is_pair(msg):
+            raise ValueError("PDU is not a metadata/payload pair")
+        payload = pmt.cdr(msg)
+        if not pmt.is_u8vector(payload):
+            raise ValueError("PDU payload is not a u8vector")
+        return bytes(pmt.u8vector_elements(payload))
+
+    def _handle(self, msg):
+        try:
+            if not self._accept_payload(self._payload_bytes(msg)):
+                return
+        except Exception:
+            # Unknown message shapes should remain observable rather than being
+            # lost because a diagnostics helper could not construct a key.
+            pass
+        self.message_port_pub(pmt.intern("out"), msg)
+
+
 def _build_core(tb, wavfile, zmq_addr, doppler_addr, *, afc_enabled=True,
                 afc_search_hz=DEFAULT_AFC_SEARCH_HZ,
                 afc_bias_hz=DEFAULT_AFC_BIAS_HZ):
@@ -182,6 +241,19 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr, *, afc_enabled=True,
     on `tb`. GUI-agnostic: both the Qt and headless top blocks call this."""
     tb.zeromq_pub_msg_sink_0 = zeromq.pub_msg_sink(zmq_addr, 100, True)
     tb.satellites_hexdump_sink_0 = satellites.components.datasinks.hexdump_sink(options="")
+    tb.beacon_output_taggers = []
+    frame_sources = []
+
+    def add_decoder_output(decoder, path, bin_hz=None):
+        meta = pmt.make_dict()
+        meta = pmt.dict_add(meta, pmt.intern("rx_path"), pmt.intern(path))
+        if bin_hz is not None:
+            meta = pmt.dict_add(
+                meta, pmt.intern("rx_bin_hz"), pmt.from_double(float(bin_hz)))
+        tagger = satellites.pdu_add_meta(meta)
+        tb.beacon_output_taggers.append(tagger)
+        tb.msg_connect((decoder, "out"), (tagger, "in"))
+        frame_sources.append(tagger)
 
     if wavfile:
         tb.blocks_wavfile_source_0 = blocks.wavfile_source(wavfile, False)
@@ -197,6 +269,7 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr, *, afc_enabled=True,
             (tb.blocks_wavfile_source_0, 0),
             (tb.blocks_wav_throttle, 0),
             (tb.satellites_satellite_decoder_0, 0))
+        add_decoder_output(tb.satellites_satellite_decoder_0, "wav_replay")
     else:
         from gnuradio import uhd
 
@@ -221,14 +294,14 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr, *, afc_enabled=True,
         tb.rx_lpf = gr_filter.fir_filter_ccf(
             RX_DECIM, firdes.low_pass(1, SAMP_RATE, 50e3, 10e3))
         acquisition_rate = SAMP_RATE // RX_DECIM
-        decoder_rate = acquisition_rate // AFC_CHANNEL_DECIM
+        decoder_rate = acquisition_rate // BEACON_CHANNEL_DECIM
         tb.beacon_channelizer = gr_filter.freq_xlating_fir_filter_ccf(
-            AFC_CHANNEL_DECIM,
+            BEACON_CHANNEL_DECIM,
             firdes.low_pass(
                 1,
                 acquisition_rate,
-                AFC_CHANNEL_CUTOFF_HZ,
-                AFC_CHANNEL_TRANSITION_HZ,
+                BEACON_CHANNEL_CUTOFF_HZ,
+                BEACON_CHANNEL_TRANSITION_HZ,
             ),
             float(afc_bias_hz),
             acquisition_rate,
@@ -264,16 +337,67 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr, *, afc_enabled=True,
                 f"{float(afc_bias_hz)/1e3:+.3f} kHz",
                 flush=True,
             )
+        add_decoder_output(
+            tb.satellites_satellite_decoder_0, "narrow_afc")
+
+        # Immediate first-frame coverage. Each fixed branch sees at most
+        # +/-3 kHz residual carrier error, then quadrature-demodulates before
+        # gr-satellites so its IQ-only +/-1.8 kHz filter is bypassed. The
+        # narrow AFC path above remains in parallel for very weak signals.
+        bin_taps = firdes.low_pass(
+            1,
+            acquisition_rate,
+            BEACON_CHANNEL_CUTOFF_HZ,
+            BEACON_CHANNEL_TRANSITION_HZ,
+        )
+        tb.beacon_bin_channelizers = []
+        tb.beacon_bin_demodulators = []
+        tb.beacon_bin_decoders = []
+        for bin_hz in BEACON_BIN_CENTERS_HZ:
+            channelizer = gr_filter.freq_xlating_fir_filter_ccf(
+                BEACON_CHANNEL_DECIM,
+                bin_taps,
+                bin_hz,
+                acquisition_rate,
+            )
+            demodulator = analog.quadrature_demod_cf(
+                decoder_rate / (2.0 * np.pi * BEACON_DEVIATION_HZ))
+            decoder = satellites.core.gr_satellites_flowgraph(
+                file=DECODER_YML,
+                samp_rate=decoder_rate,
+                iq=False,
+                grc_block=True,
+                options=DECODER_OPTIONS,
+            )
+            tb.beacon_bin_channelizers.append(channelizer)
+            tb.beacon_bin_demodulators.append(demodulator)
+            tb.beacon_bin_decoders.append(decoder)
+            tb.connect(
+                (tb.rx_lpf, 0),
+                (channelizer, 0),
+                (demodulator, 0),
+                (decoder, 0),
+            )
+            add_decoder_output(decoder, "wide_bin", bin_hz)
+        print(
+            "MAV_ASTROCAST 1k2 immediate bins "
+            + ", ".join(f"{value/1e3:+.0f}" for value in BEACON_BIN_CENTERS_HZ)
+            + " kHz",
+            flush=True,
+        )
         tb.msg_connect(
             (tb.zeromq_sub_msg_source_rxcmd, 'out'),
             (tb.uhd_usrp_source_0, 'command'))
 
+    tb.pdu_deduplicator = _PduDeduplicator()
+    for source in frame_sources:
+        tb.msg_connect((source, "out"), (tb.pdu_deduplicator, "in"))
     tb.msg_connect(
-        (tb.satellites_satellite_decoder_0, 'out'),
-        (tb.zeromq_pub_msg_sink_0, 'in'))
+        (tb.pdu_deduplicator, "out"),
+        (tb.zeromq_pub_msg_sink_0, "in"))
     tb.msg_connect(
-        (tb.satellites_satellite_decoder_0, 'out'),
-        (tb.satellites_hexdump_sink_0, 'in'))
+        (tb.pdu_deduplicator, "out"),
+        (tb.satellites_hexdump_sink_0, "in"))
 
 
 class mav_astrocast_headless(gr.top_block):

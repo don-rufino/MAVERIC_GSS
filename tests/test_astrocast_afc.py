@@ -1,4 +1,4 @@
-"""GNU Radio-independent tests for Astrocast 1k2 carrier acquisition."""
+"""Focused tests for Astrocast 1k2 carrier acquisition and filter-bank logic."""
 
 from __future__ import annotations
 
@@ -123,3 +123,36 @@ def test_afc_requires_confirmation_and_reacquires_after_large_jump():
         afc._apply_estimate(moved)
     assert afc.correction_hz == pytest.approx(2_000.0, abs=100.0)
     assert len(channelizer.updates) == 2
+
+
+def test_fixed_bins_cover_full_offset_range_without_waiting_for_afc():
+    pytest.importorskip("gnuradio")
+    import MAV_ASTROCAST as flowgraph
+
+    assert flowgraph.BEACON_BIN_CENTERS_HZ == (
+        -18_000.0, -12_000.0, -6_000.0, 0.0,
+        6_000.0, 12_000.0, 18_000.0,
+    )
+    transition_edge = (
+        flowgraph.BEACON_CHANNEL_CUTOFF_HZ
+        + flowgraph.BEACON_CHANNEL_TRANSITION_HZ / 2.0
+    )
+    for carrier_hz in np.linspace(-21_000.0, 21_000.0, 169):
+        residual = min(
+            abs(carrier_hz - center)
+            for center in flowgraph.BEACON_BIN_CENTERS_HZ
+        )
+        assert residual <= 3_000.0
+        assert residual + flowgraph.BEACON_DEVIATION_HZ <= transition_edge
+
+
+def test_parallel_decoder_dedup_window_is_short():
+    pytest.importorskip("gnuradio")
+    import MAV_ASTROCAST as flowgraph
+
+    dedup = flowgraph._PduDeduplicator(ttl_s=0.5)
+    payload = bytes.fromhex("01020304")
+    assert dedup._accept_payload(payload, now=10.0)
+    assert not dedup._accept_payload(payload, now=10.49)
+    # A genuinely repeated frame completes well after this window.
+    assert dedup._accept_payload(payload, now=10.5)

@@ -36,25 +36,25 @@ dropdown or `--mission` so each mission reads and writes its own file.
 The Radio tab supervises the Astrocast flowgraph; Doppler engage/disengage
 works unchanged (RX-only — TX tune messages publish but nothing subscribes).
 
-The receiver runs both 1k2 beacon deframers and automatically searches for
-the midpoint of the two FSK tones across ±20 kHz of the Doppler-corrected
-baseband. It translates the acquired beacon to zero before gr-satellites'
-narrow decode filter, preserving weak-signal selectivity. Standalone or
-`platform.radio.args` overrides are available when needed:
+The receiver runs both 1k2 beacon deframers through seven overlapping fixed
+bins centred from -18 to +18 kHz. Each bin quadrature-demodulates before
+gr-satellites, bypassing its overly narrow IQ carrier filter and providing
+immediate first-frame coverage across approximately ±21 kHz. A narrow AFC
+decoder remains in parallel for weak, well-centred signals. Identical frames
+from overlapping paths are deduplicated before publication.
+
+Standalone or `platform.radio.args` AFC-fallback overrides are available
+when needed:
 
 ```bash
 python3 MAV_ASTROCAST.py --afc-search-hz 20000 --afc-bias-hz 0
 python3 MAV_ASTROCAST.py --disable-afc --afc-bias-hz -8000
 ```
 
-The fixed-bias form is intended for a measured current offset, not as a
-permanent value copied from an old observation.
-
-Cold automatic acquisition requires three consistent estimates (about
-0.74 seconds). Start the radio and Doppler before AOS; acquisition during a
-beacon can miss that frame's sync and then decode the next transmission. A
-current measured `--afc-bias-hz` centres the channel immediately and gives
-the best chance of retaining the first frame.
+The fixed-bias form controls only the secondary narrow path and is intended
+for a measured current offset, not as a permanent value copied from an old
+observation. Start the radio and Doppler before AOS even though the fixed bin
+bank does not wait for AFC lock.
 
 ## Offline replay
 
