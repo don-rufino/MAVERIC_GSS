@@ -1,0 +1,191 @@
+# Sharjahsat-1 mission database (RX-only).
+#
+# Beacon format follows the community Kaitai definition
+# (satnogs-decoders sharjahsat1.ksy) and the gr-satellites SatYAML
+# (Sharjahsat-1.yml, NORAD 55104, 437.325 MHz, 9k6 FSK AX.25 G3RUH).
+# The mission codec decodes the binary ESER housekeeping block and
+# re-emits engineering values as whitespace-separated tokens for the
+# ascii_tokens walker layout. Image packets (tm_id 'A') are logged raw.
+schema_version: 1
+id: sharjahsat
+name: "SharjahSat-1"
+header:
+  version: "1.0.0"
+  date: "2026-07-10"
+  description: "SharjahSat-1 RX-only declarative mission database"
+
+parameter_types:
+  utc_token:
+    kind: string
+    encoding: ascii_token
+    description: "ISO-8601 UTC timestamp derived from the OBC unix clock"
+  hex_token:
+    kind: string
+    encoding: ascii_token
+    description: "0x-prefixed hex register value"
+  mode_token:
+    kind: string
+    encoding: ascii_token
+    description: "Discrete state label (ON/OFF, SUN/ECLIPSE)"
+  count_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Dimensionless counter"
+  seconds_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "s"
+    description: "Elapsed seconds"
+  degc_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "degC"
+    description: "Temperature, integer sensor"
+  volts_f:
+    kind: float
+    unit: "V"
+    description: "Bus or rail voltage"
+  milliamps_f:
+    kind: float
+    unit: "mA"
+    description: "Bus or rail current"
+  degc_f:
+    kind: float
+    unit: "degC"
+    description: "Calibrated temperature"
+  deg_f:
+    kind: float
+    unit: "deg"
+    description: "Estimated attitude angle"
+  degps_f:
+    kind: float
+    unit: "deg/s"
+    description: "Estimated body rate"
+
+parameters:
+  obc_utc:       { type: utc_token,   domain: sys,   description: "Spacecraft OBC clock (UTC)" }
+  op_mode:       { type: hex_token,   domain: sys,   description: "Operating-mode register" }
+  restart_count: { type: count_i,     domain: sys,   description: "System restart counter" }
+  reset_cause:   { type: hex_token,   domain: sys,   description: "Last reset cause register" }
+  uptime:        { type: seconds_i,   domain: sys,   description: "System uptime" }
+  antenna:       { type: hex_token,   domain: sys,   description: "Antenna deploy-switch status (0x0f = all deployed)" }
+  obc_temp1:     { type: degc_f,      domain: obc }
+  obc_temp2:     { type: degc_f,      domain: obc }
+  obc_temp3:     { type: degc_f,      domain: obc }
+  plat_3v3:      { type: volts_f,     domain: obc,   description: "Platform 3.3 V rail at the OBC" }
+  periph_3v3:    { type: volts_f,     domain: obc,   description: "Peripheral 3.3 V rail at the OBC" }
+  vbat:          { type: volts_f,     domain: batt,  description: "Battery pack voltage" }
+  ibat:          { type: milliamps_f, domain: batt,  description: "Battery pack current" }
+  pcm3v3:        { type: volts_f,     domain: batt }
+  pcm5v:         { type: volts_f,     domain: batt }
+  pcm3v3_i:      { type: milliamps_f, domain: batt }
+  pcm5v_i:       { type: milliamps_f, domain: batt }
+  temp_board:    { type: degc_f,      domain: batt }
+  temp_cell1:    { type: degc_f,      domain: batt }
+  temp_cell2:    { type: degc_f,      domain: batt }
+  temp_cell3:    { type: degc_f,      domain: batt }
+  bus_v:         { type: volts_f,     domain: eps,   description: "EPS battery bus voltage" }
+  bus_i:         { type: milliamps_f, domain: eps,   description: "EPS battery bus current" }
+  rail_3v3:      { type: volts_f,     domain: eps }
+  rail_3v3_i:    { type: milliamps_f, domain: eps }
+  rail_5v:       { type: volts_f,     domain: eps }
+  rail_5v_i:     { type: milliamps_f, domain: eps }
+  rail_12v:      { type: volts_f,     domain: eps }
+  rail_12v_i:    { type: milliamps_f, domain: eps }
+  draw_3v3:      { type: milliamps_f, domain: eps,   description: "3.3 V daughterboard draw" }
+  draw_5v:       { type: milliamps_f, domain: eps,   description: "5 V daughterboard draw" }
+  temp_a:        { type: degc_f,      domain: eps }
+  temp_b:        { type: degc_f,      domain: eps }
+  state:         { type: hex_token,   domain: adcs,  description: "ADCS state register" }
+  yaw:           { type: deg_f,       domain: adcs }
+  pitch:         { type: deg_f,       domain: adcs }
+  roll:          { type: deg_f,       domain: adcs }
+  rate_yaw:      { type: degps_f,     domain: adcs }
+  rate_pitch:    { type: degps_f,     domain: adcs }
+  rate_roll:     { type: degps_f,     domain: adcs }
+  smps_temp:     { type: degc_i,      domain: uhf,   description: "UHF modem SMPS temperature" }
+  pa_temp:       { type: degc_i,      domain: uhf,   description: "UHF modem PA temperature" }
+  uhf_3v3:       { type: volts_f,     domain: uhf }
+  uhf_5v:        { type: volts_f,     domain: uhf }
+  power:         { type: mode_token,  domain: sband, description: "S-band modem power state" }
+  illumination:  { type: mode_token,  domain: solar, description: "SUN/ECLIPSE from array diode current" }
+  vdiode:        { type: volts_f,     domain: solar, description: "Array diode output voltage" }
+  idiode:        { type: milliamps_f, domain: solar, description: "Array diode output current" }
+  array_i:       { type: milliamps_f, domain: solar, description: "Summed BCR string currents" }
+  temp_min:      { type: degc_f,      domain: solar, description: "Coldest valid panel thermistor" }
+  temp_max:      { type: degc_f,      domain: solar, description: "Warmest valid panel thermistor" }
+
+sequence_containers:
+  beacon_tlm:
+    domain: sys
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: telemetry
+    entry_list:
+      - { name: obc_utc }
+      - { name: op_mode }
+      - { name: restart_count }
+      - { name: reset_cause }
+      - { name: uptime }
+      - { name: antenna }
+      - { name: obc_temp1 }
+      - { name: obc_temp2 }
+      - { name: obc_temp3 }
+      - { name: plat_3v3 }
+      - { name: periph_3v3 }
+      - { name: vbat }
+      - { name: ibat }
+      - { name: pcm3v3 }
+      - { name: pcm5v }
+      - { name: pcm3v3_i }
+      - { name: pcm5v_i }
+      - { name: temp_board }
+      - { name: temp_cell1 }
+      - { name: temp_cell2 }
+      - { name: temp_cell3 }
+      - { name: bus_v }
+      - { name: bus_i }
+      - { name: rail_3v3 }
+      - { name: rail_3v3_i }
+      - { name: rail_5v }
+      - { name: rail_5v_i }
+      - { name: rail_12v }
+      - { name: rail_12v_i }
+      - { name: draw_3v3 }
+      - { name: draw_5v }
+      - { name: temp_a }
+      - { name: temp_b }
+      - { name: state }
+      - { name: yaw }
+      - { name: pitch }
+      - { name: roll }
+      - { name: rate_yaw }
+      - { name: rate_pitch }
+      - { name: rate_roll }
+      - { name: smps_temp }
+      - { name: pa_temp }
+      - { name: uhf_3v3 }
+      - { name: uhf_5v }
+      - { name: power }
+      - { name: illumination }
+      - { name: vdiode }
+      - { name: idiode }
+      - { name: array_i }
+      - { name: temp_min }
+      - { name: temp_max }
+
+ui:
+  rx_columns:
+    - { id: type,  label: type,     width: 52,  path: header.type, badge: true,
+        value_icons: { TLM: telemetry, IMG: file }, default_icon: unknown }
+    - { id: src,   label: src,      width: 64,  path: header.src }
+    - { id: clock, label: s/c clock, width: 150, path: system.obc_utc }
+    - { id: vbat,  label: vbat,     width: 56,  align: right, path: battery.vbat_v }
+    - { id: ibat,  label: ibat mA,  width: 60,  align: right, path: battery.ibat_ma }
+    - { id: v3v3,  label: 3v3,      width: 52,  align: right, path: eps.rail_3v3_v }
+    - { id: temp,  label: degC,     width: 48,  align: right, path: battery.temp_board_c }
+    - { id: sun,   label: sun,      width: 64,  path: solar.illumination }
