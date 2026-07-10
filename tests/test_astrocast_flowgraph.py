@@ -71,16 +71,22 @@ def test_live_frontend_forces_maveric_idle_rx_gpio_state():
     ]
 
 
-def test_live_path_is_one_native_satellite_decoder_without_custom_acquisition():
+def test_live_path_has_one_three_khz_tolerant_decoder_branch():
     flowgraph = _flowgraph_module()
     source = inspect.getsource(flowgraph._build_core)
 
-    assert "samp_rate=ACQUISITION_RATE, iq=True" in source
+    assert "samp_rate=BEACON_DECODER_RATE, iq=False" in source
     assert "fir_filter_ccc" in source
-    assert "freq_xlating" not in source
-    assert "quadrature_demod" not in source
+    assert "fir_filter_ccf" in source
+    assert "quadrature_demod_cf" in source
     assert not hasattr(flowgraph, "_BeaconAfcSink")
     assert not hasattr(flowgraph, "BEACON_BIN_CENTERS_HZ")
+
+    assert flowgraph.BEACON_DECODER_RATE == 20_000
+    assert (
+        3_000.0 + flowgraph.BEACON_DEVIATION_HZ
+        <= flowgraph.BEACON_CHANNEL_CUTOFF_HZ
+    )
 
 
 def test_decoder_yaml_is_native_astrocast_1k2_subset():

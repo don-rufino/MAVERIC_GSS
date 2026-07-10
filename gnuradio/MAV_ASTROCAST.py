@@ -23,6 +23,7 @@ Pass --headless to skip the Qt GUI entirely (scripted replay / SSH use).
 """
 
 import argparse
+from math import pi
 import os
 import signal
 import sys
@@ -53,6 +54,11 @@ ACQUISITION_RATE = SAMP_RATE // RX_DECIM
 RX_FRONTEND_GAIN = 2.0
 RX_FRONTEND_CUTOFF_HZ = 190_000.0
 RX_FRONTEND_TRANSITION_HZ = 13_333.0
+BEACON_CHANNEL_CUTOFF_HZ = 5_000.0
+BEACON_CHANNEL_TRANSITION_HZ = 2_000.0
+BEACON_CHANNEL_DECIM = 10
+BEACON_DECODER_RATE = ACQUISITION_RATE // BEACON_CHANNEL_DECIM
+BEACON_DEVIATION_HZ = 1_200.0
 WAV_SAMP_RATE = 48_000
 DECODER_OPTIONS = "--clk_limit 0.008"
 
@@ -86,6 +92,16 @@ def _rx_frontend_taps():
     )
 
 
+def _beacon_channel_taps():
+    """Pass a centred 1k2 FSK signal with up to about 3 kHz residual error."""
+    return firdes.low_pass(
+        1.0,
+        ACQUISITION_RATE,
+        BEACON_CHANNEL_CUTOFF_HZ,
+        BEACON_CHANNEL_TRANSITION_HZ,
+    )
+
+
 def _force_rx_relay(usrp):
     """Put the external H-bridge/coax switch in MAV_DUO's safe RX state."""
     usrp.set_gpio_attr("FP0", "CTRL", 0x0, RX_GPIO_MASK)
@@ -115,7 +131,7 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
             (tb.blocks_wav_throttle, 0),
             (tb.satellites_satellite_decoder_0, 0))
     else:
-        from gnuradio import uhd
+        from gnuradio import analog, uhd
 
         tb.rx_freq = float(os.environ.get("GSS_RX_FREQ_HZ", DEFAULT_RX_FREQ_HZ))
         tb.rx_lo_offset = float(os.environ.get("GSS_RX_LO_OFFSET_HZ", DEFAULT_RX_LO_OFFSET_HZ))
@@ -139,8 +155,12 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
 
         tb.rx_lpf = gr_filter.fir_filter_ccc(
             RX_DECIM, _rx_frontend_taps())
+        tb.beacon_channelizer = gr_filter.fir_filter_ccf(
+            BEACON_CHANNEL_DECIM, _beacon_channel_taps())
+        tb.beacon_demodulator = analog.quadrature_demod_cf(
+            BEACON_DECODER_RATE / (2.0 * pi * BEACON_DEVIATION_HZ))
         tb.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(
-            file=DECODER_YML, samp_rate=ACQUISITION_RATE, iq=True,
+            file=DECODER_YML, samp_rate=BEACON_DECODER_RATE, iq=False,
             grc_block=True, options=DECODER_OPTIONS)
         tb.zeromq_sub_msg_source_rxcmd = zeromq.sub_msg_source(
             doppler_addr, 100, False)
@@ -148,6 +168,8 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
         tb.connect((tb.uhd_usrp_source_0, 0), (tb.rx_lpf, 0))
         tb.connect(
             (tb.rx_lpf, 0),
+            (tb.beacon_channelizer, 0),
+            (tb.beacon_demodulator, 0),
             (tb.satellites_satellite_decoder_0, 0),
         )
         tb.msg_connect(

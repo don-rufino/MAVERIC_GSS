@@ -39,16 +39,20 @@ works unchanged (RX-only — TX tune messages publish but nothing subscribes).
 The live RF path intentionally mirrors MAV_DUO: B210 A:A/RX2, 1 Msps, gain
 40, a +250 kHz parked LO, Doppler commands into the UHD source, the same
 coax-relay RX GPIO state, and the same 181-tap decimating FIR feeding a 200
-ksps baseband spectrum, waterfall, and one gr-satellites decoder. The live
-differences are only the 437.150 MHz center frequency and Astrocast decoder;
-Astrocast remains RX-only and does not instantiate MAV_DUO's TX chain.
+ksps baseband spectrum and waterfall. The live differences are the 437.150
+MHz center frequency and a single Astrocast 1k2 decoder branch; Astrocast
+remains RX-only and does not instantiate MAV_DUO's TX chain.
 
 The protocol decoder itself is gr-satellites 5.7's native Astrocast 0.1
 implementation. `ASTROCAST_DECODER.yml` is its SatYAML with the unrelated 9k6
 download entry removed, leaving only the requested 1k2 NRZ-I and legacy NRZ
 beacons. gr-satellites performs FSK clock recovery, both Astrocast FX.25
-deframers, RS(255,223), and the Astrocast CRC. Its complex-IQ FSK path assumes
-the carrier is already centred, so engage Doppler before AOS.
+deframers, RS(255,223), and the Astrocast CRC. Before that native decoder, one
+5 kHz channel filter decimates the 200 ksps stream to 20 ksps and performs FM
+demodulation. This bypasses gr-satellites' 1.8 kHz complex-IQ prefilter and
+keeps a beacon with approximately +/-3 kHz residual carrier error inside the
+decoder. The broad spectrum and waterfall still tap the unchanged MAV_DUO-
+style 200 ksps stream. Engage Doppler before AOS.
 
 ## Offline replay
 
