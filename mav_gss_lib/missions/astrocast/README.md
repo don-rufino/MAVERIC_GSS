@@ -1,7 +1,7 @@
 # Astrocast 0.1 mission (RX-only)
 
-Decodes the Astrocast 0.1 technology demonstrator (NORAD 43798,
-437.150 MHz). This is the GSS platform's first real third-party
+Decodes the 1k2 beacon from the Astrocast 0.1 technology demonstrator
+(NORAD 43798, 437.150 MHz). This is the GSS platform's first real third-party
 mission: downlink only, no command surface — the TX panel stays empty
 and command admission is rejected by the platform.
 
@@ -12,7 +12,6 @@ Protocol (reverse-engineered by Daniel Estévez —
 | Mode | Modulation | Framing | Contents |
 |---|---|---|---|
 | Beacon | 1k2 FSK | non-standard FX.25 (AX.25 UI in RS(255,223), NRZ-I; NRZ failsafe) | ASCII `$GPRMC` (dummy NMEA) + `$HK` housekeeping |
-| Download | 9k6 FSK | CCSDS Reed-Solomon (1115-byte frames, dual basis, depth-5 interleave) | undocumented — logged raw |
 
 The `$HK` sentence carries: 48-bit clock (1/65536-second ticks since
 2016-01-01 UTC), system voltage (V), current (mA), temperature (°C),
@@ -37,11 +36,31 @@ dropdown or `--mission` so each mission reads and writes its own file.
 The Radio tab supervises the Astrocast flowgraph; Doppler engage/disengage
 works unchanged (RX-only — TX tune messages publish but nothing subscribes).
 
+The receiver runs both 1k2 beacon deframers and automatically searches for
+the midpoint of the two FSK tones across ±20 kHz of the Doppler-corrected
+baseband. It translates the acquired beacon to zero before gr-satellites'
+narrow decode filter, preserving weak-signal selectivity. Standalone or
+`platform.radio.args` overrides are available when needed:
+
+```bash
+python3 MAV_ASTROCAST.py --afc-search-hz 20000 --afc-bias-hz 0
+python3 MAV_ASTROCAST.py --disable-afc --afc-bias-hz -8000
+```
+
+The fixed-bias form is intended for a measured current offset, not as a
+permanent value copied from an old observation.
+
+Cold automatic acquisition requires three consistent estimates (about
+0.74 seconds). Start the radio and Doppler before AOS; acquisition during a
+beacon can miss that frame's sync and then decode the next transmission. A
+current measured `--afc-bias-hz` centres the channel immediately and gives
+the best chance of retaining the first frame.
+
 ## Offline replay
 
 Real recordings (Daniel Estévez's
 [satellite-recordings](https://github.com/daniestevez/satellite-recordings)
-repo — `astrocast.wav`) decode faster than real time:
+repo — `astrocast.wav`) replay at their recorded sample rate:
 
 ```bash
 cd gnuradio

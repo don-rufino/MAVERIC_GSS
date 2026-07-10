@@ -3,10 +3,10 @@
 
 Qt GUI top block (MAV_DUO-style spectrum/waterfall + RX gain slider +
 achieved-frequency readout) supervised by the GSS RadioService (set
-`platform.radio.script: gnuradio/MAV_ASTROCAST.py`). Decodes all three
-downlink modes on 437.150 MHz via gr-satellites (ASTROCAST_DECODER.yml):
-1k2 FSK FX.25 beacons (NRZ-I + NRZ failsafe) and 9k6 FSK CCSDS-RS
-telemetry downloads. Deframed PDUs publish on the GSS RX frame bus.
+`platform.radio.script: gnuradio/MAV_ASTROCAST.py`). Decodes the 1k2 FSK
+FX.25 beacon on 437.150 MHz via gr-satellites
+(ASTROCAST_DECODER.yml), running both NRZ-I and legacy NRZ failsafe
+deframers. Deframed PDUs publish on the GSS RX frame bus.
 
 Input modes:
   default          USRP B210 (same subdev/antenna/gain conventions as
@@ -27,12 +27,16 @@ import sys
 import threading
 import time
 
+import numpy as np
+
 from gnuradio import blocks, gr, zeromq
 from gnuradio import filter as gr_filter
 from gnuradio.filter import firdes
 
 import satellites.components.datasinks
 import satellites.core
+
+from astrocast_1k2_afc import AveragedFftPower, estimate_fsk_center
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,12 +48,136 @@ SAMP_RATE = 1_000_000
 RX_DECIM = 5
 RX_GAIN = 40
 WAV_SAMP_RATE = 48_000
+DECODER_OPTIONS = "--clk_limit 0.008"
+
+DEFAULT_AFC_SEARCH_HZ = 20_000.0
+DEFAULT_AFC_BIAS_HZ = 0.0
+AFC_CHANNEL_CUTOFF_HZ = 4_000.0
+AFC_CHANNEL_TRANSITION_HZ = 2_000.0
+AFC_CHANNEL_DECIM = 10
+AFC_TRACK_HALF_WIDTH_HZ = 3_000.0
+AFC_SMOOTHING = 0.35
+AFC_MIN_UPDATE_HZ = 25.0
+AFC_CONFIRMATIONS = 3
+AFC_CONFIRM_TOLERANCE_HZ = 250.0
+AFC_TRACK_JUMP_HZ = 500.0
 
 FRAME_ZMQ_ADDR = "tcp://127.0.0.1:52001"
 DOPPLER_ZMQ_ADDR = "tcp://127.0.0.1:52003"
 
 
-def _build_core(tb, wavfile, zmq_addr, doppler_addr):
+class _BeaconAfcSink(gr.sync_block):
+    """Estimate the two-FSK midpoint and steer a translating FIR filter."""
+
+    def __init__(self, channelizer, sample_rate, initial_bias_hz, search_hz):
+        gr.sync_block.__init__(
+            self,
+            name="astrocast_1k2_afc",
+            in_sig=[np.complex64],
+            out_sig=None,
+        )
+        self._channelizer = channelizer
+        self._sample_rate = float(sample_rate)
+        self._initial_bias_hz = float(initial_bias_hz)
+        self._search_hz = abs(float(search_hz))
+        self._averager = AveragedFftPower(fft_size=8192, averages=6)
+        self._correction_hz = self._initial_bias_hz
+        self._locked = False
+        self._pending_hz = None
+        self._pending_count = 0
+        self._state_lock = threading.Lock()
+
+    @property
+    def correction_hz(self):
+        with self._state_lock:
+            return self._correction_hz
+
+    @property
+    def locked(self):
+        with self._state_lock:
+            return self._locked
+
+    def _apply_estimate(self, power):
+        with self._state_lock:
+            current = self._correction_hz
+            locked = self._locked
+        estimate = estimate_fsk_center(
+            power,
+            self._sample_rate,
+            search_center_hz=current if locked else self._initial_bias_hz,
+            search_half_width_hz=(
+                AFC_TRACK_HALF_WIDTH_HZ if locked else self._search_hz
+            ),
+        )
+        # Connecting Doppler after radio start can move the residual carrier
+        # well outside the narrow tracking window. Search broadly again, but
+        # still require consecutive confirmations before replacing the lock.
+        if estimate is None and locked:
+            estimate = estimate_fsk_center(
+                power,
+                self._sample_rate,
+                search_center_hz=self._initial_bias_hz,
+                search_half_width_hz=self._search_hz,
+            )
+        if estimate is None:
+            with self._state_lock:
+                self._pending_hz = None
+                self._pending_count = 0
+            return
+
+        if locked and abs(estimate.center_hz - current) <= AFC_TRACK_JUMP_HZ:
+            with self._state_lock:
+                self._pending_hz = None
+                self._pending_count = 0
+            target = (
+                (1.0 - AFC_SMOOTHING) * current
+                + AFC_SMOOTHING * estimate.center_hz
+            )
+            if abs(target - current) < AFC_MIN_UPDATE_HZ:
+                return
+            action = "update"
+        else:
+            with self._state_lock:
+                if (
+                    self._pending_hz is None
+                    or abs(estimate.center_hz - self._pending_hz)
+                    > AFC_CONFIRM_TOLERANCE_HZ
+                ):
+                    self._pending_hz = estimate.center_hz
+                    self._pending_count = 1
+                else:
+                    count = self._pending_count
+                    self._pending_hz = (
+                        self._pending_hz * count + estimate.center_hz
+                    ) / (count + 1)
+                    self._pending_count = count + 1
+                if self._pending_count < AFC_CONFIRMATIONS:
+                    return
+                target = float(self._pending_hz)
+                self._pending_hz = None
+                self._pending_count = 0
+            action = "relock" if locked else "lock"
+
+        self._channelizer.set_center_freq(float(target))
+        with self._state_lock:
+            self._correction_hz = float(target)
+            self._locked = True
+        print(
+            f"MAV_ASTROCAST AFC {action} {target/1e3:+.3f} kHz "
+            f"(two-tone SNR {estimate.tone_snr_db:.1f} dB)",
+            flush=True,
+        )
+
+    def work(self, input_items, output_items):
+        samples = input_items[0]
+        for power in self._averager.feed(samples):
+            self._apply_estimate(power)
+        return len(samples)
+
+
+def _build_core(tb, wavfile, zmq_addr, doppler_addr, *, afc_enabled=True,
+                afc_search_hz=DEFAULT_AFC_SEARCH_HZ,
+                afc_bias_hz=DEFAULT_AFC_BIAS_HZ):
     """Construct the shared DSP chain (sources, decoder, ZMQ/hexdump sinks)
     on `tb`. GUI-agnostic: both the Qt and headless top blocks call this."""
     tb.zeromq_pub_msg_sink_0 = zeromq.pub_msg_sink(zmq_addr, 100, True)
@@ -57,11 +185,17 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
 
     if wavfile:
         tb.blocks_wavfile_source_0 = blocks.wavfile_source(wavfile, False)
+        # Pace finite recordings like a live radio stream. Without this,
+        # symbol_sync receives scheduler-dependent burst sizes and the
+        # marginal legacy-NRZ clock acquisition becomes nondeterministic.
+        tb.blocks_wav_throttle = blocks.throttle(
+            gr.sizeof_float, WAV_SAMP_RATE, True)
         tb.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(
             file=DECODER_YML, samp_rate=WAV_SAMP_RATE, iq=False,
-            grc_block=True, options="")
+            grc_block=True, options=DECODER_OPTIONS)
         tb.connect(
             (tb.blocks_wavfile_source_0, 0),
+            (tb.blocks_wav_throttle, 0),
             (tb.satellites_satellite_decoder_0, 0))
     else:
         from gnuradio import uhd
@@ -72,7 +206,7 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
         # show the target frequency even if the device open fails.
         print(f"MAV_ASTROCAST RX {tb.rx_freq/1e6:.6f} MHz "
               f"(LO parked {tb.rx_lo_offset/1e3:+.0f} kHz), "
-              f"{SAMP_RATE//RX_DECIM} sps into decoder", flush=True)
+              f"{SAMP_RATE//RX_DECIM} sps acquisition channel", flush=True)
         tb.uhd_usrp_source_0 = uhd.usrp_source(
             ",".join(("", "")),
             uhd.stream_args(cpu_format="fc32", args='', channels=list(range(0, 1))),
@@ -86,14 +220,50 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
 
         tb.rx_lpf = gr_filter.fir_filter_ccf(
             RX_DECIM, firdes.low_pass(1, SAMP_RATE, 50e3, 10e3))
+        acquisition_rate = SAMP_RATE // RX_DECIM
+        decoder_rate = acquisition_rate // AFC_CHANNEL_DECIM
+        tb.beacon_channelizer = gr_filter.freq_xlating_fir_filter_ccf(
+            AFC_CHANNEL_DECIM,
+            firdes.low_pass(
+                1,
+                acquisition_rate,
+                AFC_CHANNEL_CUTOFF_HZ,
+                AFC_CHANNEL_TRANSITION_HZ,
+            ),
+            float(afc_bias_hz),
+            acquisition_rate,
+        )
         tb.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(
-            file=DECODER_YML, samp_rate=SAMP_RATE // RX_DECIM, iq=True,
-            grc_block=True, options="")
+            file=DECODER_YML, samp_rate=decoder_rate, iq=True,
+            grc_block=True, options=DECODER_OPTIONS)
         tb.zeromq_sub_msg_source_rxcmd = zeromq.sub_msg_source(
             doppler_addr, 100, False)
 
         tb.connect((tb.uhd_usrp_source_0, 0), (tb.rx_lpf, 0))
-        tb.connect((tb.rx_lpf, 0), (tb.satellites_satellite_decoder_0, 0))
+        tb.connect(
+            (tb.rx_lpf, 0),
+            (tb.beacon_channelizer, 0),
+            (tb.satellites_satellite_decoder_0, 0),
+        )
+        if afc_enabled:
+            tb.beacon_afc = _BeaconAfcSink(
+                tb.beacon_channelizer,
+                acquisition_rate,
+                initial_bias_hz=afc_bias_hz,
+                search_hz=afc_search_hz,
+            )
+            tb.connect((tb.rx_lpf, 0), (tb.beacon_afc, 0))
+            print(
+                f"MAV_ASTROCAST 1k2 AFC search "
+                f"{float(afc_bias_hz)/1e3:+.1f} +/- {abs(float(afc_search_hz))/1e3:.1f} kHz",
+                flush=True,
+            )
+        else:
+            print(
+                f"MAV_ASTROCAST 1k2 AFC disabled; fixed correction "
+                f"{float(afc_bias_hz)/1e3:+.3f} kHz",
+                flush=True,
+            )
         tb.msg_connect(
             (tb.zeromq_sub_msg_source_rxcmd, 'out'),
             (tb.uhd_usrp_source_0, 'command'))
@@ -109,9 +279,19 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
 class mav_astrocast_headless(gr.top_block):
 
     def __init__(self, wavfile=None, zmq_addr=FRAME_ZMQ_ADDR,
-                 doppler_addr=DOPPLER_ZMQ_ADDR):
+                 doppler_addr=DOPPLER_ZMQ_ADDR, *, afc_enabled=True,
+                 afc_search_hz=DEFAULT_AFC_SEARCH_HZ,
+                 afc_bias_hz=DEFAULT_AFC_BIAS_HZ):
         gr.top_block.__init__(self, "MAV_ASTROCAST", catch_exceptions=True)
-        _build_core(self, wavfile, zmq_addr, doppler_addr)
+        _build_core(
+            self,
+            wavfile,
+            zmq_addr,
+            doppler_addr,
+            afc_enabled=afc_enabled,
+            afc_search_hz=afc_search_hz,
+            afc_bias_hz=afc_bias_hz,
+        )
 
 
 def _make_qt_class():
@@ -124,7 +304,9 @@ def _make_qt_class():
     class mav_astrocast(gr.top_block, Qt.QWidget):
 
         def __init__(self, wavfile=None, zmq_addr=FRAME_ZMQ_ADDR,
-                     doppler_addr=DOPPLER_ZMQ_ADDR):
+                     doppler_addr=DOPPLER_ZMQ_ADDR, *, afc_enabled=True,
+                     afc_search_hz=DEFAULT_AFC_SEARCH_HZ,
+                     afc_bias_hz=DEFAULT_AFC_BIAS_HZ):
             gr.top_block.__init__(self, "MAV_ASTROCAST", catch_exceptions=True)
             Qt.QWidget.__init__(self)
             self.setWindowTitle("MAV ASTROCAST — Astrocast 0.1 RX")
@@ -154,7 +336,15 @@ def _make_qt_class():
                 print(f"Qt GUI: Could not restore geometry: {str(exc)}", file=sys.stderr)
             self.flowgraph_started = threading.Event()
 
-            _build_core(self, wavfile, zmq_addr, doppler_addr)
+            _build_core(
+                self,
+                wavfile,
+                zmq_addr,
+                doppler_addr,
+                afc_enabled=afc_enabled,
+                afc_search_hz=afc_search_hz,
+                afc_bias_hz=afc_bias_hz,
+            )
             self.wavfile = wavfile
 
             if wavfile:
@@ -163,7 +353,7 @@ def _make_qt_class():
                 self.qtgui_freq_sink_x_0 = qtgui.freq_sink_f(
                     2048, window.WIN_BLACKMAN_hARRIS, spectrum_fc, spectrum_bw,
                     "", 1, None)
-                spectrum_tap = self.blocks_wavfile_source_0
+                spectrum_tap = self.blocks_wav_throttle
             else:
                 spectrum_fc = self.rx_freq
                 spectrum_bw = SAMP_RATE // RX_DECIM
@@ -245,7 +435,10 @@ def _make_qt_class():
 
 def _run_headless(args):
     tb = mav_astrocast_headless(wavfile=args.wavfile, zmq_addr=args.zmq_addr,
-                                doppler_addr=args.doppler_addr)
+                                doppler_addr=args.doppler_addr,
+                                afc_enabled=not args.disable_afc,
+                                afc_search_hz=args.afc_search_hz,
+                                afc_bias_hz=args.afc_bias_hz)
 
     def _quit(signum, frame):
         tb.stop()
@@ -271,7 +464,10 @@ def _run_gui(args):
     if args.wavfile:
         time.sleep(args.wait_s)
     tb = top_block_cls(wavfile=args.wavfile, zmq_addr=args.zmq_addr,
-                       doppler_addr=args.doppler_addr)
+                       doppler_addr=args.doppler_addr,
+                       afc_enabled=not args.disable_afc,
+                       afc_search_hz=args.afc_search_hz,
+                       afc_bias_hz=args.afc_bias_hz)
     tb.start()
     tb.flowgraph_started.set()
     tb.show()
@@ -298,6 +494,12 @@ def main():
                         help=f"frame PDU PUB bind address [default {FRAME_ZMQ_ADDR}]")
     parser.add_argument("--doppler-addr", default=DOPPLER_ZMQ_ADDR,
                         help=f"Doppler tune SUB address [default {DOPPLER_ZMQ_ADDR}]")
+    parser.add_argument("--afc-search-hz", type=float, default=DEFAULT_AFC_SEARCH_HZ,
+                        help="1k2 AFC half-width around the initial bias")
+    parser.add_argument("--afc-bias-hz", type=float, default=DEFAULT_AFC_BIAS_HZ,
+                        help="initial/fixed 1k2 baseband frequency correction")
+    parser.add_argument("--disable-afc", action="store_true",
+                        help="disable automatic acquisition; use --afc-bias-hz only")
     parser.add_argument("--wait-s", type=float, default=1.0,
                         help="wav mode: delay before decode so ZMQ subscribers can join")
     parser.add_argument("--headless", action="store_true",

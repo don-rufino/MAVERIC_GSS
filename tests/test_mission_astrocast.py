@@ -7,14 +7,17 @@ the constructed bytes were verified equal to the KISS output of
 """
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
+import yaml
 
 from mav_gss_lib.platform.loader import load_mission_spec
 from mav_gss_lib.platform.runtime import PlatformRuntime
 
 
 NRZI_META = {"transmitter": "1k2 FSK FX.25 NRZ-I downlink"}
+NRZ_META = {"transmitter": "1k2 FSK FX.25 NRZ downlink"}
 NINE_K6_META = {"transmitter": "9k6 FSK downlink"}
 
 _AX25_UI_HEADER = bytes.fromhex(
@@ -53,18 +56,20 @@ def test_spec_is_rx_only_with_spec_root(tmp_path):
     assert len(spec.spec_root.ui.rx_columns) >= 5
 
 
-def test_normalize_strips_ax25_ui_header(tmp_path):
+@pytest.mark.parametrize("meta", [NRZI_META, NRZ_META])
+def test_normalize_strips_ax25_ui_header(tmp_path, meta):
     spec = _spec(tmp_path)
-    normalized = spec.packets.normalize(NRZI_META, BEACON_FRAME_1)
+    normalized = spec.packets.normalize(meta, BEACON_FRAME_1)
     assert normalized.frame_type == "FX.25"
     assert normalized.payload.startswith(b"$GPRMC,")
     assert normalized.stripped_header == _AX25_UI_HEADER.hex(" ")
     assert normalized.raw == BEACON_FRAME_1
 
 
-def test_parse_beacon_hk_and_gps(tmp_path):
+@pytest.mark.parametrize("meta", [NRZI_META, NRZ_META])
+def test_parse_beacon_hk_and_gps(tmp_path, meta):
     spec = _spec(tmp_path)
-    packet = spec.packets.parse(spec.packets.normalize(NRZI_META, BEACON_FRAME_1))
+    packet = spec.packets.parse(spec.packets.normalize(meta, BEACON_FRAME_1))
     payload = packet.payload
     assert payload.kind == "beacon"
     assert payload.src == "HB9GSF"
@@ -146,7 +151,6 @@ def test_build_seeds_rx_frequency_and_tracking(tmp_path):
 
 
 def test_mission_yml_parses_standalone():
-    from pathlib import Path
     from mav_gss_lib.platform.spec import parse_yaml
 
     yml = Path("mav_gss_lib/missions/astrocast/mission.yml")
@@ -156,6 +160,18 @@ def test_mission_yml_parses_standalone():
         "clock_utc", "voltage", "current", "temperature",
         "rssi", "afc_offset", "hk_flags",
     }
+
+
+def test_radio_decoder_yml_is_1k2_beacon_only():
+    yml = Path("gnuradio/ASTROCAST_DECODER.yml")
+    raw = yaml.safe_load(yml.read_text(encoding="utf-8"))
+    transmitters = raw["transmitters"]
+    assert set(transmitters) == {
+        "1k2 FSK FX.25 NRZ-I downlink",
+        "1k2 FSK FX.25 NRZ downlink",
+    }
+    assert {entry["baudrate"] for entry in transmitters.values()} == {1200}
+    assert {entry["deviation"] for entry in transmitters.values()} == {1200}
 
 
 def test_end_to_end_parameters_via_platform_runtime(tmp_path):
