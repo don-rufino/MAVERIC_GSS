@@ -25,17 +25,29 @@ from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 _log = _logging.getLogger(__name__)
 
 
+def _sanitize_token(value: str) -> str:
+    """Filesystem-safe stem token; empty input stays empty (part omitted)."""
+    return re.sub(r'[^\w\-.]', '_', value.strip()).strip('_') if value else ""
+
+
 def _compose_log_paths(log_dir: str, prefix: str, tag: str,
-                       station: str = "", operator: str = "") -> tuple[str, str]:
+                       station: str = "", operator: str = "",
+                       mission: str = "") -> tuple[str, str]:
     """Return (jsonl_path, session_id) under log_dir/json.
 
     The session_id equals the file stem — callers use it to stamp every
     JSONL record so SQL ingest has a stable session key matching the
-    filename on disk.
+    filename on disk. Stem shape:
+    ``<prefix>_<ts>[_<mission>][_<station>][_<operator>][_<tag>]`` — the
+    date token must stay the second underscore field because
+    ``/api/logs`` extracts it positionally.
 
-    *tag*, *station*, *operator* must be pre-sanitized — callers handle it."""
+    *tag*, *station*, *operator*, *mission* must be pre-sanitized —
+    callers handle it."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     parts = [prefix, ts]
+    if mission:
+        parts.append(mission)
     if station:
         parts.append(station)
     if operator:
@@ -161,11 +173,11 @@ class _BaseLog:
 
     def _open_files(self, tag: str = "") -> None:
         """Open new log file with fresh timestamp, start writer thread."""
-        tag      = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
-        station  = re.sub(r'[^\w\-.]', '_', self._station.strip()).strip('_') if self._station else ""
-        operator = re.sub(r'[^\w\-.]', '_', self._operator.strip()).strip('_') if self._operator else ""
         self.jsonl_path, self.session_id = _compose_log_paths(
-            self._log_dir, self._prefix, tag, station=station, operator=operator,
+            self._log_dir, self._prefix, _sanitize_token(tag),
+            station=_sanitize_token(self._station),
+            operator=_sanitize_token(self._operator),
+            mission=_sanitize_token(self._mission_id),
         )
         self._jsonl_f = open(self.jsonl_path, "a")
         self._q = queue.Queue()
@@ -176,11 +188,11 @@ class _BaseLog:
         """Open new log file WITHOUT closing old one (prepare phase)."""
         if self._closed:
             raise RuntimeError("cannot start new session on a closed log")
-        tag      = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
-        station  = re.sub(r'[^\w\-.]', '_', self._station.strip()).strip('_') if self._station else ""
-        operator = re.sub(r'[^\w\-.]', '_', self._operator.strip()).strip('_') if self._operator else ""
         new_jsonl_path, new_session_id = _compose_log_paths(
-            self._log_dir, self._prefix, tag, station=station, operator=operator,
+            self._log_dir, self._prefix, _sanitize_token(tag),
+            station=_sanitize_token(self._station),
+            operator=_sanitize_token(self._operator),
+            mission=_sanitize_token(self._mission_id),
         )
         new_jsonl_f = None
         try:

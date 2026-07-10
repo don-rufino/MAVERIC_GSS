@@ -55,8 +55,8 @@ def _session_date_ms(session_id: str) -> int:
     """Extract UTC midnight of the session's calendar day in milliseconds.
 
     Used to translate HH:MM / HH:MM:SS query filters into ts_ms. Session IDs
-    look like `session_YYYYMMDD_HHMMSS[_station][_op]`; the date token is
-    always the second underscore-separated field.
+    look like `session_YYYYMMDD_HHMMSS[_mission][_station][_op]`; the date
+    token is always the second underscore-separated field.
     """
     try:
         parts = session_id.split("_")
