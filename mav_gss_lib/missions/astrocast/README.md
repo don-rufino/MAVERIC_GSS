@@ -36,25 +36,19 @@ dropdown or `--mission` so each mission reads and writes its own file.
 The Radio tab supervises the Astrocast flowgraph; Doppler engage/disengage
 works unchanged (RX-only — TX tune messages publish but nothing subscribes).
 
-The receiver runs both 1k2 beacon deframers through seven overlapping fixed
-bins centred from -18 to +18 kHz. Each bin quadrature-demodulates before
-gr-satellites, bypassing its overly narrow IQ carrier filter and providing
-immediate first-frame coverage across approximately ±21 kHz. A narrow AFC
-decoder remains in parallel for weak, well-centred signals. Identical frames
-from overlapping paths are deduplicated before publication.
+The live RF path intentionally mirrors MAV_DUO: B210 A:A/RX2, 1 Msps, gain
+40, a +250 kHz parked LO, Doppler commands into the UHD source, the same
+coax-relay RX GPIO state, and the same 181-tap decimating FIR feeding a 200
+ksps baseband spectrum, waterfall, and one gr-satellites decoder. The live
+differences are only the 437.150 MHz center frequency and Astrocast decoder;
+Astrocast remains RX-only and does not instantiate MAV_DUO's TX chain.
 
-Standalone or `platform.radio.args` AFC-fallback overrides are available
-when needed:
-
-```bash
-python3 MAV_ASTROCAST.py --afc-search-hz 20000 --afc-bias-hz 0
-python3 MAV_ASTROCAST.py --disable-afc --afc-bias-hz -8000
-```
-
-The fixed-bias form controls only the secondary narrow path and is intended
-for a measured current offset, not as a permanent value copied from an old
-observation. Start the radio and Doppler before AOS even though the fixed bin
-bank does not wait for AFC lock.
+The protocol decoder itself is gr-satellites 5.7's native Astrocast 0.1
+implementation. `ASTROCAST_DECODER.yml` is its SatYAML with the unrelated 9k6
+download entry removed, leaving only the requested 1k2 NRZ-I and legacy NRZ
+beacons. gr-satellites performs FSK clock recovery, both Astrocast FX.25
+deframers, RS(255,223), and the Astrocast CRC. Its complex-IQ FSK path assumes
+the carrier is already centred, so engage Doppler before AOS.
 
 ## Offline replay
 
