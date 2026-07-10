@@ -59,20 +59,47 @@ class LoadRowsTests(unittest.TestCase):
         self.assertEqual(rows.shape, (0, wr.FFT_BINS))
 
 
-class ReduceRowsTests(unittest.TestCase):
-    def test_short_input_untouched(self):
-        ts = np.arange(100, dtype=np.float64)
-        rows = np.zeros((100, wr.FFT_BINS), dtype=np.float32)
-        ts2, rows2 = wr.reduce_rows(ts, rows)
-        self.assertEqual(len(rows2), 100)
+class FullResolutionTests(unittest.TestCase):
+    """One capture row = one pixel row; long captures scroll into parts."""
 
-    def test_tall_input_reduced_to_cap(self):
-        n = wr.MAX_IMAGE_ROWS * 2 + 37
-        ts = np.arange(n, dtype=np.float64)
-        rows = np.zeros((n, wr.FFT_BINS), dtype=np.float32)
-        ts2, rows2 = wr.reduce_rows(ts, rows)
-        self.assertLessEqual(len(rows2), wr.MAX_IMAGE_ROWS)
-        self.assertEqual(len(ts2), len(rows2))
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dat = os.path.join(self.tmp.name, "waterfall_maveric_20260710T000000Z.dat")
+
+    def _png_size(self, path) -> tuple[int, int]:
+        from PIL import Image
+
+        with Image.open(path) as img:
+            return img.size
+
+    def test_pixel_rows_match_capture_rows(self):
+        _write_rows(self.dat, 137)
+        png = wr.render(self.dat)
+        width, height = self._png_size(png)
+        self.assertEqual(width, wr.IMG_LEFT + wr.FFT_BINS + wr.IMG_RIGHT)
+        self.assertEqual(height, wr.IMG_TOP + 137 + wr.IMG_BOTTOM)
+
+    def test_long_capture_splits_into_full_res_parts(self):
+        _write_rows(self.dat, 120)
+        png = wr.render(self.dat, delete_dat=True, max_rows_per_png=50)
+        self.assertTrue(str(png).endswith(".png"))
+        p2 = Path(str(png)).with_name(Path(str(png)).stem + "_p2.png")
+        p3 = Path(str(png)).with_name(Path(str(png)).stem + "_p3.png")
+        self.assertTrue(os.path.isfile(png))
+        self.assertTrue(p2.is_file())
+        self.assertTrue(p3.is_file())
+        self.assertEqual(self._png_size(png)[1], wr.IMG_TOP + 50 + wr.IMG_BOTTOM)
+        self.assertEqual(self._png_size(p2)[1], wr.IMG_TOP + 50 + wr.IMG_BOTTOM)
+        self.assertEqual(self._png_size(p3)[1], wr.IMG_TOP + 20 + wr.IMG_BOTTOM)
+        self.assertFalse(os.path.exists(self.dat))  # deleted only after all parts
+
+    def test_short_capture_stays_single_file(self):
+        _write_rows(self.dat, 49)
+        png = wr.render(self.dat, max_rows_per_png=50)
+        p2 = Path(str(png)).with_name(Path(str(png)).stem + "_p2.png")
+        self.assertTrue(os.path.isfile(png))
+        self.assertFalse(p2.exists())
 
 
 class RenderTests(unittest.TestCase):
