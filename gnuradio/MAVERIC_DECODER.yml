@@ -32,6 +32,17 @@ data:
 transmitters:
 
   # -- Mode 5: ASM+Golay (recommended) ----------------------------------------
+  # 2k4 exists for the CATSAT mission package (437.185 MHz beacons,
+  # deviation 750 Hz per the gr-satellites SatYAML); MAVERIC itself
+  # does not beacon at 2k4.
+  2k4 FSK AX100 ASM+Golay downlink:
+    frequency: 437.575e+6      # Hz
+    modulation: FSK
+    baudrate: 2400
+    deviation: 750
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm
   4k8 FSK AX100 ASM+Golay downlink:
     frequency: 437.575e+6      # Hz
     modulation: FSK

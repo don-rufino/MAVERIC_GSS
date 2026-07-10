@@ -1,0 +1,1482 @@
+# CATSAT mission database (RX-only).
+#
+# Beacon format follows the community Kaitai definition
+# (satnogs-decoders catsat.ksy): 18 beacon types across the GomSpace
+# stack (NanoMind OBC, BPX battery, P60/PDU/ACU power, AX100 radio HK,
+# ADCS, and the ASDR payload), selected by the type byte in the 5-byte
+# sub-header after the little-endian CSP header. parameters and
+# sequence_containers below are generated from the ksy by the mission
+# codec's field table — token order must match telemetry.BEACONS.
+schema_version: 1
+id: catsat
+name: "CATSAT"
+header:
+  version: "1.1.0"
+  date: "2026-07-10"
+  description: "CATSAT RX-only declarative mission database (full ksy port)"
+
+parameter_types:
+  utc_token:
+    kind: string
+    encoding: ascii_token
+    description: "ISO-8601 UTC timestamp from a GomSpace HK table header"
+  str_token:
+    kind: string
+    encoding: ascii_token
+    description: "Short ASCII text field"
+  hex_token:
+    kind: string
+    encoding: ascii_token
+    description: "0x-prefixed hex value (lossless raw bytes)"
+  int_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Raw integer telemetry value"
+  count_l:
+    kind: int
+    size_bits: 64
+    signed: true
+    description: "Wide counter / u32-range value"
+  float_f:
+    kind: float
+    description: "Raw float telemetry value"
+
+parameters:
+  hk_1_95: { type: utc_token, domain: sys }
+  callsign: { type: str_token, domain: sys }
+  motd: { type: hex_token, domain: sys }
+  hk_1_4_1: { type: utc_token, domain: crit }
+  obc_temp_mcu: { type: int_i, domain: crit }
+  obc_boot_cnt: { type: int_i, domain: crit }
+  obc_clock: { type: count_l, domain: crit }
+  hk_1_91: { type: utc_token, domain: crit }
+  bpx_vbatt: { type: int_i, domain: crit }
+  bpx_temp: { type: int_i, domain: crit }
+  bpx_boot_cnt: { type: count_l, domain: crit }
+  hk_5_4_1: { type: utc_token, domain: crit }
+  ax100_temp_brd: { type: int_i, domain: crit }
+  ax100_boot_cnt: { type: int_i, domain: crit }
+  ax100_last_contact: { type: count_l, domain: crit }
+  hk_8_4_1: { type: utc_token, domain: crit }
+  p60_boot_cnt: { type: count_l, domain: crit }
+  p60_batt_mode: { type: int_i, domain: crit }
+  p60_batt_v: { type: int_i, domain: crit }
+  p60_batt_c: { type: int_i, domain: crit }
+  hk_9_4: { type: utc_token, domain: crit }
+  pdu_x2_cout1: { type: int_i, domain: crit }
+  pdu_x2_cout2: { type: int_i, domain: crit }
+  pdu_x2_cout3: { type: int_i, domain: crit }
+  pdu_x2_cout4: { type: int_i, domain: crit }
+  pdu_x2_cout5: { type: int_i, domain: crit }
+  pdu_x2_cout6: { type: int_i, domain: crit }
+  pdu_x2_cout7: { type: int_i, domain: crit }
+  pdu_x2_cout8: { type: int_i, domain: crit }
+  pdu_x2_cout9: { type: int_i, domain: crit }
+  hk_10_4_2: { type: utc_token, domain: crit }
+  pdu_x3_cout1: { type: int_i, domain: crit }
+  pdu_x3_cout2: { type: int_i, domain: crit }
+  pdu_x3_cout3: { type: int_i, domain: crit }
+  pdu_x3_cout4: { type: int_i, domain: crit }
+  pdu_x3_cout5: { type: int_i, domain: crit }
+  pdu_x3_cout6: { type: int_i, domain: crit }
+  pdu_x3_cout7: { type: int_i, domain: crit }
+  pdu_x3_cout8: { type: int_i, domain: crit }
+  pdu_x3_cout9: { type: int_i, domain: crit }
+  hk_11_4_2: { type: utc_token, domain: crit }
+  acu_power1: { type: int_i, domain: crit }
+  acu_power2: { type: int_i, domain: crit }
+  acu_power3: { type: int_i, domain: crit }
+  acu_power4: { type: int_i, domain: crit }
+  acu_power5: { type: int_i, domain: crit }
+  acu_power6: { type: int_i, domain: crit }
+  hk_4_4_2: { type: utc_token, domain: crit }
+  adcs_boot_cnt: { type: int_i, domain: crit }
+  adcs_clock: { type: count_l, domain: crit }
+  hk_4_150_2: { type: utc_token, domain: crit }
+  extgyro1: { type: float_f, domain: crit }
+  extgyro2: { type: float_f, domain: crit }
+  extgyro3: { type: float_f, domain: crit }
+  gps_pos1: { type: float_f, domain: crit }
+  gps_pos2: { type: float_f, domain: crit }
+  gps_pos3: { type: float_f, domain: crit }
+  gps_vel1: { type: float_f, domain: crit }
+  gps_vel2: { type: float_f, domain: crit }
+  gps_vel3: { type: float_f, domain: crit }
+  hk_4_151_2: { type: utc_token, domain: crit }
+  acs_mode: { type: int_i, domain: crit }
+  status_extmag: { type: int_i, domain: crit }
+  status_fss1: { type: int_i, domain: crit }
+  status_fss2: { type: int_i, domain: crit }
+  status_fss3: { type: int_i, domain: crit }
+  status_fss4: { type: int_i, domain: crit }
+  status_fss5: { type: int_i, domain: crit }
+  status_extgyro: { type: int_i, domain: crit }
+  status_gps: { type: int_i, domain: crit }
+  hk_1_4_3: { type: utc_token, domain: obc }
+  obc_fs_mnted: { type: int_i, domain: obc }
+  obc_temp_ram: { type: int_i, domain: obc }
+  obc_resetcause: { type: count_l, domain: obc }
+  obc_bootcause: { type: count_l, domain: obc }
+  obc_uptime: { type: count_l, domain: obc }
+  hk_1_91_3: { type: utc_token, domain: obc }
+  batt_charge: { type: int_i, domain: obc }
+  batt_dcharge: { type: int_i, domain: obc }
+  batt_heater: { type: int_i, domain: obc }
+  batt_temp2: { type: int_i, domain: obc }
+  batt_temp3: { type: int_i, domain: obc }
+  batt_temp4: { type: int_i, domain: obc }
+  batt_bootcause: { type: int_i, domain: obc }
+  hk_1_94_3: { type: utc_token, domain: obc }
+  sat_temps1: { type: float_f, domain: obc }
+  sat_temps2: { type: float_f, domain: obc }
+  sat_temps3: { type: float_f, domain: obc }
+  sat_temps4: { type: float_f, domain: obc }
+  sat_temps5: { type: float_f, domain: obc }
+  sat_temps6: { type: float_f, domain: obc }
+  hk_5_0_3: { type: utc_token, domain: obc }
+  ax100_reboot_in: { type: int_i, domain: obc }
+  ax100_tx_inhibit: { type: count_l, domain: obc }
+  hk_5_1_3: { type: utc_token, domain: obc }
+  ax100_rx_freq: { type: count_l, domain: obc }
+  ax100_rx_baud: { type: count_l, domain: obc }
+  hk_5_4_3: { type: utc_token, domain: obc }
+  ax100_temp_pa: { type: int_i, domain: obc }
+  ax100_last_rssi: { type: int_i, domain: obc }
+  ax100_last_rferr: { type: int_i, domain: obc }
+  ax100_active_conf: { type: int_i, domain: obc }
+  ax100_bootcause: { type: int_i, domain: obc }
+  ax100_bgnd_rssi: { type: int_i, domain: obc }
+  ax100_tx_duty: { type: int_i, domain: obc }
+  hk_5_5_3: { type: utc_token, domain: obc }
+  ax100_tx_freq: { type: count_l, domain: obc }
+  ax100_tx_baud: { type: count_l, domain: obc }
+  hk_8_4_4: { type: utc_token, domain: pwr }
+  p60_cout1: { type: int_i, domain: pwr }
+  p60_cout2: { type: int_i, domain: pwr }
+  p60_cout3: { type: int_i, domain: pwr }
+  p60_cout4: { type: int_i, domain: pwr }
+  p60_cout5: { type: int_i, domain: pwr }
+  p60_cout6: { type: int_i, domain: pwr }
+  p60_cout7: { type: int_i, domain: pwr }
+  p60_cout8: { type: int_i, domain: pwr }
+  p60_cout9: { type: int_i, domain: pwr }
+  p60_cout10: { type: int_i, domain: pwr }
+  p60_cout11: { type: int_i, domain: pwr }
+  p60_cout12: { type: int_i, domain: pwr }
+  p60_cout13: { type: int_i, domain: pwr }
+  p60_out_en1: { type: int_i, domain: pwr }
+  p60_out_en2: { type: int_i, domain: pwr }
+  p60_out_en3: { type: int_i, domain: pwr }
+  p60_out_en4: { type: int_i, domain: pwr }
+  p60_out_en5: { type: int_i, domain: pwr }
+  p60_out_en6: { type: int_i, domain: pwr }
+  p60_out_en7: { type: int_i, domain: pwr }
+  p60_out_en8: { type: int_i, domain: pwr }
+  p60_out_en9: { type: int_i, domain: pwr }
+  p60_out_en10: { type: int_i, domain: pwr }
+  p60_out_en11: { type: int_i, domain: pwr }
+  p60_out_en12: { type: int_i, domain: pwr }
+  p60_out_en13: { type: int_i, domain: pwr }
+  p60_temp1: { type: int_i, domain: pwr }
+  p60_temp2: { type: int_i, domain: pwr }
+  p60_bootcause: { type: count_l, domain: pwr }
+  p60_uptime: { type: count_l, domain: pwr }
+  p60_resetcause: { type: int_i, domain: pwr }
+  p60_latchup1: { type: int_i, domain: pwr }
+  p60_latchup2: { type: int_i, domain: pwr }
+  p60_latchup3: { type: int_i, domain: pwr }
+  p60_latchup4: { type: int_i, domain: pwr }
+  p60_latchup5: { type: int_i, domain: pwr }
+  p60_latchup6: { type: int_i, domain: pwr }
+  p60_latchup7: { type: int_i, domain: pwr }
+  p60_latchup8: { type: int_i, domain: pwr }
+  p60_latchup9: { type: int_i, domain: pwr }
+  p60_latchup10: { type: int_i, domain: pwr }
+  p60_latchup11: { type: int_i, domain: pwr }
+  p60_latchup12: { type: int_i, domain: pwr }
+  p60_latchup13: { type: int_i, domain: pwr }
+  p60_vcc_c: { type: int_i, domain: pwr }
+  p60_dearm_status: { type: int_i, domain: pwr }
+  p60_wdt_cnt_gnd: { type: count_l, domain: pwr }
+  p60_wdt_cnt_can: { type: count_l, domain: pwr }
+  p60_wdt_cnt_left: { type: count_l, domain: pwr }
+  p60_batt_chrg: { type: int_i, domain: pwr }
+  p60_batt_dchrg: { type: int_i, domain: pwr }
+  ant6_depl: { type: int_i, domain: pwr }
+  ar6_depl: { type: int_i, domain: pwr }
+  hk_9_4_4: { type: utc_token, domain: pwr }
+  pdu_x2_vout1: { type: int_i, domain: pwr }
+  pdu_x2_vout2: { type: int_i, domain: pwr }
+  pdu_x2_vout3: { type: int_i, domain: pwr }
+  pdu_x2_vout4: { type: int_i, domain: pwr }
+  pdu_x2_vout5: { type: int_i, domain: pwr }
+  pdu_x2_vout6: { type: int_i, domain: pwr }
+  pdu_x2_vout7: { type: int_i, domain: pwr }
+  pdu_x2_vout8: { type: int_i, domain: pwr }
+  pdu_x2_vout9: { type: int_i, domain: pwr }
+  pdu_x2_temp: { type: int_i, domain: pwr }
+  pdu_x2_out_en1: { type: int_i, domain: pwr }
+  pdu_x2_out_en2: { type: int_i, domain: pwr }
+  pdu_x2_out_en3: { type: int_i, domain: pwr }
+  pdu_x2_out_en4: { type: int_i, domain: pwr }
+  pdu_x2_out_en5: { type: int_i, domain: pwr }
+  pdu_x2_out_en6: { type: int_i, domain: pwr }
+  pdu_x2_out_en7: { type: int_i, domain: pwr }
+  pdu_x2_out_en8: { type: int_i, domain: pwr }
+  pdu_x2_out_en9: { type: int_i, domain: pwr }
+  pdu_x2_bootcause: { type: count_l, domain: pwr }
+  pdu_x2_boot_cnt: { type: count_l, domain: pwr }
+  pdu_x2_uptime: { type: count_l, domain: pwr }
+  pdu_x2_resetcause: { type: int_i, domain: pwr }
+  pdu_x2_latchup1: { type: int_i, domain: pwr }
+  pdu_x2_latchup2: { type: int_i, domain: pwr }
+  pdu_x2_latchup3: { type: int_i, domain: pwr }
+  pdu_x2_latchup4: { type: int_i, domain: pwr }
+  pdu_x2_latchup5: { type: int_i, domain: pwr }
+  pdu_x2_latchup6: { type: int_i, domain: pwr }
+  pdu_x2_latchup7: { type: int_i, domain: pwr }
+  pdu_x2_latchup8: { type: int_i, domain: pwr }
+  pdu_x2_latchup9: { type: int_i, domain: pwr }
+  hk_10_4_5: { type: utc_token, domain: pwr }
+  pdu_x3_vout1: { type: int_i, domain: pwr }
+  pdu_x3_vout2: { type: int_i, domain: pwr }
+  pdu_x3_vout3: { type: int_i, domain: pwr }
+  pdu_x3_vout4: { type: int_i, domain: pwr }
+  pdu_x3_vout5: { type: int_i, domain: pwr }
+  pdu_x3_vout6: { type: int_i, domain: pwr }
+  pdu_x3_vout7: { type: int_i, domain: pwr }
+  pdu_x3_vout8: { type: int_i, domain: pwr }
+  pdu_x3_vout9: { type: int_i, domain: pwr }
+  pdu_x3_temp: { type: int_i, domain: pwr }
+  pdu_x3_out_en1: { type: int_i, domain: pwr }
+  pdu_x3_out_en2: { type: int_i, domain: pwr }
+  pdu_x3_out_en3: { type: int_i, domain: pwr }
+  pdu_x3_out_en4: { type: int_i, domain: pwr }
+  pdu_x3_out_en5: { type: int_i, domain: pwr }
+  pdu_x3_out_en6: { type: int_i, domain: pwr }
+  pdu_x3_out_en7: { type: int_i, domain: pwr }
+  pdu_x3_out_en8: { type: int_i, domain: pwr }
+  pdu_x3_out_en9: { type: int_i, domain: pwr }
+  pdu_x3_bootcause: { type: count_l, domain: pwr }
+  pdu_x3_boot_cnt: { type: count_l, domain: pwr }
+  pdu_x3_uptime: { type: count_l, domain: pwr }
+  pdu_x3_resetcause: { type: int_i, domain: pwr }
+  pdu_x3_latchup1: { type: int_i, domain: pwr }
+  pdu_x3_latchup2: { type: int_i, domain: pwr }
+  pdu_x3_latchup3: { type: int_i, domain: pwr }
+  pdu_x3_latchup4: { type: int_i, domain: pwr }
+  pdu_x3_latchup5: { type: int_i, domain: pwr }
+  pdu_x3_latchup6: { type: int_i, domain: pwr }
+  pdu_x3_latchup7: { type: int_i, domain: pwr }
+  pdu_x3_latchup8: { type: int_i, domain: pwr }
+  pdu_x3_latchup9: { type: int_i, domain: pwr }
+  hk_11_4_5: { type: utc_token, domain: pwr }
+  acu_cin1: { type: int_i, domain: pwr }
+  acu_cin2: { type: int_i, domain: pwr }
+  acu_cin3: { type: int_i, domain: pwr }
+  acu_cin4: { type: int_i, domain: pwr }
+  acu_cin5: { type: int_i, domain: pwr }
+  acu_cin6: { type: int_i, domain: pwr }
+  acu_vin1: { type: int_i, domain: pwr }
+  acu_vin2: { type: int_i, domain: pwr }
+  acu_vin3: { type: int_i, domain: pwr }
+  acu_vin4: { type: int_i, domain: pwr }
+  acu_vin5: { type: int_i, domain: pwr }
+  acu_vin6: { type: int_i, domain: pwr }
+  acu_vbatt: { type: int_i, domain: pwr }
+  acu_temp1: { type: int_i, domain: pwr }
+  acu_temp2: { type: int_i, domain: pwr }
+  acu_temp3: { type: int_i, domain: pwr }
+  acu_mppt_mode: { type: int_i, domain: pwr }
+  acu_vboost1: { type: int_i, domain: pwr }
+  acu_vboost2: { type: int_i, domain: pwr }
+  acu_vboost3: { type: int_i, domain: pwr }
+  acu_vboost4: { type: int_i, domain: pwr }
+  acu_vboost5: { type: int_i, domain: pwr }
+  acu_vboost6: { type: int_i, domain: pwr }
+  acu_bootcause: { type: count_l, domain: pwr }
+  acu_boot_cnt: { type: count_l, domain: pwr }
+  acu_uptime: { type: count_l, domain: pwr }
+  acu_resetcause: { type: int_i, domain: pwr }
+  hk_1_96_6: { type: utc_token, domain: dep }
+  ant_1_brn: { type: int_i, domain: dep }
+  ant_2_brn: { type: int_i, domain: dep }
+  ant_3_brn: { type: int_i, domain: dep }
+  ant_4_brn: { type: int_i, domain: dep }
+  ant_1_rel: { type: int_i, domain: dep }
+  ant_2_rel: { type: int_i, domain: dep }
+  ant_3_rel: { type: int_i, domain: dep }
+  ant_4_rel: { type: int_i, domain: dep }
+  dsp_1_brn: { type: int_i, domain: dep }
+  dsp_2_brn: { type: int_i, domain: dep }
+  dsp_1_rel: { type: int_i, domain: dep }
+  dsp_2_rel: { type: int_i, domain: dep }
+  hk_4_150_7: { type: utc_token, domain: adcs }
+  extmag1: { type: float_f, domain: adcs }
+  extmag2: { type: float_f, domain: adcs }
+  extmag3: { type: float_f, domain: adcs }
+  torquer_duty1: { type: float_f, domain: adcs }
+  torquer_duty2: { type: float_f, domain: adcs }
+  torquer_duty3: { type: float_f, domain: adcs }
+  hk_4_151_7: { type: utc_token, domain: adcs }
+  bdot_rate1: { type: float_f, domain: adcs }
+  bdot_rate2: { type: float_f, domain: adcs }
+  bdot_dmag1: { type: float_f, domain: adcs }
+  bdot_dmag2: { type: float_f, domain: adcs }
+  bdot_dmag3: { type: float_f, domain: adcs }
+  bdot_torquer1: { type: float_f, domain: adcs }
+  bdot_torquer2: { type: float_f, domain: adcs }
+  bdot_torquer3: { type: float_f, domain: adcs }
+  bdot_detumble: { type: int_i, domain: adcs }
+  hk_4_154_7: { type: utc_token, domain: adcs }
+  ctrl_refq1: { type: float_f, domain: adcs }
+  ctrl_refq2: { type: float_f, domain: adcs }
+  ctrl_refq3: { type: float_f, domain: adcs }
+  ctrl_refq4: { type: float_f, domain: adcs }
+  ctrl_errq1: { type: float_f, domain: adcs }
+  ctrl_errq2: { type: float_f, domain: adcs }
+  ctrl_errq3: { type: float_f, domain: adcs }
+  ctrl_errq4: { type: float_f, domain: adcs }
+  ctrl_m1: { type: float_f, domain: adcs }
+  ctrl_m2: { type: float_f, domain: adcs }
+  ctrl_m3: { type: float_f, domain: adcs }
+  ctrl_mwspeed1: { type: float_f, domain: adcs }
+  ctrl_mwspeed2: { type: float_f, domain: adcs }
+  ctrl_mwspeed3: { type: float_f, domain: adcs }
+  ctrl_mwspeed4: { type: float_f, domain: adcs }
+  ctrl_euleroff1: { type: float_f, domain: adcs }
+  ctrl_euleroff2: { type: float_f, domain: adcs }
+  ctrl_euleroff3: { type: float_f, domain: adcs }
+  ctrl_btorque1: { type: float_f, domain: adcs }
+  ctrl_btorque2: { type: float_f, domain: adcs }
+  ctrl_btorque3: { type: float_f, domain: adcs }
+  hk_4_150_11: { type: utc_token, domain: adcs }
+  extmag_temp: { type: float_f, domain: adcs }
+  extmag_valid: { type: int_i, domain: adcs }
+  suns1: { type: float_f, domain: adcs }
+  suns2: { type: float_f, domain: adcs }
+  suns3: { type: float_f, domain: adcs }
+  suns4: { type: float_f, domain: adcs }
+  suns5: { type: float_f, domain: adcs }
+  suns6: { type: float_f, domain: adcs }
+  suns_valid: { type: int_i, domain: adcs }
+  suns_temp1: { type: int_i, domain: adcs }
+  suns_temp2: { type: int_i, domain: adcs }
+  suns_temp3: { type: int_i, domain: adcs }
+  suns_temp4: { type: int_i, domain: adcs }
+  suns_temp5: { type: int_i, domain: adcs }
+  suns_temp6: { type: int_i, domain: adcs }
+  extgyro_temp: { type: float_f, domain: adcs }
+  extgyro_valid: { type: int_i, domain: adcs }
+  fss1: { type: float_f, domain: adcs }
+  fss2: { type: float_f, domain: adcs }
+  fss3: { type: float_f, domain: adcs }
+  fss4: { type: float_f, domain: adcs }
+  fss5: { type: float_f, domain: adcs }
+  fss6: { type: float_f, domain: adcs }
+  fss7: { type: float_f, domain: adcs }
+  fss8: { type: float_f, domain: adcs }
+  fss9: { type: float_f, domain: adcs }
+  fss10: { type: float_f, domain: adcs }
+  fss11: { type: float_f, domain: adcs }
+  fss12: { type: float_f, domain: adcs }
+  fss13: { type: float_f, domain: adcs }
+  fss14: { type: float_f, domain: adcs }
+  fss15: { type: float_f, domain: adcs }
+  fss16: { type: float_f, domain: adcs }
+  fss_temp: { type: float_f, domain: adcs }
+  fss_valid1: { type: int_i, domain: adcs }
+  fss_valid2: { type: int_i, domain: adcs }
+  fss_valid3: { type: int_i, domain: adcs }
+  fss_valid4: { type: int_i, domain: adcs }
+  fss_valid5: { type: int_i, domain: adcs }
+  gps_epoch: { type: count_l, domain: adcs }
+  gps_valid: { type: int_i, domain: adcs }
+  gps_sat: { type: int_i, domain: adcs }
+  gps_satsol: { type: int_i, domain: adcs }
+  pps_unix: { type: count_l, domain: adcs }
+  hk_4_150_12: { type: utc_token, domain: adcs }
+  wheel_torque1: { type: float_f, domain: adcs }
+  wheel_torque2: { type: float_f, domain: adcs }
+  wheel_torque3: { type: float_f, domain: adcs }
+  wheel_torque4: { type: float_f, domain: adcs }
+  wheel_momentum1: { type: float_f, domain: adcs }
+  wheel_momentum2: { type: float_f, domain: adcs }
+  wheel_momentum3: { type: float_f, domain: adcs }
+  wheel_momentum4: { type: float_f, domain: adcs }
+  wheel_speed1: { type: float_f, domain: adcs }
+  wheel_speed2: { type: float_f, domain: adcs }
+  wheel_speed3: { type: float_f, domain: adcs }
+  wheel_speed4: { type: float_f, domain: adcs }
+  wheel_enable1: { type: int_i, domain: adcs }
+  wheel_enable2: { type: int_i, domain: adcs }
+  wheel_enable3: { type: int_i, domain: adcs }
+  wheel_enable4: { type: int_i, domain: adcs }
+  wheel_current1: { type: int_i, domain: adcs }
+  wheel_current2: { type: int_i, domain: adcs }
+  wheel_current3: { type: int_i, domain: adcs }
+  wheel_current4: { type: int_i, domain: adcs }
+  wheel_temp1: { type: int_i, domain: adcs }
+  wheel_temp2: { type: int_i, domain: adcs }
+  wheel_temp3: { type: int_i, domain: adcs }
+  wheel_temp4: { type: int_i, domain: adcs }
+  torquer_calib1: { type: float_f, domain: adcs }
+  torquer_calib2: { type: float_f, domain: adcs }
+  torquer_calib3: { type: float_f, domain: adcs }
+  hk_4_151_12: { type: utc_token, domain: adcs }
+  acs_dmode: { type: int_i, domain: adcs }
+  ads_mode: { type: int_i, domain: adcs }
+  ads_dmode: { type: int_i, domain: adcs }
+  ephem_mode: { type: int_i, domain: adcs }
+  ephem_dmode: { type: int_i, domain: adcs }
+  spin_mode: { type: int_i, domain: adcs }
+  status_mag: { type: int_i, domain: adcs }
+  status_css: { type: int_i, domain: adcs }
+  status_gyro: { type: int_i, domain: adcs }
+  status_bdot: { type: int_i, domain: adcs }
+  status_ukf: { type: int_i, domain: adcs }
+  status_etime: { type: int_i, domain: adcs }
+  status_ephem: { type: int_i, domain: adcs }
+  status_run: { type: int_i, domain: adcs }
+  looptime: { type: int_i, domain: adcs }
+  max_looptime: { type: int_i, domain: adcs }
+  hk_4_152_13: { type: utc_token, domain: adcs }
+  ukf_x1: { type: float_f, domain: adcs }
+  ukf_x2: { type: float_f, domain: adcs }
+  ukf_x3: { type: float_f, domain: adcs }
+  ukf_x4: { type: float_f, domain: adcs }
+  ukf_x5: { type: float_f, domain: adcs }
+  ukf_x6: { type: float_f, domain: adcs }
+  ukf_x7: { type: float_f, domain: adcs }
+  ukf_x8: { type: float_f, domain: adcs }
+  ukf_x9: { type: float_f, domain: adcs }
+  ukf_x10: { type: float_f, domain: adcs }
+  ukf_x11: { type: float_f, domain: adcs }
+  ukf_x12: { type: float_f, domain: adcs }
+  ukf_x13: { type: float_f, domain: adcs }
+  ukf_q1: { type: float_f, domain: adcs }
+  ukf_q2: { type: float_f, domain: adcs }
+  ukf_q3: { type: float_f, domain: adcs }
+  ukf_q4: { type: float_f, domain: adcs }
+  ukf_w1: { type: float_f, domain: adcs }
+  ukf_w2: { type: float_f, domain: adcs }
+  ukf_w3: { type: float_f, domain: adcs }
+  ukf_xpred1: { type: float_f, domain: adcs }
+  ukf_xpred2: { type: float_f, domain: adcs }
+  ukf_xpred3: { type: float_f, domain: adcs }
+  ukf_xpred4: { type: float_f, domain: adcs }
+  ukf_xpred5: { type: float_f, domain: adcs }
+  ukf_xpred6: { type: float_f, domain: adcs }
+  ukf_xpred7: { type: float_f, domain: adcs }
+  ukf_xpred8: { type: float_f, domain: adcs }
+  ukf_xpred9: { type: float_f, domain: adcs }
+  ukf_xpred10: { type: float_f, domain: adcs }
+  ukf_xpred11: { type: float_f, domain: adcs }
+  ukf_xpred12: { type: float_f, domain: adcs }
+  ukf_xpred13: { type: float_f, domain: adcs }
+  ukf_zpred1: { type: float_f, domain: adcs }
+  ukf_zpred2: { type: float_f, domain: adcs }
+  ukf_zpred3: { type: float_f, domain: adcs }
+  ukf_zpred4: { type: float_f, domain: adcs }
+  ukf_zpred5: { type: float_f, domain: adcs }
+  ukf_zpred6: { type: float_f, domain: adcs }
+  ukf_zpred7: { type: float_f, domain: adcs }
+  ukf_zpred8: { type: float_f, domain: adcs }
+  ukf_zpred9: { type: float_f, domain: adcs }
+  ukf_zpred10: { type: float_f, domain: adcs }
+  ukf_zpred11: { type: float_f, domain: adcs }
+  ukf_zpred12: { type: float_f, domain: adcs }
+  hk_4_152_14: { type: utc_token, domain: adcs }
+  ukf_z1: { type: float_f, domain: adcs }
+  ukf_z2: { type: float_f, domain: adcs }
+  ukf_z3: { type: float_f, domain: adcs }
+  ukf_z4: { type: float_f, domain: adcs }
+  ukf_z5: { type: float_f, domain: adcs }
+  ukf_z6: { type: float_f, domain: adcs }
+  ukf_z7: { type: float_f, domain: adcs }
+  ukf_z8: { type: float_f, domain: adcs }
+  ukf_z9: { type: float_f, domain: adcs }
+  ukf_z10: { type: float_f, domain: adcs }
+  ukf_z11: { type: float_f, domain: adcs }
+  ukf_z12: { type: float_f, domain: adcs }
+  ukf_enable1: { type: int_i, domain: adcs }
+  ukf_enable2: { type: int_i, domain: adcs }
+  ukf_enable3: { type: int_i, domain: adcs }
+  ukf_enable4: { type: int_i, domain: adcs }
+  ukf_enable5: { type: int_i, domain: adcs }
+  ukf_enable6: { type: int_i, domain: adcs }
+  ukf_enable7: { type: int_i, domain: adcs }
+  ukf_enable8: { type: int_i, domain: adcs }
+  ukf_enable9: { type: int_i, domain: adcs }
+  ukf_enable10: { type: int_i, domain: adcs }
+  ukf_enable11: { type: int_i, domain: adcs }
+  ukf_enable12: { type: int_i, domain: adcs }
+  ukf_sunmax1: { type: float_f, domain: adcs }
+  ukf_sunmax2: { type: float_f, domain: adcs }
+  ukf_sunmax3: { type: float_f, domain: adcs }
+  ukf_sunmax4: { type: float_f, domain: adcs }
+  ukf_sunmax5: { type: float_f, domain: adcs }
+  ukf_sunmax6: { type: float_f, domain: adcs }
+  ukf_in_eclipse: { type: int_i, domain: adcs }
+  ukf_choice: { type: int_i, domain: adcs }
+  ukf_ctrl_t1: { type: float_f, domain: adcs }
+  ukf_ctrl_t2: { type: float_f, domain: adcs }
+  ukf_ctrl_t3: { type: float_f, domain: adcs }
+  ukf_ctrl_m1: { type: float_f, domain: adcs }
+  ukf_ctrl_m2: { type: float_f, domain: adcs }
+  ukf_ctrl_m3: { type: float_f, domain: adcs }
+  ukf_rate1: { type: float_f, domain: adcs }
+  ukf_rate2: { type: float_f, domain: adcs }
+  ukf_rate3: { type: float_f, domain: adcs }
+  hk_4_153_15: { type: utc_token, domain: adcs }
+  ephem_jdat: { type: float_f, domain: adcs }
+  ephem_reci1: { type: float_f, domain: adcs }
+  ephem_reci2: { type: float_f, domain: adcs }
+  ephem_reci3: { type: float_f, domain: adcs }
+  ephem_veci1: { type: float_f, domain: adcs }
+  ephem_veci2: { type: float_f, domain: adcs }
+  ephem_veci3: { type: float_f, domain: adcs }
+  ephem_sun_eci1: { type: float_f, domain: adcs }
+  ephem_sun_eci2: { type: float_f, domain: adcs }
+  ephem_sun_eci3: { type: float_f, domain: adcs }
+  ephem_quat_ie1: { type: float_f, domain: adcs }
+  ephem_quat_ie2: { type: float_f, domain: adcs }
+  ephem_quat_ie3: { type: float_f, domain: adcs }
+  ephem_quat_ie4: { type: float_f, domain: adcs }
+  ephem_quat_io1: { type: float_f, domain: adcs }
+  ephem_quat_io2: { type: float_f, domain: adcs }
+  ephem_quat_io3: { type: float_f, domain: adcs }
+  ephem_quat_io4: { type: float_f, domain: adcs }
+  ephem_quat_il1: { type: float_f, domain: adcs }
+  ephem_quat_il2: { type: float_f, domain: adcs }
+  ephem_quat_il3: { type: float_f, domain: adcs }
+  ephem_quat_il4: { type: float_f, domain: adcs }
+  ephem_rate_io1: { type: float_f, domain: adcs }
+  ephem_rate_io2: { type: float_f, domain: adcs }
+  ephem_rate_io3: { type: float_f, domain: adcs }
+  ephem_rate_il1: { type: float_f, domain: adcs }
+  ephem_rate_il2: { type: float_f, domain: adcs }
+  ephem_rate_il3: { type: float_f, domain: adcs }
+  ephem_t_eclipse: { type: int_i, domain: adcs }
+  hk_4_156_15: { type: utc_token, domain: adcs }
+  ephem_time: { type: count_l, domain: adcs }
+  ads_time: { type: count_l, domain: adcs }
+  acs_time: { type: count_l, domain: adcs }
+  sens_time: { type: count_l, domain: adcs }
+  hk_4_1_16: { type: utc_token, domain: adcs }
+  adcs_swload_cnt1: { type: int_i, domain: adcs }
+  hk_4_4_16: { type: utc_token, domain: adcs }
+  adcs_fs_mounted: { type: int_i, domain: adcs }
+  adcs_temp_mcu: { type: int_i, domain: adcs }
+  adcs_temp_ram: { type: int_i, domain: adcs }
+  adcs_resetcause: { type: count_l, domain: adcs }
+  adcs_bootcause: { type: count_l, domain: adcs }
+  adcs_uptime: { type: count_l, domain: adcs }
+  hk_4_154_17: { type: utc_token, domain: adcs }
+  ctrl_errrate1: { type: float_f, domain: adcs }
+  ctrl_errrate2: { type: float_f, domain: adcs }
+  ctrl_errrate3: { type: float_f, domain: adcs }
+  ctrl_mwtorque1: { type: float_f, domain: adcs }
+  ctrl_mwtorque2: { type: float_f, domain: adcs }
+  ctrl_mwtorque3: { type: float_f, domain: adcs }
+  ctrl_mwtorque4: { type: float_f, domain: adcs }
+  ctrl_mwmoment1: { type: float_f, domain: adcs }
+  ctrl_mwmoment2: { type: float_f, domain: adcs }
+  ctrl_mwmoment3: { type: float_f, domain: adcs }
+  ctrl_mwmoment4: { type: float_f, domain: adcs }
+  ctrl_refrate1: { type: float_f, domain: adcs }
+  ctrl_refrate2: { type: float_f, domain: adcs }
+  ctrl_refrate3: { type: float_f, domain: adcs }
+  ctrl_bmoment1: { type: float_f, domain: adcs }
+  ctrl_bmoment2: { type: float_f, domain: adcs }
+  ctrl_bmoment3: { type: float_f, domain: adcs }
+  hk_14_0_21: { type: utc_token, domain: asdr }
+  core_loaded: { type: int_i, domain: asdr }
+  hk_14_1_21: { type: utc_token, domain: asdr }
+  sector_history1: { type: int_i, domain: asdr }
+  sector_history2: { type: int_i, domain: asdr }
+  sector_history3: { type: int_i, domain: asdr }
+  sector_history4: { type: int_i, domain: asdr }
+  sector_history5: { type: int_i, domain: asdr }
+  sector_history6: { type: int_i, domain: asdr }
+  sector_history7: { type: int_i, domain: asdr }
+  sector_history8: { type: int_i, domain: asdr }
+  sector_history9: { type: int_i, domain: asdr }
+  sector_history10: { type: int_i, domain: asdr }
+  sector_history11: { type: int_i, domain: asdr }
+  sector_history12: { type: int_i, domain: asdr }
+  sector_history13: { type: int_i, domain: asdr }
+  sector_history14: { type: int_i, domain: asdr }
+  sector_history15: { type: int_i, domain: asdr }
+  sector_history16: { type: int_i, domain: asdr }
+  mbytes_history1: { type: int_i, domain: asdr }
+  mbytes_history2: { type: int_i, domain: asdr }
+  mbytes_history3: { type: int_i, domain: asdr }
+  mbytes_history4: { type: int_i, domain: asdr }
+  mbytes_history5: { type: int_i, domain: asdr }
+  mbytes_history6: { type: int_i, domain: asdr }
+  mbytes_history7: { type: int_i, domain: asdr }
+  mbytes_history8: { type: int_i, domain: asdr }
+  mbytes_history9: { type: int_i, domain: asdr }
+  mbytes_history10: { type: int_i, domain: asdr }
+  mbytes_history11: { type: int_i, domain: asdr }
+  mbytes_history12: { type: int_i, domain: asdr }
+  mbytes_history13: { type: int_i, domain: asdr }
+  mbytes_history14: { type: int_i, domain: asdr }
+  mbytes_history15: { type: int_i, domain: asdr }
+  mbytes_history16: { type: int_i, domain: asdr }
+  exposure: { type: count_l, domain: asdr }
+  gain: { type: float_f, domain: asdr }
+  hk_14_12_21: { type: utc_token, domain: asdr }
+  chan_ref_lock: { type: int_i, domain: asdr }
+  hk_14_13_21: { type: utc_token, domain: asdr }
+  chan_temp: { type: float_f, domain: asdr }
+  hk_14_16_21: { type: utc_token, domain: asdr }
+  chan_inited: { type: int_i, domain: asdr }
+  hk_14_18_21: { type: utc_token, domain: asdr }
+  chan_written: { type: float_f, domain: asdr }
+  chan_rec_status: { type: int_i, domain: asdr }
+  chan_req_mbytes: { type: int_i, domain: asdr }
+  chan_time: { type: float_f, domain: asdr }
+  hk_14_29_22: { type: utc_token, domain: asdr }
+  chan_pps_present: { type: int_i, domain: asdr }
+  chan_pps_count: { type: int_i, domain: asdr }
+  hk_14_37_22: { type: utc_token, domain: asdr }
+  rec_inited: { type: int_i, domain: asdr }
+  hk_14_38_22: { type: utc_token, domain: asdr }
+  rec_written: { type: float_f, domain: asdr }
+  rec_rec_status: { type: int_i, domain: asdr }
+  rec_req_mbytes: { type: int_i, domain: asdr }
+  rec_time: { type: float_f, domain: asdr }
+  hk_14_43_22: { type: utc_token, domain: asdr }
+  rec_temp: { type: float_f, domain: asdr }
+  hk_14_52_22: { type: utc_token, domain: asdr }
+  trans_inited: { type: int_i, domain: asdr }
+  trans_mbytes_sent: { type: float_f, domain: asdr }
+  hk_14_53_22: { type: utc_token, domain: asdr }
+  trans_system_time: { type: count_l, domain: asdr }
+  hk_14_33_22: { type: utc_token, domain: asdr }
+  mis1_temp: { type: float_f, domain: asdr }
+  hk_14_34_22: { type: utc_token, domain: asdr }
+  mis1_fsk_incr: { type: int_i, domain: asdr }
+  hk_14_35_22: { type: utc_token, domain: asdr }
+  mis1_system_time: { type: count_l, domain: asdr }
+  hk_1_93_93: { type: utc_token, domain: sys }
+  inf_blob: { type: hex_token, domain: sys }
+
+sequence_containers:
+  motd:
+    domain: sys
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: motd
+    entry_list:
+      - { name: hk_1_95 }
+      - { name: callsign }
+      - { name: motd }
+  crit1:
+    domain: crit
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: crit1
+    entry_list:
+      - { name: hk_1_4_1 }
+      - { name: obc_temp_mcu }
+      - { name: obc_boot_cnt }
+      - { name: obc_clock }
+      - { name: hk_1_91 }
+      - { name: bpx_vbatt }
+      - { name: bpx_temp }
+      - { name: bpx_boot_cnt }
+      - { name: hk_5_4_1 }
+      - { name: ax100_temp_brd }
+      - { name: ax100_boot_cnt }
+      - { name: ax100_last_contact }
+      - { name: hk_8_4_1 }
+      - { name: p60_boot_cnt }
+      - { name: p60_batt_mode }
+      - { name: p60_batt_v }
+      - { name: p60_batt_c }
+      - { name: hk_9_4 }
+      - { name: pdu_x2_cout1 }
+      - { name: pdu_x2_cout2 }
+      - { name: pdu_x2_cout3 }
+      - { name: pdu_x2_cout4 }
+      - { name: pdu_x2_cout5 }
+      - { name: pdu_x2_cout6 }
+      - { name: pdu_x2_cout7 }
+      - { name: pdu_x2_cout8 }
+      - { name: pdu_x2_cout9 }
+  crit2:
+    domain: crit
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: crit2
+    entry_list:
+      - { name: hk_10_4_2 }
+      - { name: pdu_x3_cout1 }
+      - { name: pdu_x3_cout2 }
+      - { name: pdu_x3_cout3 }
+      - { name: pdu_x3_cout4 }
+      - { name: pdu_x3_cout5 }
+      - { name: pdu_x3_cout6 }
+      - { name: pdu_x3_cout7 }
+      - { name: pdu_x3_cout8 }
+      - { name: pdu_x3_cout9 }
+      - { name: hk_11_4_2 }
+      - { name: acu_power1 }
+      - { name: acu_power2 }
+      - { name: acu_power3 }
+      - { name: acu_power4 }
+      - { name: acu_power5 }
+      - { name: acu_power6 }
+      - { name: hk_4_4_2 }
+      - { name: adcs_boot_cnt }
+      - { name: adcs_clock }
+      - { name: hk_4_150_2 }
+      - { name: extgyro1 }
+      - { name: extgyro2 }
+      - { name: extgyro3 }
+      - { name: gps_pos1 }
+      - { name: gps_pos2 }
+      - { name: gps_pos3 }
+      - { name: gps_vel1 }
+      - { name: gps_vel2 }
+      - { name: gps_vel3 }
+      - { name: hk_4_151_2 }
+      - { name: acs_mode }
+      - { name: status_extmag }
+      - { name: status_fss1 }
+      - { name: status_fss2 }
+      - { name: status_fss3 }
+      - { name: status_fss4 }
+      - { name: status_fss5 }
+      - { name: status_extgyro }
+      - { name: status_gps }
+  obc:
+    domain: obc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: obc
+    entry_list:
+      - { name: hk_1_4_3 }
+      - { name: obc_fs_mnted }
+      - { name: obc_temp_ram }
+      - { name: obc_resetcause }
+      - { name: obc_bootcause }
+      - { name: obc_uptime }
+      - { name: hk_1_91_3 }
+      - { name: batt_charge }
+      - { name: batt_dcharge }
+      - { name: batt_heater }
+      - { name: batt_temp2 }
+      - { name: batt_temp3 }
+      - { name: batt_temp4 }
+      - { name: batt_bootcause }
+      - { name: hk_1_94_3 }
+      - { name: sat_temps1 }
+      - { name: sat_temps2 }
+      - { name: sat_temps3 }
+      - { name: sat_temps4 }
+      - { name: sat_temps5 }
+      - { name: sat_temps6 }
+      - { name: hk_5_0_3 }
+      - { name: ax100_reboot_in }
+      - { name: ax100_tx_inhibit }
+      - { name: hk_5_1_3 }
+      - { name: ax100_rx_freq }
+      - { name: ax100_rx_baud }
+      - { name: hk_5_4_3 }
+      - { name: ax100_temp_pa }
+      - { name: ax100_last_rssi }
+      - { name: ax100_last_rferr }
+      - { name: ax100_active_conf }
+      - { name: ax100_bootcause }
+      - { name: ax100_bgnd_rssi }
+      - { name: ax100_tx_duty }
+      - { name: hk_5_5_3 }
+      - { name: ax100_tx_freq }
+      - { name: ax100_tx_baud }
+  pdu1:
+    domain: pwr
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: pdu1
+    entry_list:
+      - { name: hk_8_4_4 }
+      - { name: p60_cout1 }
+      - { name: p60_cout2 }
+      - { name: p60_cout3 }
+      - { name: p60_cout4 }
+      - { name: p60_cout5 }
+      - { name: p60_cout6 }
+      - { name: p60_cout7 }
+      - { name: p60_cout8 }
+      - { name: p60_cout9 }
+      - { name: p60_cout10 }
+      - { name: p60_cout11 }
+      - { name: p60_cout12 }
+      - { name: p60_cout13 }
+      - { name: p60_out_en1 }
+      - { name: p60_out_en2 }
+      - { name: p60_out_en3 }
+      - { name: p60_out_en4 }
+      - { name: p60_out_en5 }
+      - { name: p60_out_en6 }
+      - { name: p60_out_en7 }
+      - { name: p60_out_en8 }
+      - { name: p60_out_en9 }
+      - { name: p60_out_en10 }
+      - { name: p60_out_en11 }
+      - { name: p60_out_en12 }
+      - { name: p60_out_en13 }
+      - { name: p60_temp1 }
+      - { name: p60_temp2 }
+      - { name: p60_bootcause }
+      - { name: p60_uptime }
+      - { name: p60_resetcause }
+      - { name: p60_latchup1 }
+      - { name: p60_latchup2 }
+      - { name: p60_latchup3 }
+      - { name: p60_latchup4 }
+      - { name: p60_latchup5 }
+      - { name: p60_latchup6 }
+      - { name: p60_latchup7 }
+      - { name: p60_latchup8 }
+      - { name: p60_latchup9 }
+      - { name: p60_latchup10 }
+      - { name: p60_latchup11 }
+      - { name: p60_latchup12 }
+      - { name: p60_latchup13 }
+      - { name: p60_vcc_c }
+      - { name: p60_batt_v }
+      - { name: p60_dearm_status }
+      - { name: p60_wdt_cnt_gnd }
+      - { name: p60_wdt_cnt_can }
+      - { name: p60_wdt_cnt_left }
+      - { name: p60_batt_chrg }
+      - { name: p60_batt_dchrg }
+      - { name: ant6_depl }
+      - { name: ar6_depl }
+      - { name: hk_9_4_4 }
+      - { name: pdu_x2_vout1 }
+      - { name: pdu_x2_vout2 }
+      - { name: pdu_x2_vout3 }
+      - { name: pdu_x2_vout4 }
+      - { name: pdu_x2_vout5 }
+      - { name: pdu_x2_vout6 }
+      - { name: pdu_x2_vout7 }
+      - { name: pdu_x2_vout8 }
+      - { name: pdu_x2_vout9 }
+      - { name: pdu_x2_temp }
+      - { name: pdu_x2_out_en1 }
+      - { name: pdu_x2_out_en2 }
+      - { name: pdu_x2_out_en3 }
+      - { name: pdu_x2_out_en4 }
+      - { name: pdu_x2_out_en5 }
+      - { name: pdu_x2_out_en6 }
+      - { name: pdu_x2_out_en7 }
+      - { name: pdu_x2_out_en8 }
+      - { name: pdu_x2_out_en9 }
+      - { name: pdu_x2_bootcause }
+      - { name: pdu_x2_boot_cnt }
+      - { name: pdu_x2_uptime }
+      - { name: pdu_x2_resetcause }
+      - { name: pdu_x2_latchup1 }
+      - { name: pdu_x2_latchup2 }
+      - { name: pdu_x2_latchup3 }
+      - { name: pdu_x2_latchup4 }
+      - { name: pdu_x2_latchup5 }
+      - { name: pdu_x2_latchup6 }
+      - { name: pdu_x2_latchup7 }
+      - { name: pdu_x2_latchup8 }
+      - { name: pdu_x2_latchup9 }
+  pdu2:
+    domain: pwr
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: pdu2
+    entry_list:
+      - { name: hk_10_4_5 }
+      - { name: pdu_x3_vout1 }
+      - { name: pdu_x3_vout2 }
+      - { name: pdu_x3_vout3 }
+      - { name: pdu_x3_vout4 }
+      - { name: pdu_x3_vout5 }
+      - { name: pdu_x3_vout6 }
+      - { name: pdu_x3_vout7 }
+      - { name: pdu_x3_vout8 }
+      - { name: pdu_x3_vout9 }
+      - { name: pdu_x3_temp }
+      - { name: pdu_x3_out_en1 }
+      - { name: pdu_x3_out_en2 }
+      - { name: pdu_x3_out_en3 }
+      - { name: pdu_x3_out_en4 }
+      - { name: pdu_x3_out_en5 }
+      - { name: pdu_x3_out_en6 }
+      - { name: pdu_x3_out_en7 }
+      - { name: pdu_x3_out_en8 }
+      - { name: pdu_x3_out_en9 }
+      - { name: pdu_x3_bootcause }
+      - { name: pdu_x3_boot_cnt }
+      - { name: pdu_x3_uptime }
+      - { name: pdu_x3_resetcause }
+      - { name: pdu_x3_latchup1 }
+      - { name: pdu_x3_latchup2 }
+      - { name: pdu_x3_latchup3 }
+      - { name: pdu_x3_latchup4 }
+      - { name: pdu_x3_latchup5 }
+      - { name: pdu_x3_latchup6 }
+      - { name: pdu_x3_latchup7 }
+      - { name: pdu_x3_latchup8 }
+      - { name: pdu_x3_latchup9 }
+      - { name: hk_11_4_5 }
+      - { name: acu_cin1 }
+      - { name: acu_cin2 }
+      - { name: acu_cin3 }
+      - { name: acu_cin4 }
+      - { name: acu_cin5 }
+      - { name: acu_cin6 }
+      - { name: acu_vin1 }
+      - { name: acu_vin2 }
+      - { name: acu_vin3 }
+      - { name: acu_vin4 }
+      - { name: acu_vin5 }
+      - { name: acu_vin6 }
+      - { name: acu_vbatt }
+      - { name: acu_temp1 }
+      - { name: acu_temp2 }
+      - { name: acu_temp3 }
+      - { name: acu_mppt_mode }
+      - { name: acu_vboost1 }
+      - { name: acu_vboost2 }
+      - { name: acu_vboost3 }
+      - { name: acu_vboost4 }
+      - { name: acu_vboost5 }
+      - { name: acu_vboost6 }
+      - { name: acu_bootcause }
+      - { name: acu_boot_cnt }
+      - { name: acu_uptime }
+      - { name: acu_resetcause }
+  dep:
+    domain: dep
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: dep
+    entry_list:
+      - { name: hk_1_96_6 }
+      - { name: ant_1_brn }
+      - { name: ant_2_brn }
+      - { name: ant_3_brn }
+      - { name: ant_4_brn }
+      - { name: ant_1_rel }
+      - { name: ant_2_rel }
+      - { name: ant_3_rel }
+      - { name: ant_4_rel }
+      - { name: dsp_1_brn }
+      - { name: dsp_2_brn }
+      - { name: dsp_1_rel }
+      - { name: dsp_2_rel }
+  adcs0:
+    domain: adcs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: adcs0
+    entry_list:
+      - { name: hk_4_150_7 }
+      - { name: extmag1 }
+      - { name: extmag2 }
+      - { name: extmag3 }
+      - { name: torquer_duty1 }
+      - { name: torquer_duty2 }
+      - { name: torquer_duty3 }
+      - { name: hk_4_151_7 }
+      - { name: bdot_rate1 }
+      - { name: bdot_rate2 }
+      - { name: bdot_dmag1 }
+      - { name: bdot_dmag2 }
+      - { name: bdot_dmag3 }
+      - { name: bdot_torquer1 }
+      - { name: bdot_torquer2 }
+      - { name: bdot_torquer3 }
+      - { name: bdot_detumble }
+      - { name: hk_4_154_7 }
+      - { name: ctrl_refq1 }
+      - { name: ctrl_refq2 }
+      - { name: ctrl_refq3 }
+      - { name: ctrl_refq4 }
+      - { name: ctrl_errq1 }
+      - { name: ctrl_errq2 }
+      - { name: ctrl_errq3 }
+      - { name: ctrl_errq4 }
+      - { name: ctrl_m1 }
+      - { name: ctrl_m2 }
+      - { name: ctrl_m3 }
+      - { name: ctrl_mwspeed1 }
+      - { name: ctrl_mwspeed2 }
+      - { name: ctrl_mwspeed3 }
+      - { name: ctrl_mwspeed4 }
+      - { name: ctrl_euleroff1 }
+      - { name: ctrl_euleroff2 }
+      - { name: ctrl_euleroff3 }
+      - { name: ctrl_btorque1 }
+      - { name: ctrl_btorque2 }
+      - { name: ctrl_btorque3 }
+  adcs1:
+    domain: adcs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: adcs1
+    entry_list:
+      - { name: hk_4_150_11 }
+      - { name: extmag1 }
+      - { name: extmag2 }
+      - { name: extmag3 }
+      - { name: extmag_temp }
+      - { name: extmag_valid }
+      - { name: suns1 }
+      - { name: suns2 }
+      - { name: suns3 }
+      - { name: suns4 }
+      - { name: suns5 }
+      - { name: suns6 }
+      - { name: suns_valid }
+      - { name: suns_temp1 }
+      - { name: suns_temp2 }
+      - { name: suns_temp3 }
+      - { name: suns_temp4 }
+      - { name: suns_temp5 }
+      - { name: suns_temp6 }
+      - { name: extgyro1 }
+      - { name: extgyro2 }
+      - { name: extgyro3 }
+      - { name: extgyro_temp }
+      - { name: extgyro_valid }
+      - { name: fss1 }
+      - { name: fss2 }
+      - { name: fss3 }
+      - { name: fss4 }
+      - { name: fss5 }
+      - { name: fss6 }
+      - { name: fss7 }
+      - { name: fss8 }
+      - { name: fss9 }
+      - { name: fss10 }
+      - { name: fss11 }
+      - { name: fss12 }
+      - { name: fss13 }
+      - { name: fss14 }
+      - { name: fss15 }
+      - { name: fss16 }
+      - { name: fss_temp }
+      - { name: fss_valid1 }
+      - { name: fss_valid2 }
+      - { name: fss_valid3 }
+      - { name: fss_valid4 }
+      - { name: fss_valid5 }
+      - { name: gps_pos1 }
+      - { name: gps_pos2 }
+      - { name: gps_pos3 }
+      - { name: gps_vel1 }
+      - { name: gps_vel2 }
+      - { name: gps_vel3 }
+      - { name: gps_epoch }
+      - { name: gps_valid }
+      - { name: gps_sat }
+      - { name: gps_satsol }
+      - { name: pps_unix }
+  adcs2:
+    domain: adcs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: adcs2
+    entry_list:
+      - { name: hk_4_150_12 }
+      - { name: wheel_torque1 }
+      - { name: wheel_torque2 }
+      - { name: wheel_torque3 }
+      - { name: wheel_torque4 }
+      - { name: wheel_momentum1 }
+      - { name: wheel_momentum2 }
+      - { name: wheel_momentum3 }
+      - { name: wheel_momentum4 }
+      - { name: wheel_speed1 }
+      - { name: wheel_speed2 }
+      - { name: wheel_speed3 }
+      - { name: wheel_speed4 }
+      - { name: wheel_enable1 }
+      - { name: wheel_enable2 }
+      - { name: wheel_enable3 }
+      - { name: wheel_enable4 }
+      - { name: wheel_current1 }
+      - { name: wheel_current2 }
+      - { name: wheel_current3 }
+      - { name: wheel_current4 }
+      - { name: wheel_temp1 }
+      - { name: wheel_temp2 }
+      - { name: wheel_temp3 }
+      - { name: wheel_temp4 }
+      - { name: torquer_duty1 }
+      - { name: torquer_duty2 }
+      - { name: torquer_duty3 }
+      - { name: torquer_calib1 }
+      - { name: torquer_calib2 }
+      - { name: torquer_calib3 }
+      - { name: hk_4_151_12 }
+      - { name: acs_mode }
+      - { name: acs_dmode }
+      - { name: ads_mode }
+      - { name: ads_dmode }
+      - { name: ephem_mode }
+      - { name: ephem_dmode }
+      - { name: spin_mode }
+      - { name: status_mag }
+      - { name: status_extmag }
+      - { name: status_css }
+      - { name: status_fss1 }
+      - { name: status_fss2 }
+      - { name: status_fss3 }
+      - { name: status_fss4 }
+      - { name: status_fss5 }
+      - { name: status_gyro }
+      - { name: status_extgyro }
+      - { name: status_gps }
+      - { name: status_bdot }
+      - { name: status_ukf }
+      - { name: status_etime }
+      - { name: status_ephem }
+      - { name: status_run }
+      - { name: looptime }
+      - { name: max_looptime }
+      - { name: bdot_rate1 }
+      - { name: bdot_rate2 }
+      - { name: bdot_dmag1 }
+      - { name: bdot_dmag2 }
+      - { name: bdot_dmag3 }
+      - { name: bdot_torquer1 }
+      - { name: bdot_torquer2 }
+      - { name: bdot_torquer3 }
+      - { name: bdot_detumble }
+  adcs3:
+    domain: adcs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: adcs3
+    entry_list:
+      - { name: hk_4_152_13 }
+      - { name: ukf_x1 }
+      - { name: ukf_x2 }
+      - { name: ukf_x3 }
+      - { name: ukf_x4 }
+      - { name: ukf_x5 }
+      - { name: ukf_x6 }
+      - { name: ukf_x7 }
+      - { name: ukf_x8 }
+      - { name: ukf_x9 }
+      - { name: ukf_x10 }
+      - { name: ukf_x11 }
+      - { name: ukf_x12 }
+      - { name: ukf_x13 }
+      - { name: ukf_q1 }
+      - { name: ukf_q2 }
+      - { name: ukf_q3 }
+      - { name: ukf_q4 }
+      - { name: ukf_w1 }
+      - { name: ukf_w2 }
+      - { name: ukf_w3 }
+      - { name: ukf_xpred1 }
+      - { name: ukf_xpred2 }
+      - { name: ukf_xpred3 }
+      - { name: ukf_xpred4 }
+      - { name: ukf_xpred5 }
+      - { name: ukf_xpred6 }
+      - { name: ukf_xpred7 }
+      - { name: ukf_xpred8 }
+      - { name: ukf_xpred9 }
+      - { name: ukf_xpred10 }
+      - { name: ukf_xpred11 }
+      - { name: ukf_xpred12 }
+      - { name: ukf_xpred13 }
+      - { name: ukf_zpred1 }
+      - { name: ukf_zpred2 }
+      - { name: ukf_zpred3 }
+      - { name: ukf_zpred4 }
+      - { name: ukf_zpred5 }
+      - { name: ukf_zpred6 }
+      - { name: ukf_zpred7 }
+      - { name: ukf_zpred8 }
+      - { name: ukf_zpred9 }
+      - { name: ukf_zpred10 }
+      - { name: ukf_zpred11 }
+      - { name: ukf_zpred12 }
+  adcs4:
+    domain: adcs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: adcs4
+    entry_list:
+      - { name: hk_4_152_14 }
+      - { name: ukf_z1 }
+      - { name: ukf_z2 }
+      - { name: ukf_z3 }
+      - { name: ukf_z4 }
+      - { name: ukf_z5 }
+      - { name: ukf_z6 }
+      - { name: ukf_z7 }
+      - { name: ukf_z8 }
+      - { name: ukf_z9 }
+      - { name: ukf_z10 }
+      - { name: ukf_z11 }
+      - { name: ukf_z12 }
+      - { name: ukf_enable1 }
+      - { name: ukf_enable2 }
+      - { name: ukf_enable3 }
+      - { name: ukf_enable4 }
+      - { name: ukf_enable5 }
+      - { name: ukf_enable6 }
+      - { name: ukf_enable7 }
+      - { name: ukf_enable8 }
+      - { name: ukf_enable9 }
+      - { name: ukf_enable10 }
+      - { name: ukf_enable11 }
+      - { name: ukf_enable12 }
+      - { name: ukf_sunmax1 }
+      - { name: ukf_sunmax2 }
+      - { name: ukf_sunmax3 }
+      - { name: ukf_sunmax4 }
+      - { name: ukf_sunmax5 }
+      - { name: ukf_sunmax6 }
+      - { name: ukf_in_eclipse }
+      - { name: ukf_choice }
+      - { name: ukf_ctrl_t1 }
+      - { name: ukf_ctrl_t2 }
+      - { name: ukf_ctrl_t3 }
+      - { name: ukf_ctrl_m1 }
+      - { name: ukf_ctrl_m2 }
+      - { name: ukf_ctrl_m3 }
+      - { name: ukf_rate1 }
+      - { name: ukf_rate2 }
+      - { name: ukf_rate3 }
+  adcs5:
+    domain: adcs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: adcs5
+    entry_list:
+      - { name: hk_4_153_15 }
+      - { name: ephem_jdat }
+      - { name: ephem_reci1 }
+      - { name: ephem_reci2 }
+      - { name: ephem_reci3 }
+      - { name: ephem_veci1 }
+      - { name: ephem_veci2 }
+      - { name: ephem_veci3 }
+      - { name: ephem_sun_eci1 }
+      - { name: ephem_sun_eci2 }
+      - { name: ephem_sun_eci3 }
+      - { name: ephem_quat_ie1 }
+      - { name: ephem_quat_ie2 }
+      - { name: ephem_quat_ie3 }
+      - { name: ephem_quat_ie4 }
+      - { name: ephem_quat_io1 }
+      - { name: ephem_quat_io2 }
+      - { name: ephem_quat_io3 }
+      - { name: ephem_quat_io4 }
+      - { name: ephem_quat_il1 }
+      - { name: ephem_quat_il2 }
+      - { name: ephem_quat_il3 }
+      - { name: ephem_quat_il4 }
+      - { name: ephem_rate_io1 }
+      - { name: ephem_rate_io2 }
+      - { name: ephem_rate_io3 }
+      - { name: ephem_rate_il1 }
+      - { name: ephem_rate_il2 }
+      - { name: ephem_rate_il3 }
+      - { name: ephem_t_eclipse }
+      - { name: hk_4_156_15 }
+      - { name: ephem_time }
+      - { name: ads_time }
+      - { name: acs_time }
+      - { name: sens_time }
+  adcs6:
+    domain: adcs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: adcs6
+    entry_list:
+      - { name: hk_4_1_16 }
+      - { name: adcs_swload_cnt1 }
+      - { name: hk_4_4_16 }
+      - { name: adcs_fs_mounted }
+      - { name: adcs_temp_mcu }
+      - { name: adcs_temp_ram }
+      - { name: adcs_resetcause }
+      - { name: adcs_bootcause }
+      - { name: adcs_boot_cnt }
+      - { name: adcs_clock }
+      - { name: adcs_uptime }
+  adcs7:
+    domain: adcs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: adcs7
+    entry_list:
+      - { name: hk_4_154_17 }
+      - { name: ctrl_refq1 }
+      - { name: ctrl_refq2 }
+      - { name: ctrl_refq3 }
+      - { name: ctrl_refq4 }
+      - { name: ctrl_errq1 }
+      - { name: ctrl_errq2 }
+      - { name: ctrl_errq3 }
+      - { name: ctrl_errq4 }
+      - { name: ctrl_errrate1 }
+      - { name: ctrl_errrate2 }
+      - { name: ctrl_errrate3 }
+      - { name: ctrl_m1 }
+      - { name: ctrl_m2 }
+      - { name: ctrl_m3 }
+      - { name: ctrl_mwtorque1 }
+      - { name: ctrl_mwtorque2 }
+      - { name: ctrl_mwtorque3 }
+      - { name: ctrl_mwtorque4 }
+      - { name: ctrl_mwspeed1 }
+      - { name: ctrl_mwspeed2 }
+      - { name: ctrl_mwspeed3 }
+      - { name: ctrl_mwspeed4 }
+      - { name: ctrl_mwmoment1 }
+      - { name: ctrl_mwmoment2 }
+      - { name: ctrl_mwmoment3 }
+      - { name: ctrl_mwmoment4 }
+      - { name: ctrl_refrate1 }
+      - { name: ctrl_refrate2 }
+      - { name: ctrl_refrate3 }
+      - { name: ctrl_euleroff1 }
+      - { name: ctrl_euleroff2 }
+      - { name: ctrl_euleroff3 }
+      - { name: ctrl_btorque1 }
+      - { name: ctrl_btorque2 }
+      - { name: ctrl_btorque3 }
+      - { name: ctrl_bmoment1 }
+      - { name: ctrl_bmoment2 }
+      - { name: ctrl_bmoment3 }
+  asdr1:
+    domain: asdr
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: asdr1
+    entry_list:
+      - { name: hk_14_0_21 }
+      - { name: core_loaded }
+      - { name: hk_14_1_21 }
+      - { name: sector_history1 }
+      - { name: sector_history2 }
+      - { name: sector_history3 }
+      - { name: sector_history4 }
+      - { name: sector_history5 }
+      - { name: sector_history6 }
+      - { name: sector_history7 }
+      - { name: sector_history8 }
+      - { name: sector_history9 }
+      - { name: sector_history10 }
+      - { name: sector_history11 }
+      - { name: sector_history12 }
+      - { name: sector_history13 }
+      - { name: sector_history14 }
+      - { name: sector_history15 }
+      - { name: sector_history16 }
+      - { name: mbytes_history1 }
+      - { name: mbytes_history2 }
+      - { name: mbytes_history3 }
+      - { name: mbytes_history4 }
+      - { name: mbytes_history5 }
+      - { name: mbytes_history6 }
+      - { name: mbytes_history7 }
+      - { name: mbytes_history8 }
+      - { name: mbytes_history9 }
+      - { name: mbytes_history10 }
+      - { name: mbytes_history11 }
+      - { name: mbytes_history12 }
+      - { name: mbytes_history13 }
+      - { name: mbytes_history14 }
+      - { name: mbytes_history15 }
+      - { name: mbytes_history16 }
+      - { name: exposure }
+      - { name: gain }
+      - { name: hk_14_12_21 }
+      - { name: chan_ref_lock }
+      - { name: hk_14_13_21 }
+      - { name: chan_temp }
+      - { name: hk_14_16_21 }
+      - { name: chan_inited }
+      - { name: hk_14_18_21 }
+      - { name: chan_written }
+      - { name: chan_rec_status }
+      - { name: chan_req_mbytes }
+      - { name: chan_time }
+  asdr2:
+    domain: asdr
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: asdr2
+    entry_list:
+      - { name: hk_14_29_22 }
+      - { name: chan_pps_present }
+      - { name: chan_pps_count }
+      - { name: hk_14_37_22 }
+      - { name: rec_inited }
+      - { name: hk_14_38_22 }
+      - { name: rec_written }
+      - { name: rec_rec_status }
+      - { name: rec_req_mbytes }
+      - { name: rec_time }
+      - { name: hk_14_43_22 }
+      - { name: rec_temp }
+      - { name: hk_14_52_22 }
+      - { name: trans_inited }
+      - { name: trans_mbytes_sent }
+      - { name: hk_14_53_22 }
+      - { name: trans_system_time }
+      - { name: hk_14_33_22 }
+      - { name: mis1_temp }
+      - { name: hk_14_34_22 }
+      - { name: mis1_fsk_incr }
+      - { name: hk_14_35_22 }
+      - { name: mis1_system_time }
+  bcn_inf:
+    domain: sys
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: bcn_inf
+    entry_list:
+      - { name: hk_1_93_93 }
+      - { name: inf_blob }
+
+ui:
+  rx_columns:
+    - { id: type,  label: type,   width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: kind,  label: beacon, width: 64, path: beacon.kind }
+    - { id: src,   label: src,    width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,    width: 44, align: right, path: header.dst }
+    - { id: vbat,  label: mV,     width: 56, align: right, path: beacon.vbat_mv }
+    - { id: len,   label: len,    width: 48, align: right, path: header.len }

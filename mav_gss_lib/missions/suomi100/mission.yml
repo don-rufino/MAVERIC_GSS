@@ -1,0 +1,265 @@
+# Suomi 100 mission database (RX-only).
+#
+# Beacon format follows gr-satellites `satellites/telemetry/suomi100.py`
+# (GomSpace NanoMind-family EPS / COM / OBC blocks, big-endian, two beacon
+# types selected by the first payload byte after the CSP header). The
+# mission codec decodes the binary blocks and re-emits engineering values
+# as whitespace-separated tokens for the ascii_tokens walker layout.
+# EPS electrical values follow the GomSpace P31u raw convention
+# (mV / mA / degC); `outputs` and `obc_pwr` u8 arrays are lossless hex.
+schema_version: 1
+id: suomi100
+name: "Suomi 100"
+header:
+  version: "1.0.0"
+  date: "2026-07-10"
+  description: "Suomi 100 RX-only declarative mission database"
+
+parameter_types:
+  utc_token:
+    kind: string
+    encoding: ascii_token
+    description: "ISO-8601 UTC timestamp from an onboard unix clock"
+  hex_token:
+    kind: string
+    encoding: ascii_token
+    description: "0x-prefixed hex register/array value"
+  mv_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mV"
+    description: "Voltage, raw millivolts"
+  ma_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mA"
+    description: "Current, raw milliamps"
+  degc_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "degC"
+    description: "Temperature, integer sensor"
+  dbm_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "dBm"
+    description: "Radio signal strength"
+  hz_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "Hz"
+    description: "Frequency error"
+  sec_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "s"
+    description: "Elapsed / remaining seconds"
+  pct_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "%"
+    description: "Duty-cycle percentage"
+  count_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Dimensionless counter"
+  count_l:
+    kind: int
+    size_bits: 64
+    signed: true
+    description: "Dimensionless wide counter (u32 range)"
+  mode_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Mode / config register, raw integer"
+
+parameters:
+  eps_ts:          { type: utc_token, domain: eps, description: "EPS block timestamp" }
+  pv1_v:           { type: mv_i,      domain: eps, description: "Photovoltaic input 1" }
+  pv2_v:           { type: mv_i,      domain: eps, description: "Photovoltaic input 2" }
+  pv3_v:           { type: mv_i,      domain: eps, description: "Photovoltaic input 3" }
+  vbat:            { type: mv_i,      domain: eps, description: "Battery voltage" }
+  out1_i:          { type: ma_i,      domain: eps, description: "Output channel 1 current" }
+  out2_i:          { type: ma_i,      domain: eps }
+  out3_i:          { type: ma_i,      domain: eps }
+  out4_i:          { type: ma_i,      domain: eps }
+  out5_i:          { type: ma_i,      domain: eps }
+  out6_i:          { type: ma_i,      domain: eps }
+  out7_i:          { type: ma_i,      domain: eps }
+  pv1_i:           { type: ma_i,      domain: eps, description: "Photovoltaic input 1 current" }
+  pv2_i:           { type: ma_i,      domain: eps }
+  pv3_i:           { type: ma_i,      domain: eps }
+  batt_in_i:       { type: ma_i,      domain: eps, description: "Battery charge current" }
+  batt_out_i:      { type: ma_i,      domain: eps, description: "Battery discharge current" }
+  eps_temp1:       { type: degc_i,    domain: eps }
+  eps_temp2:       { type: degc_i,    domain: eps }
+  eps_temp3:       { type: degc_i,    domain: eps }
+  eps_temp4:       { type: degc_i,    domain: eps }
+  eps_temp5:       { type: degc_i,    domain: eps }
+  eps_temp6:       { type: degc_i,    domain: eps }
+  batt_mode:       { type: mode_i,    domain: eps, description: "Battery heater/charge mode" }
+  wdt_i2c:         { type: sec_i,     domain: eps, description: "I2C watchdog time left" }
+  wdt_gnd:         { type: sec_i,     domain: eps, description: "Ground watchdog time left" }
+  eps_boots:       { type: count_l,   domain: eps, description: "EPS boot counter" }
+  wdt_i2c_count:   { type: count_l,   domain: eps, description: "I2C watchdog reboot count" }
+  wdt_gnd_count:   { type: count_l,   domain: eps, description: "Ground watchdog reboot count" }
+  wdt_csp_count_a: { type: count_l,   domain: eps, description: "CSP watchdog A reboot count" }
+  wdt_csp_count_b: { type: count_l,   domain: eps, description: "CSP watchdog B reboot count" }
+  wdt_csp_a:       { type: count_i,   domain: eps, description: "CSP watchdog A pings left" }
+  wdt_csp_b:       { type: count_i,   domain: eps, description: "CSP watchdog B pings left" }
+  eps_boot_cause:  { type: count_i,   domain: eps, description: "Last EPS boot cause" }
+  latchup1:        { type: count_i,   domain: eps, description: "Output 1 latchup count" }
+  latchup2:        { type: count_i,   domain: eps }
+  latchup3:        { type: count_i,   domain: eps }
+  latchup4:        { type: count_i,   domain: eps }
+  latchup5:        { type: count_i,   domain: eps }
+  latchup6:        { type: count_i,   domain: eps }
+  outputs:         { type: hex_token, domain: eps, description: "Output switch states, one u8 per channel" }
+  ppt_mode:        { type: mode_i,    domain: eps, description: "Power-point-tracking mode" }
+  com_ts:          { type: utc_token, domain: com, description: "COM block timestamp" }
+  com_temp1:       { type: degc_i,    domain: com, description: "Radio board temperature 1" }
+  com_temp2:       { type: degc_i,    domain: com, description: "Radio board temperature 2" }
+  rssi:            { type: dbm_i,     domain: com, description: "Last-packet RSSI" }
+  rferr:           { type: hz_i,      domain: com, description: "Last-packet frequency error" }
+  rssi_bgnd:       { type: dbm_i,     domain: com, description: "Background RSSI" }
+  tx_duty:         { type: pct_i,     domain: com, description: "Transmit duty cycle" }
+  total_tx_count:  { type: count_l,   domain: com, description: "Lifetime transmitted frames" }
+  total_rx_count:  { type: count_l,   domain: com, description: "Lifetime received frames" }
+  total_tx_bytes:  { type: count_l,   domain: com, description: "Lifetime transmitted bytes" }
+  total_rx_bytes:  { type: count_l,   domain: com, description: "Lifetime received bytes" }
+  com_boots:       { type: count_i,   domain: com, description: "COM boot counter" }
+  com_boot_cause:  { type: count_l,   domain: com, description: "Last COM boot cause" }
+  tx_bytes:        { type: count_l,   domain: com, description: "Transmitted bytes since boot" }
+  rx_bytes:        { type: count_l,   domain: com, description: "Received bytes since boot" }
+  com_config:      { type: mode_i,    domain: com, description: "Radio config register" }
+  tx_count:        { type: count_l,   domain: com, description: "Transmitted frames since boot" }
+  rx_count:        { type: count_l,   domain: com, description: "Received frames since boot" }
+  obc_ts:          { type: utc_token, domain: obc, description: "OBC block timestamp" }
+  obc_cur1:        { type: ma_i,      domain: obc, description: "OBC current sensor 1" }
+  obc_cur2:        { type: ma_i,      domain: obc }
+  obc_cur3:        { type: ma_i,      domain: obc }
+  obc_cur4:        { type: ma_i,      domain: obc }
+  obc_cur5:        { type: ma_i,      domain: obc }
+  obc_cur6:        { type: ma_i,      domain: obc }
+  obc_temp1:       { type: degc_i,    domain: obc }
+  obc_temp2:       { type: degc_i,    domain: obc }
+  obc_pwr:         { type: hex_token, domain: obc, description: "OBC power switch states, one u8 per rail" }
+  sw_count:        { type: count_i,   domain: obc, description: "Software state counter" }
+  filesystem:      { type: mode_i,    domain: obc, description: "Filesystem status flag" }
+  obc_boots:       { type: count_i,   domain: obc, description: "OBC boot counter" }
+  obc_boot_cause:  { type: count_l,   domain: obc, description: "Last OBC boot cause" }
+  obc_clock:       { type: utc_token, domain: obc, description: "OBC realtime clock" }
+
+sequence_containers:
+  beacon0:
+    domain: eps
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: beacon0
+    entry_list:
+      - { name: eps_ts }
+      - { name: pv1_v }
+      - { name: pv2_v }
+      - { name: pv3_v }
+      - { name: vbat }
+      - { name: out1_i }
+      - { name: out2_i }
+      - { name: out3_i }
+      - { name: out4_i }
+      - { name: out5_i }
+      - { name: out6_i }
+      - { name: out7_i }
+      - { name: pv1_i }
+      - { name: pv2_i }
+      - { name: pv3_i }
+      - { name: batt_in_i }
+      - { name: batt_out_i }
+      - { name: eps_temp1 }
+      - { name: eps_temp2 }
+      - { name: eps_temp3 }
+      - { name: eps_temp4 }
+      - { name: eps_temp5 }
+      - { name: eps_temp6 }
+      - { name: batt_mode }
+      - { name: com_ts }
+      - { name: com_temp1 }
+      - { name: com_temp2 }
+      - { name: rssi }
+      - { name: rferr }
+      - { name: rssi_bgnd }
+      - { name: obc_ts }
+      - { name: obc_cur1 }
+      - { name: obc_cur2 }
+      - { name: obc_cur3 }
+      - { name: obc_cur4 }
+      - { name: obc_cur5 }
+      - { name: obc_cur6 }
+      - { name: obc_temp1 }
+      - { name: obc_temp2 }
+  beacon1:
+    domain: eps
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: beacon1
+    entry_list:
+      - { name: eps_ts }
+      - { name: wdt_i2c }
+      - { name: wdt_gnd }
+      - { name: eps_boots }
+      - { name: wdt_i2c_count }
+      - { name: wdt_gnd_count }
+      - { name: wdt_csp_count_a }
+      - { name: wdt_csp_count_b }
+      - { name: wdt_csp_a }
+      - { name: wdt_csp_b }
+      - { name: eps_boot_cause }
+      - { name: latchup1 }
+      - { name: latchup2 }
+      - { name: latchup3 }
+      - { name: latchup4 }
+      - { name: latchup5 }
+      - { name: latchup6 }
+      - { name: outputs }
+      - { name: ppt_mode }
+      - { name: com_ts }
+      - { name: tx_duty }
+      - { name: total_tx_count }
+      - { name: total_rx_count }
+      - { name: total_tx_bytes }
+      - { name: total_rx_bytes }
+      - { name: com_boots }
+      - { name: com_boot_cause }
+      - { name: tx_bytes }
+      - { name: rx_bytes }
+      - { name: com_config }
+      - { name: tx_count }
+      - { name: rx_count }
+      - { name: obc_ts }
+      - { name: obc_pwr }
+      - { name: sw_count }
+      - { name: filesystem }
+      - { name: obc_boots }
+      - { name: obc_boot_cause }
+      - { name: obc_clock }
+
+ui:
+  rx_columns:
+    - { id: type,  label: type,   width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,    width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,    width: 44, align: right, path: header.dst }
+    - { id: dport, label: port,   width: 44, align: right, path: header.dport }
+    - { id: vbat,  label: mV,     width: 56, align: right, path: beacon.vbat_mv }
+    - { id: rssi,  label: rssi,   width: 52, align: right, path: beacon.rssi_dbm }
+    - { id: len,   label: len,    width: 48, align: right, path: header.len }

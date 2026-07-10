@@ -1,0 +1,28 @@
+# LUOJIA-1 mission database (RX-only).
+#
+# Wuhan University technology-demonstration satellite (NORAD 43485,
+# 437.250 MHz). AX100 Mode 5 (ASM+Golay) 4k8 FSK CSP downlink, deviation
+# 1600 Hz. gr-satellites classifies the telemetry as bare CSP — no public
+# payload format — so frames are logged raw with CSP header facts only.
+schema_version: 1
+id: luojia1
+name: "Luojia-1"
+header:
+  version: "1.0.0"
+  date: "2026-07-10"
+  description: "LUOJIA-1 RX-only declarative mission database"
+
+parameter_types: {}
+
+parameters: {}
+
+sequence_containers: {}
+
+ui:
+  rx_columns:
+    - { id: type,  label: type, width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,  width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,  width: 44, align: right, path: header.dst }
+    - { id: dport, label: port, width: 44, align: right, path: header.dport }
+    - { id: len,   label: len,  width: 48, align: right, path: header.len }

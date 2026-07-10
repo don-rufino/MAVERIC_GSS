@@ -1,0 +1,28 @@
+# SNIPE constellation mission database (RX-only).
+#
+# KASI "Scale Magnetospheric and Ionospheric Plasma Experiment" formation,
+# four 6U spacecraft (2023-072). Downlink is GomSpace AX100 Mode 5
+# (ASM+Golay) 4k8 FSK carrying CSP; the housekeeping payload format is not
+# public, so frames are logged raw with CSP header facts only.
+schema_version: 1
+id: snipe
+name: "SNIPE"
+header:
+  version: "1.0.0"
+  date: "2026-07-10"
+  description: "SNIPE constellation RX-only declarative mission database"
+
+parameter_types: {}
+
+parameters: {}
+
+sequence_containers: {}
+
+ui:
+  rx_columns:
+    - { id: type,  label: type, width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,  width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,  width: 44, align: right, path: header.dst }
+    - { id: dport, label: port, width: 44, align: right, path: header.dport }
+    - { id: len,   label: len,  width: 48, align: right, path: header.len }
