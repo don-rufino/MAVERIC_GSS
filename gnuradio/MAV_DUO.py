@@ -554,6 +554,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
                 self.set_tx_actual_freq(val)
             except AttributeError:
               pass
+            except RuntimeError:
+              return  # deleted C++ QWidget: sip raises RuntimeError, not AttributeError
             time.sleep(1.0 / (2))
         _tx_actual_freq_thread = threading.Thread(target=_tx_actual_freq_probe)
         _tx_actual_freq_thread.daemon = True
@@ -592,6 +594,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
                 self.set_rx_actual_freq(val)
             except AttributeError:
               pass
+            except RuntimeError:
+              return  # deleted C++ QWidget: sip raises RuntimeError, not AttributeError
             time.sleep(1.0 / (2))
         _rx_actual_freq_thread = threading.Thread(target=_rx_actual_freq_probe)
         _rx_actual_freq_thread.daemon = True
