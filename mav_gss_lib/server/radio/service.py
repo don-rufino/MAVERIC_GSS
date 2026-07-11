@@ -155,6 +155,8 @@ class RadioService:
             control = get_tracking_control(platform_cfg)
             general = platform_cfg.get("general") if isinstance(platform_cfg.get("general"), dict) else {}
             log_dir_raw = str(general.get("log_dir", "logs"))
+            radio_cfg = platform_cfg.get("radio") if isinstance(platform_cfg.get("radio"), dict) else {}
+            iq_record = bool(radio_cfg.get("iq_record", False))
         env: dict[str, str] = {}
         if rx_hz is not None:
             env["GSS_RX_FREQ_HZ"] = str(rx_hz)
@@ -168,6 +170,11 @@ class RadioService:
         # Absolute on purpose: the radio child runs with cwd=gnuradio/, so a
         # relative log_dir would land waterfall PNGs inside the flowgraph dir.
         env["GSS_WATERFALL_DIR"] = str(resolve_project_path(log_dir_raw) / "waterfalls")
+        if iq_record:
+            env["GSS_IQ_RECORD"] = "1"
+        # Destination rides along unconditionally so the config toggle is the
+        # only on/off difference the flowgraph ever sees.
+        env["GSS_IQ_DIR"] = str(resolve_project_path(log_dir_raw) / "iq")
         # Mission id rides into the flowgraph so waterfall captures carry the
         # active mission in their filenames.
         mission_id = str(self.runtime.mission_id or "")

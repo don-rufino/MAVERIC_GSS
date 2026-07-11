@@ -475,6 +475,9 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
           { id: 'tx_delay', label: 'TX delay', description: 'Pause before each uplink frame.', control: { kind: 'number', unit: 'ms', value: cfg.platform.tx.delay_ms, onChange: (v) => updatePlatform('tx', 'delay_ms', v) } },
           { id: 'blackout', label: 'TX → RX blackout', description: 'RX mute window after TX (half-duplex).', control: { kind: 'number', unit: 'ms', value: cfg.platform.rx.tx_blackout_ms ?? 0, onChange: (v) => updatePlatform('rx', 'tx_blackout_ms', v) } },
         ]},
+        { title: 'Capture', rows: [
+          { id: 'iq_record', label: 'IQ recording', description: 'Record the RX stream as SigMF under <log dir>/iq (~1.6 MB/s). Applies on radio start.', control: { kind: 'toggle', value: cfg.platform.radio?.iq_record ?? false, onChange: (v) => updatePlatform('radio', 'iq_record', v) } },
+        ]},
       ],
     })
 

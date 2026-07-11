@@ -38,6 +38,7 @@ import sip
 import threading
 import pmt
 import os
+import json
 import struct
 import traceback
 import numpy as np
@@ -264,6 +265,108 @@ class _WaterfallLogger(gr.sync_block):
         except Exception:
             traceback.print_exc()
             print(f"waterfall_logger: render failed; kept {self._dat_path}", flush=True)
+        return True
+
+
+class _IqRecorder(gr.sync_block):
+    """Env-gated raw IQ recorder for the decimated RX stream.
+
+    Enabled when RadioService injects GSS_IQ_RECORD=1 (operator toggle
+    `platform.radio.iq_record`). Appends the complex64 stream to
+    iq_<mission>_<start>.sigmf-data under GSS_IQ_DIR and writes the matching
+    SigMF metadata up front, so even a hard crash leaves a replayable pair
+    (any cf32 prefix is valid). MAX_BYTES caps a forgotten toggle before it
+    can fill the disk. Every failure path prints and disables the block —
+    IQ capture must never take down the radio.
+
+    Offline replay: gr_satellites MAVERIC_DECODER.yml --iq --samp_rate 200e3
+    --rawfile <capture>.sigmf-data
+    """
+
+    MAX_BYTES = 8_000_000_000  # ~83 min of 200 ksps complex64
+
+    def __init__(self, samp_rate=200_000.0):
+        gr.sync_block.__init__(self, name="iq_recorder",
+                               in_sig=[np.complex64], out_sig=None)
+        self._file = None
+        self._data_path = ""
+        self._meta_path = ""
+        self._written = 0
+        gate = os.environ.get("GSS_IQ_RECORD", "").strip().lower()
+        if gate in ("", "0", "false", "no", "off"):
+            return
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            out_dir = os.environ.get("GSS_IQ_DIR") or os.path.join(script_dir, "iq")
+            os.makedirs(out_dir, exist_ok=True)
+            mission = os.environ.get("GSS_MISSION") or "maveric"
+            start = time.gmtime()
+            stem = "iq_%s_%s" % (mission, time.strftime("%Y%m%dT%H%M%SZ", start))
+            self._data_path = os.path.join(out_dir, stem + ".sigmf-data")
+            self._meta_path = os.path.join(out_dir, stem + ".sigmf-meta")
+            raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
+            capture = {"core:sample_start": 0,
+                       "core:datetime": time.strftime("%Y-%m-%dT%H:%M:%SZ", start)}
+            if raw_center:
+                capture["core:frequency"] = float(raw_center)
+            meta = {
+                "global": {
+                    "core:datatype": "cf32_le",
+                    "core:sample_rate": float(samp_rate),
+                    "core:version": "1.0.0",
+                    "core:recorder": "MAVERIC GSS",
+                },
+                "captures": [capture],
+                "annotations": [],
+            }
+            with open(self._meta_path, "w") as meta_file:
+                json.dump(meta, meta_file, indent=2)
+            self._file = open(self._data_path, "ab")
+            print(f"iq_recorder: recording {self._data_path} "
+                  f"(cap {self.MAX_BYTES / 1e9:.0f} GB)", flush=True)
+        except Exception:
+            traceback.print_exc()
+            print("iq_recorder: init failed; IQ capture disabled", flush=True)
+            self._close_quietly()
+
+    def _close_quietly(self):
+        try:
+            if self._file is not None:
+                self._file.close()
+        except Exception:
+            pass
+        self._file = None
+
+    def work(self, input_items, output_items):
+        n_in = len(input_items[0])
+        if self._file is None:
+            return n_in
+        try:
+            self._file.write(input_items[0].tobytes())
+            self._written += n_in * 8
+            if self._written >= self.MAX_BYTES:
+                self._close_quietly()
+                print(f"iq_recorder: size cap reached; saved {self._data_path} "
+                      f"({self._written} bytes)", flush=True)
+        except Exception:
+            traceback.print_exc()
+            print("iq_recorder: write failed; IQ capture disabled for this run", flush=True)
+            self._close_quietly()
+        return n_in
+
+    def stop(self):
+        if self._file is None:
+            return True
+        self._close_quietly()
+        try:
+            if self._written == 0:
+                os.remove(self._data_path)
+                os.remove(self._meta_path)
+                print("iq_recorder: empty capture; files removed", flush=True)
+            else:
+                print(f"iq_recorder: saved {self._data_path} ({self._written} bytes)", flush=True)
+        except Exception:
+            traceback.print_exc()
         return True
 
 
@@ -623,9 +726,10 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         for c in range(1, 2):
             self.top_grid_layout.setColumnStretch(c, 1)
         self.pdu_pdu_to_tagged_stream_0 = pdu.pdu_to_tagged_stream(gr.types.byte_t, 'packet_len')
-        self.fir_filter_xxx_1 = filter.fir_filter_ccc(rx_decim, [0.000332675437675789,-0.0003077496658079326,-0.0005765556124970317,-0.00011316717427689582,0.0005280854529701173,0.0005271750269457698,-0.0001697568513918668,-0.0007128709694370627,-0.0003659247304312885,0.0005136664258316159,0.0008155554533004761,5.7438082876615226e-05,-0.0008846476557664573,-0.0007628710591234267,0.0004127955762669444,0.0012023845920339227,0.0004748026258312166,-0.0010086969705298543,-0.0013431194238364697,9.995983418775722e-05,0.0016230839537456632,0.0011655620764940977,-0.0009432621882297099,-0.0020785757806152105,-0.0005570970242843032,0.0019362160237506032,0.0021571165416389704,-0.0005106113385409117,-0.0028525725938379765,-0.0016568709397688508,0.0019336760742589831,0.003387211123481393,0.0004655412049032748,-0.003454529447481036,-0.0032212010119110346,0.0013689876068383455,0.0046819280833005905,0.0021136386785656214,-0.0035935540217906237,-0.00515820411965251,3.445093100358828e-17,0.00575077161192894,0.004466922953724861,-0.002929744776338339,-0.007238117977976799,-0.0023611208889633417,0.006200101692229509,0.007423438131809235,-0.0011174040846526623,-0.009085707366466522,-0.0057998886331915855,0.005560645833611488,0.010719634592533112,0.0021501574665308,-0.010186892002820969,-0.01026318408548832,0.003317480208352208,0.013918614946305752,0.00710933655500412,-0.009897337295114994,-0.015542840585112572,-0.0010805262718349695,0.01640382409095764,0.013931216672062874,-0.007421362679451704,-0.02128412388265133,-0.00828002393245697,0.017346151173114777,0.02280677668750286,-0.0016788907814770937,-0.027019726112484932,-0.019278328865766525,0.015544342808425426,0.03423699364066124,0.009204991161823273,-0.032225217670202255,-0.03633292764425278,0.008750508539378643,0.0500480942428112,0.029977144673466682,-0.036387741565704346,-0.0669822171330452,-0.009797654114663601,0.07862082123756409,0.08094607293605804,-0.03907700628042221,-0.15815693140029907,-0.0901409462094307,0.21769128739833832,0.5918497443199158,0.7601303458213806,0.5918497443199158,0.21769128739833832,-0.0901409462094307,-0.15815693140029907,-0.03907700628042221,0.08094607293605804,0.07862082123756409,-0.009797654114663601,-0.0669822171330452,-0.036387741565704346,0.029977144673466682,0.0500480942428112,0.008750508539378643,-0.03633292764425278,-0.032225217670202255,0.009204991161823273,0.03423699364066124,0.015544342808425426,-0.019278328865766525,-0.027019726112484932,-0.0016788907814770937,0.02280677668750286,0.017346151173114777,-0.00828002393245697,-0.02128412388265133,-0.007421362679451704,0.013931216672062874,0.01640382409095764,-0.0010805262718349695,-0.015542840585112572,-0.009897337295114994,0.00710933655500412,0.013918614946305752,0.003317480208352208,-0.01026318408548832,-0.010186892002820969,0.0021501574665308,0.010719634592533112,0.005560645833611488,-0.0057998886331915855,-0.009085707366466522,-0.0011174040846526623,0.007423438131809235,0.006200101692229509,-0.0023611208889633417,-0.007238117977976799,-0.002929744776338339,0.004466922953724861,0.00575077161192894,3.445093100358828e-17,-0.00515820411965251,-0.0035935540217906237,0.0021136386785656214,0.0046819280833005905,0.0013689876068383455,-0.0032212010119110346,-0.003454529447481036,0.0004655412049032748,0.003387211123481393,0.0019336760742589831,-0.0016568709397688508,-0.0028525725938379765,-0.0005106113385409117,0.0021571165416389704,0.0019362160237506032,-0.0005570970242843032,-0.0020785757806152105,-0.0009432621882297099,0.0011655620764940977,0.0016230839537456632,9.995983418775722e-05,-0.0013431194238364697,-0.0010086969705298543,0.0004748026258312166,0.0012023845920339227,0.0004127955762669444,-0.0007628710591234267,-0.0008846476557664573,5.7438082876615226e-05,0.0008155554533004761,0.0005136664258316159,-0.0003659247304312885,-0.0007128709694370627,-0.0001697568513918668,0.0005271750269457698,0.0005280854529701173,-0.00011316717427689582,-0.0005765556124970317,-0.0003077496658079326,0.000332675437675789])
+        self.fir_filter_xxx_1 = filter.fir_filter_ccf(rx_decim, firdes.low_pass(2.0, samp_rate, 80e3, 15e3))
         self.fir_filter_xxx_1.declare_sample_delay(0)
         self.waterfall_logger = _WaterfallLogger()
+        self.iq_recorder = _IqRecorder(samp_rate=(int(samp_rate/rx_decim)))
         self.digital_gfsk_mod_0 = digital.gfsk_mod(
             samples_per_symbol=(int(samp_ratetx/baud)),
             sensitivity=((pi*modindex) / int(samp_ratetx/baud)),
@@ -649,6 +753,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.qtgui_freq_sink_x_0, 0))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.uhd_usrp_sink_0, 0))
         self.connect((self.digital_gfsk_mod_0, 0), (self.blocks_multiply_const_vxx_0, 0))
+        self.connect((self.fir_filter_xxx_1, 0), (self.iq_recorder, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_freq_sink_x_1, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_waterfall_sink_x_0, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.satellites_satellite_decoder_0, 0))
@@ -733,6 +838,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
+        self.fir_filter_xxx_1.set_taps(firdes.low_pass(2.0, self.samp_rate, 80e3, 15e3))
         self.qtgui_freq_sink_x_1.set_frequency_range(0, (self.samp_rate/self.rx_decim))
         self.qtgui_waterfall_sink_x_0.set_frequency_range(0, (self.samp_rate/self.rx_decim))
         self.uhd_usrp_source_0.set_samp_rate(self.samp_rate)

@@ -7,10 +7,10 @@ mirrors MAV_DUO's RX acquisition conventions: A:A/RX2, 1 Msps, parked LO,
 gain 40, explicit idle/RX relay GPIO, 5x decimation, and a broad 200 ksps
 spectrum/waterfall before any beacon filtering. The decimated stream also
 feeds MAV_DUO's waterfall autosave recorder (mission-tagged PNG per run
-under GSS_WATERFALL_DIR). Narrow decoder branches centred at -8, 0, and
-+8 kHz cover approximately +/-12 kHz of residual carrier error before FM
-demodulation and gr-satellites' native Astrocast FX.25 decoder. Both NRZ-I
-and legacy NRZ failsafe deframers run in parallel. Deframed PDUs publish on
+under GSS_WATERFALL_DIR). Matched decoder branches every 2 kHz from -12 to
++12 kHz cover +/-12 kHz of residual carrier error before FM demodulation
+and gr-satellites' native Astrocast FX.25 decoder. Both NRZ-I and legacy
+NRZ failsafe deframers run in parallel. Deframed PDUs publish on
 the GSS RX frame bus.
 
 Input modes:
@@ -27,6 +27,7 @@ Pass --headless to skip the Qt GUI entirely (scripted replay / SSH use).
 
 import argparse
 from math import pi
+import json
 import os
 import signal
 import struct
@@ -56,15 +57,25 @@ SAMP_RATE = 1_000_000
 RX_DECIM = 5
 RX_GAIN = 40
 ACQUISITION_RATE = SAMP_RATE // RX_DECIM
-# These firdes parameters reproduce MAV_DUO's checked-in 181-tap RX FIR.
-# Keep the same gain, response, decimation, decoder feed, and display tap so
-# an Astrocast pass sees the same RF acquisition topology as MAVERIC.
+# These firdes parameters reproduce MAV_DUO's RX FIR, which anti-aliases the
+# /5 decimation (passband to ~72.5 kHz, stopband before the 100 kHz output
+# Nyquist). Keep the same gain, response, decimation, decoder feed, and
+# display tap so an Astrocast pass sees the same RF acquisition topology as
+# MAVERIC.
 RX_FRONTEND_GAIN = 2.0
-RX_FRONTEND_CUTOFF_HZ = 190_000.0
-RX_FRONTEND_TRANSITION_HZ = 13_333.0
-BEACON_BRANCH_CENTERS_HZ = (-8_000.0, 0.0, 8_000.0)
-BEACON_CHANNEL_CUTOFF_HZ = 5_500.0
-BEACON_CHANNEL_TRANSITION_HZ = 2_000.0
+RX_FRONTEND_CUTOFF_HZ = 80_000.0
+RX_FRONTEND_TRANSITION_HZ = 15_000.0
+# Matched-filter search bank: a branch every 2 kHz across +/-12 kHz. Any
+# residual lands within 1 kHz of a centre, keeping both 1k2 tones inside the
+# flat passband (1.0k residual + 1.2k deviation = 2.2k < cutoff - trans/2)
+# while the discriminator sees only ~6.5 kHz of pre-detection noise — ~3 dB
+# less than the previous 3-branch +/-5.5 kHz design at the same coverage.
+BEACON_BRANCH_CENTERS_HZ = (
+    -12_000.0, -10_000.0, -8_000.0, -6_000.0, -4_000.0, -2_000.0, 0.0,
+    2_000.0, 4_000.0, 6_000.0, 8_000.0, 10_000.0, 12_000.0,
+)
+BEACON_CHANNEL_CUTOFF_HZ = 2_800.0
+BEACON_CHANNEL_TRANSITION_HZ = 900.0
 BEACON_CHANNEL_DECIM = 10
 BEACON_DECODER_RATE = ACQUISITION_RATE // BEACON_CHANNEL_DECIM
 BEACON_DEVIATION_HZ = 1_200.0
@@ -232,6 +243,106 @@ class _WaterfallLogger(gr.sync_block):
         return True
 
 
+class _IqRecorder(gr.sync_block):
+    """Env-gated raw IQ recorder for the decimated RX stream.
+
+    Enabled when RadioService injects GSS_IQ_RECORD=1 (operator toggle
+    `platform.radio.iq_record`). Appends the complex64 stream to
+    iq_<mission>_<start>.sigmf-data under GSS_IQ_DIR and writes the matching
+    SigMF metadata up front, so even a hard crash leaves a replayable pair
+    (any cf32 prefix is valid). MAX_BYTES caps a forgotten toggle before it
+    can fill the disk. Every failure path prints and disables the block —
+    IQ capture must never take down the radio. Same recorder as MAV_DUO's;
+    only the mission fallback differs.
+    """
+
+    MAX_BYTES = 8_000_000_000  # ~83 min of 200 ksps complex64
+
+    def __init__(self, samp_rate=200_000.0):
+        gr.sync_block.__init__(self, name="iq_recorder",
+                               in_sig=[np.complex64], out_sig=None)
+        self._file = None
+        self._data_path = ""
+        self._meta_path = ""
+        self._written = 0
+        gate = os.environ.get("GSS_IQ_RECORD", "").strip().lower()
+        if gate in ("", "0", "false", "no", "off"):
+            return
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            out_dir = os.environ.get("GSS_IQ_DIR") or os.path.join(script_dir, "iq")
+            os.makedirs(out_dir, exist_ok=True)
+            mission = os.environ.get("GSS_MISSION") or "astrocast"
+            start = time.gmtime()
+            stem = "iq_%s_%s" % (mission, time.strftime("%Y%m%dT%H%M%SZ", start))
+            self._data_path = os.path.join(out_dir, stem + ".sigmf-data")
+            self._meta_path = os.path.join(out_dir, stem + ".sigmf-meta")
+            raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
+            capture = {"core:sample_start": 0,
+                       "core:datetime": time.strftime("%Y-%m-%dT%H:%M:%SZ", start)}
+            if raw_center:
+                capture["core:frequency"] = float(raw_center)
+            meta = {
+                "global": {
+                    "core:datatype": "cf32_le",
+                    "core:sample_rate": float(samp_rate),
+                    "core:version": "1.0.0",
+                    "core:recorder": "MAVERIC GSS",
+                },
+                "captures": [capture],
+                "annotations": [],
+            }
+            with open(self._meta_path, "w") as meta_file:
+                json.dump(meta, meta_file, indent=2)
+            self._file = open(self._data_path, "ab")
+            print(f"iq_recorder: recording {self._data_path} "
+                  f"(cap {self.MAX_BYTES / 1e9:.0f} GB)", flush=True)
+        except Exception:
+            traceback.print_exc()
+            print("iq_recorder: init failed; IQ capture disabled", flush=True)
+            self._close_quietly()
+
+    def _close_quietly(self):
+        try:
+            if self._file is not None:
+                self._file.close()
+        except Exception:
+            pass
+        self._file = None
+
+    def work(self, input_items, output_items):
+        n_in = len(input_items[0])
+        if self._file is None:
+            return n_in
+        try:
+            self._file.write(input_items[0].tobytes())
+            self._written += n_in * 8
+            if self._written >= self.MAX_BYTES:
+                self._close_quietly()
+                print(f"iq_recorder: size cap reached; saved {self._data_path} "
+                      f"({self._written} bytes)", flush=True)
+        except Exception:
+            traceback.print_exc()
+            print("iq_recorder: write failed; IQ capture disabled for this run", flush=True)
+            self._close_quietly()
+        return n_in
+
+    def stop(self):
+        if self._file is None:
+            return True
+        self._close_quietly()
+        try:
+            if self._written == 0:
+                os.remove(self._data_path)
+                os.remove(self._meta_path)
+                print("iq_recorder: empty capture; files removed", flush=True)
+            else:
+                print(f"iq_recorder: saved {self._data_path} ({self._written} bytes)", flush=True)
+        except Exception:
+            traceback.print_exc()
+        return True
+
+
 def _build_core(tb, wavfile, zmq_addr, doppler_addr):
     """Construct the shared DSP chain (sources, decoder, ZMQ/hexdump sinks)
     on `tb`. GUI-agnostic: both the Qt and headless top blocks call this."""
@@ -275,7 +386,7 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
         _force_rx_relay(tb.uhd_usrp_source_0)
         print("MAV_ASTROCAST relay GPIO forced to idle/RX", flush=True)
 
-        tb.rx_lpf = gr_filter.fir_filter_ccc(
+        tb.rx_lpf = gr_filter.fir_filter_ccf(
             RX_DECIM, _rx_frontend_taps())
         tb.beacon_channelizers = []
         tb.beacon_demodulators = []
@@ -324,6 +435,8 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
             )
         tb.waterfall_logger = _WaterfallLogger()
         tb.connect((tb.rx_lpf, 0), (tb.waterfall_logger, 0))
+        tb.iq_recorder = _IqRecorder(samp_rate=float(ACQUISITION_RATE))
+        tb.connect((tb.rx_lpf, 0), (tb.iq_recorder, 0))
         tb.msg_connect(
             (tb.zeromq_sub_msg_source_rxcmd, 'out'),
             (tb.uhd_usrp_source_0, 'command'))

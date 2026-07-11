@@ -95,6 +95,9 @@ _DEFAULTS = {
         "autostart": False,
         "log_lines": 1000,
         "stop_timeout_s": 30.0,
+        # Gate for the flowgraph's SigMF IQ recorder; RadioService injects it
+        # as GSS_IQ_RECORD (destination GSS_IQ_DIR = <log_dir>/iq) at start.
+        "iq_record": False,
     },
     "tracking": {
         "control": {

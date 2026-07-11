@@ -118,6 +118,23 @@ class RadioServiceConfigTests(unittest.TestCase):
         self.assertEqual(env["GSS_RX_LO_OFFSET_HZ"], "111000.0")
         self.assertEqual(env["GSS_TX_LO_OFFSET_HZ"], "-222000.0")
 
+    def test_frequency_env_gates_iq_recording(self):
+        rt = _fake_runtime({"enabled": True, "iq_record": True})
+        svc = RadioService(rt)
+        env = svc._frequency_env()
+        self.assertEqual(env["GSS_IQ_RECORD"], "1")
+        iq_dir = env["GSS_IQ_DIR"]
+        self.assertTrue(os.path.isabs(iq_dir))
+        self.assertEqual(os.path.basename(iq_dir), "iq")
+        self.assertEqual(os.path.basename(os.path.dirname(iq_dir)), "logs")
+
+    def test_frequency_env_omits_iq_gate_when_disabled(self):
+        svc = RadioService(_fake_runtime())
+        env = svc._frequency_env()
+        self.assertNotIn("GSS_IQ_RECORD", env)
+        # Destination is injected unconditionally; only the gate toggles.
+        self.assertIn("GSS_IQ_DIR", env)
+
     def test_frequency_env_carries_mission_id(self):
         svc = RadioService(_fake_runtime())
         self.assertEqual(svc._frequency_env()["GSS_MISSION"], "maveric")

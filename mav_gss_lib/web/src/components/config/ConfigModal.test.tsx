@@ -45,7 +45,7 @@ describe('ConfigModal', () => {
     expect(within(r).getByRole('button', { name: /About/ })).toBeTruthy()
   })
 
-  it('Radio/RF pane keeps every transport + timing setting', async () => {
+  it('Radio/RF pane keeps every transport + timing + capture setting', async () => {
     await openModal()
     fireEvent.click(within(rail()).getByText('Radio / RF'))
     expect(screen.getByText('RX frequency')).toBeTruthy()
@@ -54,6 +54,8 @@ describe('ConfigModal', () => {
     expect(screen.getByText('TX ZMQ address')).toBeTruthy()
     expect(screen.getByText('TX delay')).toBeTruthy()
     expect(screen.getByText('TX → RX blackout')).toBeTruthy()
+    expect(screen.getByText('IQ recording')).toBeTruthy()
+    expect(screen.getAllByRole('switch').length).toBe(1)
   })
 
   it('Tracking pane keeps TLE + auto-fetch settings and renders a switch', async () => {

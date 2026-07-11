@@ -37,15 +37,19 @@ def test_live_frontend_matches_maveric_rx_conventions():
 
 def test_live_frontend_taps_exactly_match_maveric():
     flowgraph = _flowgraph_module()
+    from gnuradio.filter import firdes
+
     source = (ROOT / "gnuradio" / "MAV_DUO.py").read_text(encoding="utf-8")
     match = re.search(
-        r"self\.fir_filter_xxx_1 = filter\.fir_filter_ccc\(rx_decim, "
-        r"(\[.*?\])\)",
+        r"self\.fir_filter_xxx_1 = filter\.fir_filter_ccf\(rx_decim, "
+        r"firdes\.low_pass\(([^)]*)\)\)",
         source,
-        re.DOTALL,
     )
     assert match is not None
-    expected = np.asarray(ast.literal_eval(match.group(1)))
+    args = ast.literal_eval(
+        "(%s,)" % match.group(1).replace("samp_rate", str(flowgraph.SAMP_RATE))
+    )
+    expected = np.asarray(firdes.low_pass(*args))
     actual = np.asarray(flowgraph._rx_frontend_taps())
 
     np.testing.assert_array_equal(actual, expected)
@@ -77,31 +81,32 @@ def test_live_path_has_translated_frequency_search_branches():
     source = inspect.getsource(flowgraph._build_core)
 
     assert "samp_rate=BEACON_DECODER_RATE, iq=False" in source
-    assert "fir_filter_ccc" in source
+    assert "fir_filter_ccf" in source
     assert "freq_xlating_fir_filter_ccf" in source
     assert "quadrature_demod_cf" in source
     assert not hasattr(flowgraph, "_BeaconAfcSink")
 
     assert flowgraph.BEACON_DECODER_RATE == 20_000
-    assert flowgraph.BEACON_BRANCH_CENTERS_HZ == (
-        -8_000.0,
-        0.0,
-        8_000.0,
+    assert flowgraph.BEACON_BRANCH_CENTERS_HZ == tuple(
+        float(hz) for hz in range(-12_000, 12_001, 2_000)
     )
     assert source.count("satellites.core.gr_satellites_flowgraph(") == 2
 
-    # The closest branch is never more than 4 kHz away over the requested
-    # +/-12 kHz acquisition range. Its filter passes both +/-1.2 kHz tones.
-    for residual_hz in range(-12_000, 12_001, 1_000):
+    # The closest branch is never more than 1 kHz away over the requested
+    # +/-12 kHz acquisition range, and both +/-1.2 kHz tones stay inside the
+    # flat passband (below cutoff - transition/2), so every branch presents
+    # a matched pre-detection bandwidth to the discriminator.
+    passband_edge_hz = (
+        flowgraph.BEACON_CHANNEL_CUTOFF_HZ
+        - flowgraph.BEACON_CHANNEL_TRANSITION_HZ / 2
+    )
+    for residual_hz in range(-12_000, 12_001, 500):
         nearest_hz = min(
             abs(residual_hz - center_hz)
             for center_hz in flowgraph.BEACON_BRANCH_CENTERS_HZ
         )
-        assert nearest_hz <= 4_000.0
-        assert (
-            nearest_hz + flowgraph.BEACON_DEVIATION_HZ
-            <= flowgraph.BEACON_CHANNEL_CUTOFF_HZ
-        )
+        assert nearest_hz <= 1_000.0
+        assert nearest_hz + flowgraph.BEACON_DEVIATION_HZ <= passband_edge_hz
 
 
 def test_live_search_bank_covers_satnogs_observed_frequency():
@@ -115,6 +120,7 @@ def test_live_search_bank_covers_satnogs_observed_frequency():
     assert (
         nearest_hz + flowgraph.BEACON_DEVIATION_HZ
         <= flowgraph.BEACON_CHANNEL_CUTOFF_HZ
+        - flowgraph.BEACON_CHANNEL_TRANSITION_HZ / 2
     )
 
 
