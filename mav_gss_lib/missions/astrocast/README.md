@@ -40,19 +40,23 @@ The live RF path intentionally mirrors MAV_DUO: B210 A:A/RX2, 1 Msps, gain
 40, a +250 kHz parked LO, Doppler commands into the UHD source, the same
 coax-relay RX GPIO state, and the same 181-tap decimating FIR feeding a 200
 ksps baseband spectrum and waterfall. The live differences are the 437.150
-MHz center frequency and a single Astrocast 1k2 decoder branch; Astrocast
-remains RX-only and does not instantiate MAV_DUO's TX chain.
+MHz center frequency and three narrow Astrocast 1k2 search branches;
+Astrocast remains RX-only and does not instantiate MAV_DUO's TX chain.
 
 The protocol decoder itself is gr-satellites 5.7's native Astrocast 0.1
 implementation. `ASTROCAST_DECODER.yml` is its SatYAML with the unrelated 9k6
 download entry removed, leaving only the requested 1k2 NRZ-I and legacy NRZ
 beacons. gr-satellites performs FSK clock recovery, both Astrocast FX.25
-deframers, RS(255,223), and the Astrocast CRC. Before that native decoder, one
-5 kHz channel filter decimates the 200 ksps stream to 20 ksps and performs FM
-demodulation. This bypasses gr-satellites' 1.8 kHz complex-IQ prefilter and
-keeps a beacon with approximately +/-3 kHz residual carrier error inside the
-decoder. The broad spectrum and waterfall still tap the unchanged MAV_DUO-
-style 200 ksps stream. Engage Doppler before AOS.
+deframers, RS(255,223), and the Astrocast CRC. Before that native decoder,
+three frequency-translating channel filters centred at -8, 0, and +8 kHz each
+decimate the 200 ksps stream to 20 ksps and perform FM demodulation. Each
+branch keeps a narrow 5.5 kHz passband for sensitivity while the bank covers
+approximately +/-12 kHz residual carrier error, including SatNOGS' observed
+437.141994 MHz placement. A short payload-keyed holdoff removes duplicate
+PDUs where adjacent branches overlap. This bypasses gr-satellites' 1.8 kHz
+complex-IQ prefilter. The broad spectrum and waterfall still tap the
+unchanged MAV_DUO-style 200 ksps stream and use the same timestamp-plus-1024
+float-bin capture format and renderer. Engage Doppler before AOS.
 
 ## Offline replay
 

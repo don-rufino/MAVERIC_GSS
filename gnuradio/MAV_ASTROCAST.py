@@ -5,10 +5,13 @@ Qt GUI top block supervised by the GSS RadioService (set
 `platform.radio.script: gnuradio/MAV_ASTROCAST.py`). Its live B210 path
 mirrors MAV_DUO's RX acquisition conventions: A:A/RX2, 1 Msps, parked LO,
 gain 40, explicit idle/RX relay GPIO, 5x decimation, and a broad 200 ksps
-spectrum/waterfall before any beacon filtering. It then decodes the 1k2 FSK
-FX.25 beacon on 437.150 MHz via gr-satellites (ASTROCAST_DECODER.yml),
-running both NRZ-I and legacy NRZ failsafe deframers through gr-satellites'
-native Astrocast support. Deframed PDUs publish on the GSS RX frame bus.
+spectrum/waterfall before any beacon filtering. The decimated stream also
+feeds MAV_DUO's waterfall autosave recorder (mission-tagged PNG per run
+under GSS_WATERFALL_DIR). Narrow decoder branches centred at -8, 0, and
++8 kHz cover approximately +/-12 kHz of residual carrier error before FM
+demodulation and gr-satellites' native Astrocast FX.25 decoder. Both NRZ-I
+and legacy NRZ failsafe deframers run in parallel. Deframed PDUs publish on
+the GSS RX frame bus.
 
 Input modes:
   default          USRP B210 (same subdev/antenna/gain conventions as
@@ -26,12 +29,17 @@ import argparse
 from math import pi
 import os
 import signal
+import struct
 import sys
 import threading
 import time
+import traceback
+
+import numpy as np
 
 from gnuradio import blocks, gr, zeromq
 from gnuradio import filter as gr_filter
+from gnuradio.fft import window
 from gnuradio.filter import firdes
 
 import satellites
@@ -54,7 +62,8 @@ ACQUISITION_RATE = SAMP_RATE // RX_DECIM
 RX_FRONTEND_GAIN = 2.0
 RX_FRONTEND_CUTOFF_HZ = 190_000.0
 RX_FRONTEND_TRANSITION_HZ = 13_333.0
-BEACON_CHANNEL_CUTOFF_HZ = 5_000.0
+BEACON_BRANCH_CENTERS_HZ = (-8_000.0, 0.0, 8_000.0)
+BEACON_CHANNEL_CUTOFF_HZ = 5_500.0
 BEACON_CHANNEL_TRANSITION_HZ = 2_000.0
 BEACON_CHANNEL_DECIM = 10
 BEACON_DECODER_RATE = ACQUISITION_RATE // BEACON_CHANNEL_DECIM
@@ -93,7 +102,7 @@ def _rx_frontend_taps():
 
 
 def _beacon_channel_taps():
-    """Pass a centred 1k2 FSK signal with up to about 3 kHz residual error."""
+    """Pass one narrow 1k2 FSK acquisition branch."""
     return firdes.low_pass(
         1.0,
         ACQUISITION_RATE,
@@ -108,6 +117,119 @@ def _force_rx_relay(usrp):
     # Preload OUT before changing direction so startup cannot pulse TX.
     usrp.set_gpio_attr("FP0", "OUT", RX_GPIO_IDLE_OUT, RX_GPIO_MASK)
     usrp.set_gpio_attr("FP0", "DDR", RX_GPIO_MASK, RX_GPIO_MASK)
+
+
+class _WaterfallLogger(gr.sync_block):
+    """Post-pass waterfall recorder for the decimated RX stream.
+
+    Appends timestamped 1024-bin dB rows to waterfall_<mission>_<start>.dat
+    while the flowgraph runs; stop() renders a SatNOGS-style PNG via
+    waterfall_render and deletes the .dat on success. Hard crashes leave the
+    .dat behind, so __init__ sweeps the output dir for leftovers and renders
+    them in a background thread. Every failure path prints and disables the
+    block — waterfall capture must never take down the radio. Same recorder
+    as MAV_DUO's; only the mission fallback differs.
+    """
+
+    FFT_SIZE = 1024
+    FFTS_PER_ROW = 20  # ~9.8 rows/s at 200 ksps
+
+    def __init__(self):
+        gr.sync_block.__init__(self, name="waterfall_logger",
+                               in_sig=[np.complex64], out_sig=None)
+        self._file = None
+        self._dat_path = ""
+        self._render_mod = None
+        raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
+        self._center_hz = float(raw_center) if raw_center else None
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            if script_dir not in sys.path:
+                sys.path.insert(0, script_dir)
+            import waterfall_render
+            self._render_mod = waterfall_render
+            out_dir = os.environ.get("GSS_WATERFALL_DIR") or os.path.join(script_dir, "waterfalls")
+            os.makedirs(out_dir, exist_ok=True)
+            orphans = [os.path.join(out_dir, name) for name in sorted(os.listdir(out_dir))
+                       if name.startswith("waterfall_") and name.endswith(".dat")]
+            if orphans:
+                threading.Thread(target=self._render_orphans, args=(orphans,),
+                                 daemon=True, name="waterfall-orphans").start()
+            mission = os.environ.get("GSS_MISSION") or "astrocast"
+            stem = "waterfall_%s_%s" % (mission, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+            self._dat_path = os.path.join(out_dir, stem + ".dat")
+            self._file = open(self._dat_path, "ab")
+            self._win = np.asarray(window.blackmanharris(self.FFT_SIZE), dtype=np.float32)
+            self._buf = np.empty(0, dtype=np.complex64)
+            self._acc = np.zeros(self.FFT_SIZE, dtype=np.float64)
+            self._nacc = 0
+        except Exception:
+            traceback.print_exc()
+            print("waterfall_logger: init failed; waterfall capture disabled", flush=True)
+            self._close_quietly()
+
+    def _close_quietly(self):
+        try:
+            if self._file is not None:
+                self._file.close()
+        except Exception:
+            pass
+        self._file = None
+
+    def _render_orphans(self, paths):
+        for path in paths:
+            try:
+                png = self._render_mod.render(path, delete_dat=True,
+                                              center_freq_hz=self._center_hz)
+                if png is None:
+                    print(f"waterfall_logger: removed empty leftover {path}", flush=True)
+                else:
+                    print(f"waterfall_logger: rendered leftover {png}", flush=True)
+            except Exception:
+                traceback.print_exc()
+                print(f"waterfall_logger: leftover render failed; kept {path}", flush=True)
+
+    def work(self, input_items, output_items):
+        n_in = len(input_items[0])
+        if self._file is None:
+            return n_in
+        try:
+            self._buf = np.concatenate((self._buf, input_items[0]))
+            while self._buf.size >= self.FFT_SIZE:
+                chunk = self._buf[:self.FFT_SIZE]
+                self._buf = self._buf[self.FFT_SIZE:]
+                spec = np.fft.fft(chunk * self._win)
+                self._acc += spec.real ** 2 + spec.imag ** 2
+                self._nacc += 1
+                if self._nacc >= self.FFTS_PER_ROW:
+                    mean_power = self._acc / (self._nacc * self.FFT_SIZE ** 2)
+                    row = 10.0 * np.log10(mean_power + 1e-20)
+                    row = np.fft.fftshift(row).astype("<f4")
+                    self._file.write(struct.pack("<d", time.time()) + row.tobytes())
+                    self._file.flush()
+                    self._acc[:] = 0.0
+                    self._nacc = 0
+        except Exception:
+            traceback.print_exc()
+            print("waterfall_logger: capture failed; waterfall disabled for this run", flush=True)
+            self._close_quietly()
+        return n_in
+
+    def stop(self):
+        if self._file is None:
+            return True
+        self._close_quietly()
+        try:
+            png = self._render_mod.render(self._dat_path, delete_dat=True,
+                                          center_freq_hz=self._center_hz)
+            if png is None:
+                print("waterfall_logger: empty capture; nothing to render", flush=True)
+            else:
+                print(f"waterfall_logger: saved {png}", flush=True)
+        except Exception:
+            traceback.print_exc()
+            print(f"waterfall_logger: render failed; kept {self._dat_path}", flush=True)
+        return True
 
 
 def _build_core(tb, wavfile, zmq_addr, doppler_addr):
@@ -155,32 +277,72 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
 
         tb.rx_lpf = gr_filter.fir_filter_ccc(
             RX_DECIM, _rx_frontend_taps())
-        tb.beacon_channelizer = gr_filter.fir_filter_ccf(
-            BEACON_CHANNEL_DECIM, _beacon_channel_taps())
-        tb.beacon_demodulator = analog.quadrature_demod_cf(
-            BEACON_DECODER_RATE / (2.0 * pi * BEACON_DEVIATION_HZ))
-        tb.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(
-            file=DECODER_YML, samp_rate=BEACON_DECODER_RATE, iq=False,
-            grc_block=True, options=DECODER_OPTIONS)
+        tb.beacon_channelizers = []
+        tb.beacon_demodulators = []
+        tb.satellites_satellite_decoders = []
+        channel_taps = _beacon_channel_taps()
+        demod_gain = BEACON_DECODER_RATE / (
+            2.0 * pi * BEACON_DEVIATION_HZ)
+        for branch_center_hz in BEACON_BRANCH_CENTERS_HZ:
+            channelizer = gr_filter.freq_xlating_fir_filter_ccf(
+                BEACON_CHANNEL_DECIM,
+                channel_taps,
+                branch_center_hz,
+                ACQUISITION_RATE,
+            )
+            demodulator = analog.quadrature_demod_cf(demod_gain)
+            decoder = satellites.core.gr_satellites_flowgraph(
+                file=DECODER_YML, samp_rate=BEACON_DECODER_RATE, iq=False,
+                grc_block=True, options=DECODER_OPTIONS)
+            tb.beacon_channelizers.append(channelizer)
+            tb.beacon_demodulators.append(demodulator)
+            tb.satellites_satellite_decoders.append(decoder)
+
+        central_branch = BEACON_BRANCH_CENTERS_HZ.index(0.0)
+        tb.beacon_channelizer = tb.beacon_channelizers[central_branch]
+        tb.beacon_demodulator = tb.beacon_demodulators[central_branch]
+        tb.satellites_satellite_decoder_0 = (
+            tb.satellites_satellite_decoders[central_branch])
+        branch_labels = ", ".join(
+            f"{center_hz / 1_000:+g} kHz"
+            for center_hz in BEACON_BRANCH_CENTERS_HZ)
+        print(f"MAV_ASTROCAST 1k2 decoder branches: {branch_labels}",
+              flush=True)
         tb.zeromq_sub_msg_source_rxcmd = zeromq.sub_msg_source(
             doppler_addr, 100, False)
 
         tb.connect((tb.uhd_usrp_source_0, 0), (tb.rx_lpf, 0))
-        tb.connect(
-            (tb.rx_lpf, 0),
-            (tb.beacon_channelizer, 0),
-            (tb.beacon_demodulator, 0),
-            (tb.satellites_satellite_decoder_0, 0),
-        )
+        for channelizer, demodulator, decoder in zip(
+                tb.beacon_channelizers,
+                tb.beacon_demodulators,
+                tb.satellites_satellite_decoders):
+            tb.connect(
+                (tb.rx_lpf, 0),
+                (channelizer, 0),
+                (demodulator, 0),
+                (decoder, 0),
+            )
+        tb.waterfall_logger = _WaterfallLogger()
+        tb.connect((tb.rx_lpf, 0), (tb.waterfall_logger, 0))
         tb.msg_connect(
             (tb.zeromq_sub_msg_source_rxcmd, 'out'),
             (tb.uhd_usrp_source_0, 'command'))
 
+    decoders = getattr(
+        tb,
+        "satellites_satellite_decoders",
+        (tb.satellites_satellite_decoder_0,),
+    )
+    tb.beacon_pdu_deduplicator = _PduDeduplicator()
+    for decoder in decoders:
+        tb.msg_connect(
+            (decoder, "out"),
+            (tb.beacon_pdu_deduplicator, "in"))
     tb.msg_connect(
-        (tb.satellites_satellite_decoder_0, "out"),
+        (tb.beacon_pdu_deduplicator, "out"),
         (tb.zeromq_pub_msg_sink_0, "in"))
     tb.msg_connect(
-        (tb.satellites_satellite_decoder_0, "out"),
+        (tb.beacon_pdu_deduplicator, "out"),
         (tb.satellites_hexdump_sink_0, "in"))
 
 
@@ -329,6 +491,55 @@ def _make_qt_class():
             event.accept()
 
     return mav_astrocast, Qt
+
+
+class _PduDeduplicator(gr.basic_block):
+    """Suppress the same frame emitted by overlapping search branches."""
+
+    def __init__(self, holdoff_s=2.0):
+        import pmt
+
+        gr.basic_block.__init__(
+            self,
+            name="astrocast_pdu_deduplicator",
+            in_sig=None,
+            out_sig=None,
+        )
+        self._pmt = pmt
+        self._holdoff_s = float(holdoff_s)
+        self._seen = {}
+        self._seen_lock = threading.Lock()
+        self._in_port = pmt.intern("in")
+        self._out_port = pmt.intern("out")
+        self.message_port_register_in(self._in_port)
+        self.message_port_register_out(self._out_port)
+        self.set_msg_handler(self._in_port, self._handle)
+
+    def _payload_key(self, message):
+        pmt = self._pmt
+        payload = pmt.cdr(message) if pmt.is_pair(message) else message
+        if pmt.is_u8vector(payload):
+            return bytes(pmt.u8vector_elements(payload))
+        return pmt.serialize_str(payload)
+
+    def _is_duplicate(self, message, *, now=None):
+        now = time.monotonic() if now is None else float(now)
+        key = self._payload_key(message)
+        with self._seen_lock:
+            stale = [
+                old_key
+                for old_key, seen_at in self._seen.items()
+                if now - seen_at >= self._holdoff_s
+            ]
+            for old_key in stale:
+                del self._seen[old_key]
+            duplicate = key in self._seen
+            self._seen[key] = now
+        return duplicate
+
+    def _handle(self, message):
+        if not self._is_duplicate(message):
+            self.message_port_pub(self._out_port, message)
 
 
 def _run_headless(args):

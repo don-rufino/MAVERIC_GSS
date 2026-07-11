@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 DEFAULT_RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
 DEFAULT_LOG_LINES = 1000
-DEFAULT_STOP_TIMEOUT_S = 8.0
+DEFAULT_STOP_TIMEOUT_S = 30.0
 _FREQ_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(ghz|mhz|khz|hz)?\s*$", re.IGNORECASE)
 
 

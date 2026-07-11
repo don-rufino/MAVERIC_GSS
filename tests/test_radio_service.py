@@ -217,7 +217,7 @@ class RadioServicePersistenceTests(unittest.TestCase):
 
     def test_stop_timeout_default(self):
         svc = RadioService(_fake_runtime())
-        self.assertEqual(svc.stop_timeout_s(), 8.0)
+        self.assertEqual(svc.stop_timeout_s(), 30.0)
 
 
 class RadioServiceLogPrefixTests(unittest.TestCase):

@@ -88,6 +88,19 @@ class TestConfigRoundTrip(unittest.TestCase):
             self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://127.0.0.1:52002")
             self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://127.0.0.1:52001")
 
+    def test_legacy_radio_stop_timeout_migrates_for_waterfall_render(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "gss.yml")
+            value = {
+                "platform": {"radio": {"stop_timeout_s": 8.0}},
+                "mission": {"id": "astrocast", "config": {}},
+            }
+            cfg_mod.save_operator_config(value, path)
+
+            platform_cfg, _, _ = cfg_mod.load_split_config(path)
+
+            self.assertEqual(platform_cfg["radio"]["stop_timeout_s"], 30.0)
+
     def test_flat_file_on_disk_is_rejected(self):
         """Operator gss.yml files must use the native split shape."""
         with tempfile.TemporaryDirectory() as td:

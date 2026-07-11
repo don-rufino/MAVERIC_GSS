@@ -94,7 +94,7 @@ _DEFAULTS = {
         "enabled": True,
         "autostart": False,
         "log_lines": 1000,
-        "stop_timeout_s": 8.0,
+        "stop_timeout_s": 30.0,
     },
     "tracking": {
         "control": {
@@ -207,6 +207,12 @@ def load_split_config(path: str | None = None) -> tuple[dict, str, dict]:
     platform_defaults = copy.deepcopy(_DEFAULTS)
     platform_defaults.pop("general", None)
     platform_cfg = deep_merge(platform_defaults, native.get("platform", {}))
+    radio_cfg = platform_cfg.get("radio")
+    if isinstance(radio_cfg, dict) and radio_cfg.get("stop_timeout_s") == 8.0:
+        # The former default can kill a first-run Matplotlib waterfall render
+        # while its font cache is being built. Migrate persisted old defaults
+        # in memory; the next ordinary config save writes the new value back.
+        radio_cfg["stop_timeout_s"] = _DEFAULTS["radio"]["stop_timeout_s"]
     platform_general = platform_cfg.setdefault("general", {})
     defaults_general = copy.deepcopy(_DEFAULTS["general"])
     operator_general = native.get("platform", {}).get("general", {})
