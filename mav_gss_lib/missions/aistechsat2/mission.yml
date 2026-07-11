@@ -1,0 +1,541 @@
+# AISTECHSAT-2 mission database (RX-only).
+#
+# Generated from the field table in telemetry.py (a port of the
+# gr-satellites `satellites.telemetry.lume` construct stack shared by
+# LUME-1 and AISTECHSAT-2). Five PUS housekeeping payloads — OBC / EPS /
+# TTC+GSSB / AOCS / TEMPS — selected by the u16 payload id; token order
+# and container entry lists derive from the same table, guarded by
+# test_aistechsat2_yml_containers_match_field_table.
+schema_version: 1
+id: aistechsat2
+name: "AISTECHSAT-2"
+header:
+  version: "1.0.0"
+  date: "2026-07-11"
+  description: "AISTECHSAT-2 RX-only declarative mission database"
+
+parameter_types:
+  utc_token:
+    kind: string
+    encoding: ascii_token
+    description: "ISO-8601 UTC timestamp from an onboard unix clock"
+  hex_token:
+    kind: string
+    encoding: ascii_token
+    description: "0x-prefixed hex register/array value"
+  str_token:
+    kind: string
+    encoding: ascii_token
+    description: "Whitespace-sanitized ascii string"
+  float_f:
+    kind: float
+    description: "Raw float telemetry value"
+  degc_f:
+    kind: float
+    unit: "degC"
+    description: "Temperature, float"
+  mv_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mV"
+    description: "Voltage, raw millivolts"
+  ma_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mA"
+    description: "Current, raw milliamps"
+  degc_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "degC"
+    description: "Temperature, integer sensor"
+  dbm_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "dBm"
+    description: "Radio signal strength"
+  hz_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "Hz"
+    description: "Frequency error"
+  pct_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "%"
+    description: "Duty-cycle percentage"
+  sec_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "s"
+    description: "Elapsed / configured seconds"
+  sec_l:
+    kind: int
+    size_bits: 64
+    signed: true
+    unit: "s"
+    description: "Elapsed / remaining seconds (u32 range)"
+  day_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "d"
+    description: "PUS time field, days"
+  ms_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "ms"
+    description: "PUS time field, milliseconds of day"
+  count_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Dimensionless counter"
+  count_l:
+    kind: int
+    size_bits: 64
+    signed: true
+    description: "Dimensionless wide counter (u32/u64 range)"
+  bytes_l:
+    kind: int
+    size_bits: 64
+    signed: true
+    unit: "B"
+    description: "Byte count"
+  mode_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Mode / status register, raw integer"
+
+parameters:
+  obc_pus_day: { type: day_i, domain: obc }
+  obc_pus_ms: { type: ms_i, domain: obc }
+  obc_boot_cause: { type: count_l, domain: obc }
+  obc_boot_count: { type: count_i, domain: obc }
+  obc_clock: { type: utc_token, domain: obc }
+  obc_curr_flash: { type: ma_i, domain: obc }
+  obc_fs_mounted: { type: mode_i, domain: obc }
+  obc_ram_image: { type: mode_i, domain: obc }
+  obc_temp1: { type: degc_f, domain: obc }
+  obc_temp2: { type: degc_f, domain: obc }
+  obc_ticks: { type: count_l, domain: obc }
+  obc_mag1: { type: float_f, domain: obc }
+  obc_mag2: { type: float_f, domain: obc }
+  obc_mag3: { type: float_f, domain: obc }
+  obc_memfree: { type: bytes_l, domain: obc }
+  obc_bufferfree: { type: bytes_l, domain: obc }
+  obc_uptime: { type: sec_l, domain: obc }
+  obc_gyro1: { type: float_f, domain: obc }
+  obc_gyro2: { type: float_f, domain: obc }
+  obc_gyro3: { type: float_f, domain: obc }
+  obc_gyro_temp: { type: degc_f, domain: obc }
+  obc_flash_total: { type: bytes_l, domain: obc }
+  obc_flash_used: { type: bytes_l, domain: obc }
+  obc_flash_free: { type: bytes_l, domain: obc }
+  obc_gpio_test: { type: mode_i, domain: obc }
+  obc_gpio_sw: { type: mode_i, domain: obc }
+  obc_gpio_pwr: { type: mode_i, domain: obc }
+  obc_om_state: { type: mode_i, domain: obc }
+  obc_om_sw_version: { type: str_token, domain: obc }
+  obc_op_tr_conn: { type: mode_i, domain: obc }
+  obc_op_tr_conn_active: { type: mode_i, domain: obc }
+  eps_pus_day: { type: day_i, domain: eps }
+  eps_pus_ms: { type: ms_i, domain: eps }
+  eps_output_off_delta1: { type: sec_i, domain: eps }
+  eps_output_off_delta2: { type: sec_i, domain: eps }
+  eps_output_off_delta3: { type: sec_i, domain: eps }
+  eps_output_off_delta4: { type: sec_i, domain: eps }
+  eps_output_off_delta5: { type: sec_i, domain: eps }
+  eps_output_off_delta6: { type: sec_i, domain: eps }
+  eps_output_off_delta7: { type: sec_i, domain: eps }
+  eps_output_off_delta8: { type: sec_i, domain: eps }
+  eps_output_on_delta1: { type: sec_i, domain: eps }
+  eps_output_on_delta2: { type: sec_i, domain: eps }
+  eps_output_on_delta3: { type: sec_i, domain: eps }
+  eps_output_on_delta4: { type: sec_i, domain: eps }
+  eps_output_on_delta5: { type: sec_i, domain: eps }
+  eps_output_on_delta6: { type: sec_i, domain: eps }
+  eps_output_on_delta7: { type: sec_i, domain: eps }
+  eps_output_on_delta8: { type: sec_i, domain: eps }
+  eps_wdt_csp_pings_left1: { type: count_i, domain: eps }
+  eps_wdt_csp_pings_left2: { type: count_i, domain: eps }
+  eps_bootcause: { type: mode_i, domain: eps }
+  eps_cursun: { type: ma_i, domain: eps }
+  eps_curin1: { type: ma_i, domain: eps }
+  eps_curin2: { type: ma_i, domain: eps }
+  eps_curin3: { type: ma_i, domain: eps }
+  eps_curout1: { type: ma_i, domain: eps }
+  eps_curout2: { type: ma_i, domain: eps }
+  eps_curout3: { type: ma_i, domain: eps }
+  eps_curout4: { type: ma_i, domain: eps }
+  eps_curout5: { type: ma_i, domain: eps }
+  eps_curout6: { type: ma_i, domain: eps }
+  eps_cursys: { type: ma_i, domain: eps }
+  eps_temp1: { type: degc_i, domain: eps }
+  eps_temp2: { type: degc_i, domain: eps }
+  eps_temp3: { type: degc_i, domain: eps }
+  eps_temp4: { type: degc_i, domain: eps }
+  eps_temp5: { type: degc_i, domain: eps }
+  eps_temp6: { type: degc_i, domain: eps }
+  eps_battmode: { type: mode_i, domain: eps }
+  eps_pptmode: { type: mode_i, domain: eps }
+  eps_counter_boot: { type: count_l, domain: eps }
+  eps_latchup1: { type: count_i, domain: eps }
+  eps_latchup2: { type: count_i, domain: eps }
+  eps_latchup3: { type: count_i, domain: eps }
+  eps_latchup4: { type: count_i, domain: eps }
+  eps_latchup5: { type: count_i, domain: eps }
+  eps_latchup6: { type: count_i, domain: eps }
+  eps_counter_wdt_csp1: { type: count_l, domain: eps }
+  eps_counter_wdt_csp2: { type: count_l, domain: eps }
+  eps_counter_wdt_gnd: { type: count_l, domain: eps }
+  eps_counter_wdt_i2c: { type: count_l, domain: eps }
+  eps_output: { type: hex_token, domain: eps }
+  eps_wdt_gnd_time_left: { type: sec_l, domain: eps }
+  eps_wdt_i2c_time_left: { type: sec_l, domain: eps }
+  eps_vbatt: { type: mv_i, domain: eps }
+  eps_vboost1: { type: mv_i, domain: eps }
+  eps_vboost2: { type: mv_i, domain: eps }
+  eps_vboost3: { type: mv_i, domain: eps }
+  eps_wdtcspc1: { type: count_i, domain: eps }
+  eps_wdtcspc2: { type: count_i, domain: eps }
+  ttc_pus_day: { type: day_i, domain: ttc }
+  ttc_pus_ms: { type: ms_i, domain: ttc }
+  ttc_gssb1_reboots: { type: count_i, domain: ttc }
+  ttc_gssb1_state: { type: mode_i, domain: ttc }
+  ttc_gssb1_antenna: { type: mode_i, domain: ttc }
+  ttc_gssb1_attempts: { type: count_i, domain: ttc }
+  ttc_gssb2_reboots: { type: count_i, domain: ttc }
+  ttc_gssb2_state: { type: mode_i, domain: ttc }
+  ttc_gssb2_antenna: { type: mode_i, domain: ttc }
+  ttc_gssb2_attempts: { type: count_i, domain: ttc }
+  ttc_gssb3_reboots: { type: count_i, domain: ttc }
+  ttc_gssb3_state: { type: mode_i, domain: ttc }
+  ttc_gssb3_antenna: { type: mode_i, domain: ttc }
+  ttc_gssb3_attempts: { type: count_i, domain: ttc }
+  ttc_gssb4_reboots: { type: count_i, domain: ttc }
+  ttc_gssb4_state: { type: mode_i, domain: ttc }
+  ttc_gssb4_antenna: { type: mode_i, domain: ttc }
+  ttc_gssb4_attempts: { type: count_i, domain: ttc }
+  ttc_temp_brd: { type: degc_f, domain: ttc }
+  ttc_last_rferr: { type: hz_i, domain: ttc }
+  ttc_last_rssi: { type: dbm_i, domain: ttc }
+  ttc_tot_rx_bytes: { type: bytes_l, domain: ttc }
+  ttc_rx_bytes: { type: bytes_l, domain: ttc }
+  ttc_tot_rx_count: { type: count_l, domain: ttc }
+  ttc_rx_count: { type: count_l, domain: ttc }
+  ttc_tot_tx_bytes: { type: bytes_l, domain: ttc }
+  ttc_tx_bytes: { type: bytes_l, domain: ttc }
+  ttc_tot_tx_count: { type: count_l, domain: ttc }
+  ttc_tx_count: { type: count_l, domain: ttc }
+  ttc_temp_pa: { type: degc_f, domain: ttc }
+  ttc_boot_cause: { type: count_l, domain: ttc }
+  ttc_bgnd_rssi: { type: dbm_i, domain: ttc }
+  ttc_active_conf: { type: mode_i, domain: ttc }
+  ttc_boot_count: { type: count_i, domain: ttc }
+  ttc_last_contact: { type: utc_token, domain: ttc }
+  ttc_tx_duty: { type: pct_i, domain: ttc }
+  aocs_pus_day: { type: day_i, domain: aocs }
+  aocs_pus_ms: { type: ms_i, domain: aocs }
+  aocs_extmag_valid: { type: mode_i, domain: aocs }
+  aocs_extmag1: { type: float_f, domain: aocs }
+  aocs_extmag2: { type: float_f, domain: aocs }
+  aocs_extmag3: { type: float_f, domain: aocs }
+  aocs_gps_pos_dev1: { type: float_f, domain: aocs }
+  aocs_gps_pos_dev2: { type: float_f, domain: aocs }
+  aocs_gps_pos_dev3: { type: float_f, domain: aocs }
+  aocs_gps_pos1: { type: float_f, domain: aocs }
+  aocs_gps_pos2: { type: float_f, domain: aocs }
+  aocs_gps_pos3: { type: float_f, domain: aocs }
+  aocs_gps_valid: { type: mode_i, domain: aocs }
+  aocs_gyro_valid: { type: mode_i, domain: aocs }
+  aocs_gyro1: { type: float_f, domain: aocs }
+  aocs_gyro2: { type: float_f, domain: aocs }
+  aocs_gyro3: { type: float_f, domain: aocs }
+  aocs_mag1: { type: float_f, domain: aocs }
+  aocs_mag2: { type: float_f, domain: aocs }
+  aocs_mag3: { type: float_f, domain: aocs }
+  aocs_mag_valid: { type: mode_i, domain: aocs }
+  aocs_status_run: { type: mode_i, domain: aocs }
+  aocs_acs_mode: { type: mode_i, domain: aocs }
+  aocs_ads_mode: { type: mode_i, domain: aocs }
+  aocs_ephem_mode: { type: mode_i, domain: aocs }
+  aocs_bdot_detumb: { type: mode_i, domain: aocs }
+  aocs_boot_cause: { type: count_l, domain: aocs }
+  aocs_boot_count: { type: count_i, domain: aocs }
+  aocs_cur_gssb1: { type: ma_i, domain: aocs }
+  aocs_cur_gssb2: { type: ma_i, domain: aocs }
+  aocs_cur_pwm: { type: ma_i, domain: aocs }
+  aocs_cur_gps: { type: ma_i, domain: aocs }
+  aocs_cur_wde: { type: ma_i, domain: aocs }
+  temps_pus_day: { type: day_i, domain: temps }
+  temps_pus_ms: { type: ms_i, domain: temps }
+  temps_aocs_suns1: { type: degc_f, domain: temps }
+  temps_aocs_suns2: { type: degc_f, domain: temps }
+  temps_aocs_suns3: { type: degc_f, domain: temps }
+  temps_aocs_suns4: { type: degc_f, domain: temps }
+  temps_aocs_suns5: { type: degc_f, domain: temps }
+  temps_aocs_extmag: { type: degc_f, domain: temps }
+  temps_aocs_fss1: { type: degc_f, domain: temps }
+  temps_aocs_fss2: { type: degc_f, domain: temps }
+  temps_aocs_fss3: { type: degc_f, domain: temps }
+  temps_aocs_fss4: { type: degc_f, domain: temps }
+  temps_aocs_fss5: { type: degc_f, domain: temps }
+  temps_aocs_gyro: { type: degc_f, domain: temps }
+  temps_aocs1: { type: degc_f, domain: temps }
+  temps_aocs2: { type: degc_f, domain: temps }
+  temps_eps1: { type: degc_i, domain: temps }
+  temps_eps2: { type: degc_i, domain: temps }
+  temps_eps3: { type: degc_i, domain: temps }
+  temps_eps4: { type: degc_i, domain: temps }
+  temps_eps5: { type: degc_i, domain: temps }
+  temps_eps6: { type: degc_i, domain: temps }
+  temps_obc1: { type: degc_f, domain: temps }
+  temps_obc2: { type: degc_f, domain: temps }
+  temps_obc_gyro: { type: degc_f, domain: temps }
+  temps_ttc_brd: { type: degc_f, domain: temps }
+  temps_ttc_pa: { type: degc_f, domain: temps }
+
+sequence_containers:
+  obc:
+    domain: obc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: obc
+    entry_list:
+      - { name: obc_pus_day }
+      - { name: obc_pus_ms }
+      - { name: obc_boot_cause }
+      - { name: obc_boot_count }
+      - { name: obc_clock }
+      - { name: obc_curr_flash }
+      - { name: obc_fs_mounted }
+      - { name: obc_ram_image }
+      - { name: obc_temp1 }
+      - { name: obc_temp2 }
+      - { name: obc_ticks }
+      - { name: obc_mag1 }
+      - { name: obc_mag2 }
+      - { name: obc_mag3 }
+      - { name: obc_memfree }
+      - { name: obc_bufferfree }
+      - { name: obc_uptime }
+      - { name: obc_gyro1 }
+      - { name: obc_gyro2 }
+      - { name: obc_gyro3 }
+      - { name: obc_gyro_temp }
+      - { name: obc_flash_total }
+      - { name: obc_flash_used }
+      - { name: obc_flash_free }
+      - { name: obc_gpio_test }
+      - { name: obc_gpio_sw }
+      - { name: obc_gpio_pwr }
+      - { name: obc_om_state }
+      - { name: obc_om_sw_version }
+      - { name: obc_op_tr_conn }
+      - { name: obc_op_tr_conn_active }
+  eps:
+    domain: eps
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: eps
+    entry_list:
+      - { name: eps_pus_day }
+      - { name: eps_pus_ms }
+      - { name: eps_output_off_delta1 }
+      - { name: eps_output_off_delta2 }
+      - { name: eps_output_off_delta3 }
+      - { name: eps_output_off_delta4 }
+      - { name: eps_output_off_delta5 }
+      - { name: eps_output_off_delta6 }
+      - { name: eps_output_off_delta7 }
+      - { name: eps_output_off_delta8 }
+      - { name: eps_output_on_delta1 }
+      - { name: eps_output_on_delta2 }
+      - { name: eps_output_on_delta3 }
+      - { name: eps_output_on_delta4 }
+      - { name: eps_output_on_delta5 }
+      - { name: eps_output_on_delta6 }
+      - { name: eps_output_on_delta7 }
+      - { name: eps_output_on_delta8 }
+      - { name: eps_wdt_csp_pings_left1 }
+      - { name: eps_wdt_csp_pings_left2 }
+      - { name: eps_bootcause }
+      - { name: eps_cursun }
+      - { name: eps_curin1 }
+      - { name: eps_curin2 }
+      - { name: eps_curin3 }
+      - { name: eps_curout1 }
+      - { name: eps_curout2 }
+      - { name: eps_curout3 }
+      - { name: eps_curout4 }
+      - { name: eps_curout5 }
+      - { name: eps_curout6 }
+      - { name: eps_cursys }
+      - { name: eps_temp1 }
+      - { name: eps_temp2 }
+      - { name: eps_temp3 }
+      - { name: eps_temp4 }
+      - { name: eps_temp5 }
+      - { name: eps_temp6 }
+      - { name: eps_battmode }
+      - { name: eps_pptmode }
+      - { name: eps_counter_boot }
+      - { name: eps_latchup1 }
+      - { name: eps_latchup2 }
+      - { name: eps_latchup3 }
+      - { name: eps_latchup4 }
+      - { name: eps_latchup5 }
+      - { name: eps_latchup6 }
+      - { name: eps_counter_wdt_csp1 }
+      - { name: eps_counter_wdt_csp2 }
+      - { name: eps_counter_wdt_gnd }
+      - { name: eps_counter_wdt_i2c }
+      - { name: eps_output }
+      - { name: eps_wdt_gnd_time_left }
+      - { name: eps_wdt_i2c_time_left }
+      - { name: eps_vbatt }
+      - { name: eps_vboost1 }
+      - { name: eps_vboost2 }
+      - { name: eps_vboost3 }
+      - { name: eps_wdtcspc1 }
+      - { name: eps_wdtcspc2 }
+  ttc:
+    domain: ttc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: ttc
+    entry_list:
+      - { name: ttc_pus_day }
+      - { name: ttc_pus_ms }
+      - { name: ttc_gssb1_reboots }
+      - { name: ttc_gssb1_state }
+      - { name: ttc_gssb1_antenna }
+      - { name: ttc_gssb1_attempts }
+      - { name: ttc_gssb2_reboots }
+      - { name: ttc_gssb2_state }
+      - { name: ttc_gssb2_antenna }
+      - { name: ttc_gssb2_attempts }
+      - { name: ttc_gssb3_reboots }
+      - { name: ttc_gssb3_state }
+      - { name: ttc_gssb3_antenna }
+      - { name: ttc_gssb3_attempts }
+      - { name: ttc_gssb4_reboots }
+      - { name: ttc_gssb4_state }
+      - { name: ttc_gssb4_antenna }
+      - { name: ttc_gssb4_attempts }
+      - { name: ttc_temp_brd }
+      - { name: ttc_last_rferr }
+      - { name: ttc_last_rssi }
+      - { name: ttc_tot_rx_bytes }
+      - { name: ttc_rx_bytes }
+      - { name: ttc_tot_rx_count }
+      - { name: ttc_rx_count }
+      - { name: ttc_tot_tx_bytes }
+      - { name: ttc_tx_bytes }
+      - { name: ttc_tot_tx_count }
+      - { name: ttc_tx_count }
+      - { name: ttc_temp_pa }
+      - { name: ttc_boot_cause }
+      - { name: ttc_bgnd_rssi }
+      - { name: ttc_active_conf }
+      - { name: ttc_boot_count }
+      - { name: ttc_last_contact }
+      - { name: ttc_tx_duty }
+  aocs:
+    domain: aocs
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: aocs
+    entry_list:
+      - { name: aocs_pus_day }
+      - { name: aocs_pus_ms }
+      - { name: aocs_extmag_valid }
+      - { name: aocs_extmag1 }
+      - { name: aocs_extmag2 }
+      - { name: aocs_extmag3 }
+      - { name: aocs_gps_pos_dev1 }
+      - { name: aocs_gps_pos_dev2 }
+      - { name: aocs_gps_pos_dev3 }
+      - { name: aocs_gps_pos1 }
+      - { name: aocs_gps_pos2 }
+      - { name: aocs_gps_pos3 }
+      - { name: aocs_gps_valid }
+      - { name: aocs_gyro_valid }
+      - { name: aocs_gyro1 }
+      - { name: aocs_gyro2 }
+      - { name: aocs_gyro3 }
+      - { name: aocs_mag1 }
+      - { name: aocs_mag2 }
+      - { name: aocs_mag3 }
+      - { name: aocs_mag_valid }
+      - { name: aocs_status_run }
+      - { name: aocs_acs_mode }
+      - { name: aocs_ads_mode }
+      - { name: aocs_ephem_mode }
+      - { name: aocs_bdot_detumb }
+      - { name: aocs_boot_cause }
+      - { name: aocs_boot_count }
+      - { name: aocs_cur_gssb1 }
+      - { name: aocs_cur_gssb2 }
+      - { name: aocs_cur_pwm }
+      - { name: aocs_cur_gps }
+      - { name: aocs_cur_wde }
+  temps:
+    domain: temps
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: temps
+    entry_list:
+      - { name: temps_pus_day }
+      - { name: temps_pus_ms }
+      - { name: temps_aocs_suns1 }
+      - { name: temps_aocs_suns2 }
+      - { name: temps_aocs_suns3 }
+      - { name: temps_aocs_suns4 }
+      - { name: temps_aocs_suns5 }
+      - { name: temps_aocs_extmag }
+      - { name: temps_aocs_fss1 }
+      - { name: temps_aocs_fss2 }
+      - { name: temps_aocs_fss3 }
+      - { name: temps_aocs_fss4 }
+      - { name: temps_aocs_fss5 }
+      - { name: temps_aocs_gyro }
+      - { name: temps_aocs1 }
+      - { name: temps_aocs2 }
+      - { name: temps_eps1 }
+      - { name: temps_eps2 }
+      - { name: temps_eps3 }
+      - { name: temps_eps4 }
+      - { name: temps_eps5 }
+      - { name: temps_eps6 }
+      - { name: temps_obc1 }
+      - { name: temps_obc2 }
+      - { name: temps_obc_gyro }
+      - { name: temps_ttc_brd }
+      - { name: temps_ttc_pa }
+
+ui:
+  rx_columns:
+    - { id: type,  label: type,   width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,    width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,    width: 44, align: right, path: header.dst }
+    - { id: dport, label: port,   width: 44, align: right, path: header.dport }
+    - { id: vbat,  label: mV,     width: 56, align: right, path: beacon.vbat_mv }
+    - { id: rssi,  label: rssi,   width: 52, align: right, path: beacon.rssi_dbm }
+    - { id: len,   label: len,    width: 48, align: right, path: header.len }

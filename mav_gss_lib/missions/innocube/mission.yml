@@ -1,0 +1,29 @@
+# InnoCube mission database (RX-only).
+#
+# TU Berlin / Julius-Maximilians-University Würzburg 3U+ technology
+# demonstrator (NORAD 62616, 435.950 MHz, launched 2025-01-14). AX100
+# Mode 5 (ASM+Golay) 9k6 FSK CSP downlink. gr-satellites classifies the
+# telemetry as bare CSP — no public payload format — so frames are logged
+# raw with CSP header facts only.
+schema_version: 1
+id: innocube
+name: "InnoCube"
+header:
+  version: "1.0.0"
+  date: "2026-07-11"
+  description: "InnoCube RX-only declarative mission database"
+
+parameter_types: {}
+
+parameters: {}
+
+sequence_containers: {}
+
+ui:
+  rx_columns:
+    - { id: type,  label: type, width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,  width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,  width: 44, align: right, path: header.dst }
+    - { id: dport, label: port, width: 44, align: right, path: header.dport }
+    - { id: len,   label: len,  width: 48, align: right, path: header.len }

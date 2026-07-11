@@ -1,0 +1,29 @@
+# NUSHSat-1 mission database (RX-only).
+#
+# NUS High School of Math and Science (Singapore) 3U educational CubeSat
+# (NORAD 63211, 436.200 MHz, launched 2025). AX100 Mode 5 (ASM+Golay) CSP
+# downlink at 1k2 / 2k4 / 4k8 FSK; the MAVERIC decoder carries the 2k4 and
+# 4k8 branches. gr-satellites classifies the telemetry as bare CSP — no
+# public payload format — so frames are logged raw with CSP header facts.
+schema_version: 1
+id: nushsat1
+name: "NUSHSat-1"
+header:
+  version: "1.0.0"
+  date: "2026-07-11"
+  description: "NUSHSat-1 RX-only declarative mission database"
+
+parameter_types: {}
+
+parameters: {}
+
+sequence_containers: {}
+
+ui:
+  rx_columns:
+    - { id: type,  label: type, width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,  width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,  width: 44, align: right, path: header.dst }
+    - { id: dport, label: port, width: 44, align: right, path: header.dport }
+    - { id: len,   label: len,  width: 48, align: right, path: header.len }

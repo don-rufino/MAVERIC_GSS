@@ -1,0 +1,333 @@
+# ROADS pair mission database (RX-only).
+#
+# University of North Dakota pair (2025-135), two spacecraft sharing one
+# AX100 Mode 5 (ASM+Golay) 4k8/9k6 FSK CSP downlink on 435.400 MHz.
+# Beacon format follows UND's published "IARU Telemetry Decoding Format"
+# (aero.und.edu, fetched 2026-07-11): a 5-byte header (protocol_version,
+# type, version, satid) then 42 GomSpace-style elements, each an 8-byte
+# checksum/timestamp/source wrapper plus a big-endian value. The full
+# 444-byte table exceeds the AX100 Mode 5 RS(255,223) inner cap, so on
+# air it arrives as smaller typed beacons; the containers below cover
+# every contiguous run of whole subsystem blocks that fits one frame
+# (plus the full table for offline reassembled use), generated from the
+# telemetry.py field table. Each block's first element timestamp leads
+# its block, and the x32 radio reboot causes are lossless hex.
+schema_version: 1
+id: roads
+name: "ROADS"
+header:
+  version: "1.1.0"
+  date: "2026-07-11"
+  description: "ROADS pair RX-only declarative mission database"
+
+parameter_types:
+  utc_token:
+    kind: string
+    encoding: ascii_token
+    description: "ISO-8601 UTC timestamp from an onboard unix clock"
+  hex_token:
+    kind: string
+    encoding: ascii_token
+    description: "0x-prefixed hex register value"
+  mv_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mV"
+    description: "Voltage, raw millivolts"
+  ma_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mA"
+    description: "Current, raw milliamps"
+  degc_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "degC"
+    description: "Temperature, integer sensor"
+  count_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Dimensionless counter"
+  count_l:
+    kind: int
+    size_bits: 64
+    signed: true
+    description: "Dimensionless wide counter (u32 range)"
+  mode_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Mode / status register, raw integer"
+
+parameters:
+  obc_ts:         { type: utc_token, domain: obc, description: "OBC block sample time" }
+  ram_image:      { type: mode_i,    domain: obc, description: "1 if running from a RAM image" }
+  temp_mcu:       { type: degc_i,    domain: obc, description: "Temp sensor near MCU" }
+  temp_ram:       { type: degc_i,    domain: obc, description: "Temp sensor near external RAM" }
+  resetcause:     { type: count_l,   domain: obc, description: "OBC reset cause" }
+  obc_bootcause:  { type: count_l,   domain: obc, description: "OBC boot cause" }
+  bootcount:      { type: count_i,   domain: obc, description: "OBC boot count" }
+  depl_isis_a:    { type: mode_i,    domain: obc, description: "Antenna deployment status A (LEOP)" }
+  depl_a_isis_a:  { type: mode_i,    domain: obc, description: "Antenna deployment status A' (LEOP)" }
+  depl_isis_b:    { type: mode_i,    domain: obc, description: "Antenna deployment status B (LEOP)" }
+  depl_a_isis_b:  { type: mode_i,    domain: obc, description: "Antenna deployment status B' (LEOP)" }
+  gnss_ts:        { type: utc_token, domain: gnss, description: "GNSS block sample time" }
+  error_word:     { type: count_l,   domain: gnss, description: "GNSS auxiliary data" }
+  nr_stats:       { type: count_l,   domain: gnss, description: "GNSS auxiliary data" }
+  rxstat:         { type: count_l,   domain: gnss, description: "GNSS auxiliary data" }
+  eps_ts:         { type: utc_token, domain: eps, description: "EPS block sample time" }
+  vboost1:        { type: mv_i,      domain: eps, description: "Boost converter 0 voltage" }
+  vboost2:        { type: mv_i,      domain: eps, description: "Boost converter 1 voltage" }
+  vboost3:        { type: mv_i,      domain: eps, description: "Boost converter 2 voltage" }
+  vbatt:          { type: mv_i,      domain: eps, description: "Battery voltage" }
+  curout1:        { type: ma_i,      domain: eps, description: "Switchable output 1 current" }
+  curout2:        { type: ma_i,      domain: eps }
+  curout3:        { type: ma_i,      domain: eps }
+  curout4:        { type: ma_i,      domain: eps }
+  curout5:        { type: ma_i,      domain: eps }
+  curout6:        { type: ma_i,      domain: eps }
+  curin1:         { type: ma_i,      domain: eps, description: "Input 1 current" }
+  curin2:         { type: ma_i,      domain: eps }
+  curin3:         { type: ma_i,      domain: eps }
+  cursun:         { type: ma_i,      domain: eps, description: "Current from boost converters" }
+  cursys:         { type: ma_i,      domain: eps, description: "Current out of the battery" }
+  battmode:       { type: mode_i,    domain: eps, description: "Battery mode" }
+  eps_bootcause:  { type: mode_i,    domain: eps, description: "EPS boot cause" }
+  uhf_ts:         { type: utc_token, domain: uhf, description: "UHF block sample time" }
+  uhf_temp_brd:   { type: degc_i,    domain: uhf, description: "UHF board temperature" }
+  uhf_temp_pa:    { type: degc_i,    domain: uhf, description: "UHF temperature near PA" }
+  uhf_tx_count:   { type: count_l,   domain: uhf, description: "UHF packets transmitted since reboot" }
+  uhf_rx_count:   { type: count_l,   domain: uhf, description: "UHF packets received since reboot" }
+  uhf_boot_count: { type: count_l,   domain: uhf, description: "UHF boot count" }
+  uhf_boot_cause: { type: hex_token, domain: uhf, description: "UHF reboot cause" }
+  vhf_ts:         { type: utc_token, domain: vhf, description: "VHF block sample time" }
+  vhf_temp_brd:   { type: degc_i,    domain: vhf, description: "VHF board temperature" }
+  vhf_temp_pa:    { type: degc_i,    domain: vhf, description: "VHF temperature near PA" }
+  vhf_tx_count:   { type: count_l,   domain: vhf, description: "VHF packets transmitted since reboot" }
+  vhf_rx_count:   { type: count_l,   domain: vhf, description: "VHF packets received since reboot" }
+  vhf_boot_count: { type: count_l,   domain: vhf, description: "VHF boot count" }
+  vhf_boot_cause: { type: hex_token, domain: vhf, description: "VHF reboot cause" }
+
+sequence_containers:
+  beacon_hk:
+    domain: obc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk
+    entry_list:
+      - { name: obc_ts }
+      - { name: ram_image }
+      - { name: temp_mcu }
+      - { name: temp_ram }
+      - { name: resetcause }
+      - { name: obc_bootcause }
+      - { name: bootcount }
+      - { name: depl_isis_a }
+      - { name: depl_a_isis_a }
+      - { name: depl_isis_b }
+      - { name: depl_a_isis_b }
+      - { name: gnss_ts }
+      - { name: error_word }
+      - { name: nr_stats }
+      - { name: rxstat }
+      - { name: eps_ts }
+      - { name: vboost1 }
+      - { name: vboost2 }
+      - { name: vboost3 }
+      - { name: vbatt }
+      - { name: curout1 }
+      - { name: curout2 }
+      - { name: curout3 }
+      - { name: curout4 }
+      - { name: curout5 }
+      - { name: curout6 }
+      - { name: curin1 }
+      - { name: curin2 }
+      - { name: curin3 }
+      - { name: cursun }
+      - { name: cursys }
+      - { name: battmode }
+      - { name: eps_bootcause }
+      - { name: uhf_ts }
+      - { name: uhf_temp_brd }
+      - { name: uhf_temp_pa }
+      - { name: uhf_tx_count }
+      - { name: uhf_rx_count }
+      - { name: uhf_boot_count }
+      - { name: uhf_boot_cause }
+      - { name: vhf_ts }
+      - { name: vhf_temp_brd }
+      - { name: vhf_temp_pa }
+      - { name: vhf_tx_count }
+      - { name: vhf_rx_count }
+      - { name: vhf_boot_count }
+      - { name: vhf_boot_cause }
+  beacon_obc:
+    domain: obc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk_obc
+    entry_list:
+      - { name: obc_ts }
+      - { name: ram_image }
+      - { name: temp_mcu }
+      - { name: temp_ram }
+      - { name: resetcause }
+      - { name: obc_bootcause }
+      - { name: bootcount }
+      - { name: depl_isis_a }
+      - { name: depl_a_isis_a }
+      - { name: depl_isis_b }
+      - { name: depl_a_isis_b }
+  beacon_obc_gnss:
+    domain: obc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk_obc_gnss
+    entry_list:
+      - { name: obc_ts }
+      - { name: ram_image }
+      - { name: temp_mcu }
+      - { name: temp_ram }
+      - { name: resetcause }
+      - { name: obc_bootcause }
+      - { name: bootcount }
+      - { name: depl_isis_a }
+      - { name: depl_a_isis_a }
+      - { name: depl_isis_b }
+      - { name: depl_a_isis_b }
+      - { name: gnss_ts }
+      - { name: error_word }
+      - { name: nr_stats }
+      - { name: rxstat }
+  beacon_gnss:
+    domain: gnss
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk_gnss
+    entry_list:
+      - { name: gnss_ts }
+      - { name: error_word }
+      - { name: nr_stats }
+      - { name: rxstat }
+  beacon_gnss_eps:
+    domain: gnss
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk_gnss_eps
+    entry_list:
+      - { name: gnss_ts }
+      - { name: error_word }
+      - { name: nr_stats }
+      - { name: rxstat }
+      - { name: eps_ts }
+      - { name: vboost1 }
+      - { name: vboost2 }
+      - { name: vboost3 }
+      - { name: vbatt }
+      - { name: curout1 }
+      - { name: curout2 }
+      - { name: curout3 }
+      - { name: curout4 }
+      - { name: curout5 }
+      - { name: curout6 }
+      - { name: curin1 }
+      - { name: curin2 }
+      - { name: curin3 }
+      - { name: cursun }
+      - { name: cursys }
+      - { name: battmode }
+      - { name: eps_bootcause }
+  beacon_eps:
+    domain: eps
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk_eps
+    entry_list:
+      - { name: eps_ts }
+      - { name: vboost1 }
+      - { name: vboost2 }
+      - { name: vboost3 }
+      - { name: vbatt }
+      - { name: curout1 }
+      - { name: curout2 }
+      - { name: curout3 }
+      - { name: curout4 }
+      - { name: curout5 }
+      - { name: curout6 }
+      - { name: curin1 }
+      - { name: curin2 }
+      - { name: curin3 }
+      - { name: cursun }
+      - { name: cursys }
+      - { name: battmode }
+      - { name: eps_bootcause }
+  beacon_uhf:
+    domain: uhf
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk_uhf
+    entry_list:
+      - { name: uhf_ts }
+      - { name: uhf_temp_brd }
+      - { name: uhf_temp_pa }
+      - { name: uhf_tx_count }
+      - { name: uhf_rx_count }
+      - { name: uhf_boot_count }
+      - { name: uhf_boot_cause }
+  beacon_uhf_vhf:
+    domain: uhf
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk_uhf_vhf
+    entry_list:
+      - { name: uhf_ts }
+      - { name: uhf_temp_brd }
+      - { name: uhf_temp_pa }
+      - { name: uhf_tx_count }
+      - { name: uhf_rx_count }
+      - { name: uhf_boot_count }
+      - { name: uhf_boot_cause }
+      - { name: vhf_ts }
+      - { name: vhf_temp_brd }
+      - { name: vhf_temp_pa }
+      - { name: vhf_tx_count }
+      - { name: vhf_rx_count }
+      - { name: vhf_boot_count }
+      - { name: vhf_boot_cause }
+  beacon_vhf:
+    domain: vhf
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk_vhf
+    entry_list:
+      - { name: vhf_ts }
+      - { name: vhf_temp_brd }
+      - { name: vhf_temp_pa }
+      - { name: vhf_tx_count }
+      - { name: vhf_rx_count }
+      - { name: vhf_boot_count }
+      - { name: vhf_boot_cause }
+
+ui:
+  rx_columns:
+    - { id: type,  label: type, width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,  width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,  width: 44, align: right, path: header.dst }
+    - { id: dport, label: port, width: 44, align: right, path: header.dport }
+    - { id: vbat,  label: mV,   width: 56, align: right, path: beacon.vbat_mv }
+    - { id: len,   label: len,  width: 48, align: right, path: header.len }

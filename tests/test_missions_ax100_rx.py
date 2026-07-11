@@ -1,5 +1,6 @@
 """Tests for the AX100 Mode 5 RX-only mission family
-(snipe / catsat / suomi100 / luojia1 + the shared ax100_rx library)."""
+(snipe / catsat / suomi100 / luojia1 / roads / aistechsat2 / innocube /
+nushsat1 + the shared ax100_rx library)."""
 
 from __future__ import annotations
 
@@ -14,9 +15,13 @@ from mav_gss_lib.platform.loader import discover_missions, load_mission_spec_fro
 from mav_gss_lib.platform.spec import parse_yaml
 
 from mav_gss_lib.missions.ax100_rx import Ax100RxPacketOps
-from mav_gss_lib.missions.snipe.mission import TARGET as SNIPE_TARGET
+from mav_gss_lib.missions.aistechsat2.mission import TARGET as AISTECH_TARGET
 from mav_gss_lib.missions.catsat.mission import TARGET as CATSAT_TARGET
+from mav_gss_lib.missions.innocube.mission import TARGET as INNOCUBE_TARGET
 from mav_gss_lib.missions.luojia1.mission import TARGET as LUOJIA_TARGET
+from mav_gss_lib.missions.nushsat1.mission import TARGET as NUSHSAT_TARGET
+from mav_gss_lib.missions.roads.mission import TARGET as ROADS_TARGET
+from mav_gss_lib.missions.snipe.mission import TARGET as SNIPE_TARGET
 from mav_gss_lib.missions.suomi100.mission import TARGET as SUOMI_TARGET
 from mav_gss_lib.missions.suomi100.telemetry import (
     BEACON0_SIZE,
@@ -28,13 +33,20 @@ from mav_gss_lib.missions.suomi100.telemetry import (
 M5_META = {"transmitter": "9k6 FSK AX100 ASM+Golay downlink"}
 AX25_META = {"transmitter": "9k6 FSK AX.25 G3RUH downlink"}
 
-ALL_TARGETS = [SNIPE_TARGET, CATSAT_TARGET, SUOMI_TARGET, LUOJIA_TARGET]
+ALL_TARGETS = [
+    SNIPE_TARGET, CATSAT_TARGET, SUOMI_TARGET, LUOJIA_TARGET, ROADS_TARGET,
+    AISTECH_TARGET, INNOCUBE_TARGET, NUSHSAT_TARGET,
+]
 
 EXPECTED = {
     "snipe": (56749, 435_450_000.0, "435.450 MHz"),
     "catsat": (60246, 437_185_000.0, "437.185 MHz"),
     "suomi100": (43804, 437_775_000.0, "437.775 MHz"),
     "luojia1": (43485, 437_250_000.0, "437.250 MHz"),
+    "roads": (64535, 435_400_000.0, "435.400 MHz"),
+    "aistechsat2": (43768, 436_600_000.0, "436.600 MHz"),
+    "innocube": (62616, 435_950_000.0, "435.950 MHz"),
+    "nushsat1": (63211, 436_200_000.0, "436.200 MHz"),
 }
 
 
@@ -48,7 +60,8 @@ def _csp_header(prio=1, src=1, dest=10, dport=25, sport=1, flags=0) -> bytes:
 
 def test_all_family_missions_discoverable():
     ids = {m["id"] for m in discover_missions()}
-    assert {"snipe", "catsat", "suomi100", "luojia1"} <= ids
+    assert {"snipe", "catsat", "suomi100", "luojia1", "roads",
+            "aistechsat2", "innocube", "nushsat1"} <= ids
 
 
 def test_shared_library_is_not_a_mission():
@@ -92,7 +105,8 @@ def test_build_respects_operator_values(target, tmp_path):
 
 def test_mission_ymls_parse_standalone():
     missions_root = Path(__file__).resolve().parent.parent / "mav_gss_lib" / "missions"
-    for mission_id in ("snipe", "catsat", "suomi100", "luojia1"):
+    for mission_id in ("snipe", "catsat", "suomi100", "luojia1", "roads",
+                       "aistechsat2", "innocube", "nushsat1"):
         mission = parse_yaml(missions_root / mission_id / "mission.yml", plugins={})
         assert mission.ui is not None
         assert len(mission.ui.rx_columns) >= 5
@@ -412,6 +426,282 @@ def test_catsat_yml_containers_match_field_table():
     assert len(containers) == len(ct.BEACONS)
     for type_id, (name, _fields) in ct.BEACONS.items():
         assert len(containers[name]["entry_list"]) == ct.token_count(type_id), name
+
+
+# ---------------------------------------------------------------- roads
+
+
+def _roads_beacon(values: dict | None = None, *, protocol_version=1,
+                  satid=4242, ts=1_783_800_000, blocks=None) -> bytes:
+    from mav_gss_lib.missions.roads import telemetry as rt
+
+    values = values or {}
+    body = struct.pack(">BBBH", protocol_version, 0, 1, satid)
+    fields = rt._FIELDS if blocks is None else tuple(
+        f for f in rt._FIELDS if f[0] in blocks)
+    for _domain, key, fmt, _render in fields:
+        body += struct.pack(">HIH", 0, ts, 1)
+        body += struct.pack(">" + fmt, values.get(key, 7))
+    return body
+
+
+def test_roads_beacon_size_matches_und_format():
+    from mav_gss_lib.missions.roads import telemetry as rt
+
+    assert rt.BEACON_SIZE == 444
+    assert rt.TOKEN_COUNT == 47
+    assert len(_roads_beacon()) == rt.BEACON_SIZE
+
+
+def test_roads_on_air_runs_fit_one_mode5_frame():
+    """Every supported slice except the full table fits RS(255,223)."""
+    from mav_gss_lib.missions.roads import telemetry as rt
+
+    for run in rt.SUPPORTED_RUNS:
+        if run != ("obc", "gnss", "eps", "uhf", "vhf"):
+            assert rt.run_size(run) <= rt.MODE5_INNER_CAP, run
+    # the documented full table is deliberately NOT transmittable in one frame
+    assert rt.BEACON_SIZE > rt.MODE5_INNER_CAP
+
+
+def test_roads_beacon_end_to_end_parameters(tmp_path):
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "roads", {},
+    )
+    assert runtime.walker is not None
+    frame = _csp_header(src=1, dest=10) + _roads_beacon({
+        "vbatt": 8123,
+        "temp_mcu": -12,
+        "bootcount": 57,
+        "cursys": 415,
+        "battmode": 3,
+        "uhf_boot_cause": 0xDEADBEEF,
+    })
+    result = runtime.process_rx(M5_META, frame)
+    values = {u.name: u for u in result.packet.parameters}
+    assert result.container_id == "beacon_hk"
+    assert len(values) == 47
+    assert values["eps.vbatt"].value == 8123
+    assert values["eps.vbatt"].unit == "mV"
+    assert values["obc.temp_mcu"].value == -12
+    assert values["obc.bootcount"].value == 57
+    assert values["eps.cursys"].value == 415
+    assert values["uhf.uhf_boot_cause"].value == "0xdeadbeef"
+    assert values["obc.obc_ts"].value == "2026-07-11T20:00:00+00:00"
+    facts = result.packet.mission["facts"]
+    assert facts["header"]["type"] == "BCN"
+    assert facts["beacon"]["satid"] == 4242
+    assert facts["beacon"]["vbat_mv"] == 8123
+    assert result.packet.flags.is_unknown is False
+
+
+def test_roads_eps_slice_end_to_end(tmp_path):
+    """A 173-byte eps-only beacon — the realistic on-air shape."""
+    from mav_gss_lib.missions.roads import telemetry as rt
+
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "roads", {},
+    )
+    beacon = _roads_beacon({"vbatt": 8123, "cursys": 415, "battmode": 3},
+                           blocks=("eps",))
+    assert len(beacon) == rt.run_size(("eps",)) == 173
+    result = runtime.process_rx(M5_META, _csp_header() + beacon)
+    values = {u.name: u for u in result.packet.parameters}
+    assert result.container_id == "beacon_eps"
+    assert len(values) == 18
+    assert values["eps.vbatt"].value == 8123
+    assert values["eps.cursys"].value == 415
+    facts = result.packet.mission["facts"]
+    assert facts["beacon"]["kind"] == "hk_eps"
+    assert facts["beacon"]["blocks"] == "eps"
+    assert facts["beacon"]["vbat_mv"] == 8123
+
+
+def test_roads_obc_gnss_slice_end_to_end(tmp_path):
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "roads", {},
+    )
+    beacon = _roads_beacon({"bootcount": 57}, blocks=("obc", "gnss"))
+    result = runtime.process_rx(M5_META, _csp_header() + beacon)
+    values = {u.name: u for u in result.packet.parameters}
+    assert result.container_id == "beacon_obc_gnss"
+    assert len(values) == 15
+    assert values["obc.bootcount"].value == 57
+    assert "vbat_mv" not in result.packet.mission["facts"]["beacon"]
+
+
+def test_roads_uhf_slice_assumes_uhf_with_warning():
+    from mav_gss_lib.missions.roads.telemetry import decode_beacon
+
+    hk = decode_beacon({}, _roads_beacon(blocks=("uhf",)))
+    assert hk is not None
+    assert hk.container_kind == "hk_uhf"
+    assert any("ambiguous" in w for w in hk.warnings)
+
+
+def test_roads_wrong_protocol_version_is_opaque():
+    from mav_gss_lib.missions.roads.telemetry import decode_beacon
+
+    assert decode_beacon({}, _roads_beacon(protocol_version=2)) is None
+
+
+def test_roads_unsupported_length_is_opaque():
+    from mav_gss_lib.missions.roads.telemetry import decode_beacon
+
+    assert decode_beacon({}, _roads_beacon()[:-5]) is None
+    assert decode_beacon({}, _roads_beacon() + b"\xaa\xbb") is None
+    # a 308-byte obc+gnss+eps slice cannot fit one Mode 5 frame
+    assert decode_beacon({}, _roads_beacon(blocks=("obc", "gnss", "eps"))) is None
+
+
+def test_roads_yml_containers_match_runs():
+    """Every run container's entry count equals the decoder token count."""
+    import yaml as _yaml
+
+    from mav_gss_lib.missions.roads import telemetry as rt
+
+    yml = Path(__file__).resolve().parent.parent / "mav_gss_lib" / "missions" / "roads" / "mission.yml"
+    doc = _yaml.safe_load(yml.read_text(encoding="utf-8"))
+    containers = doc["sequence_containers"]
+    assert len(containers) == len(rt.SUPPORTED_RUNS)
+    by_kind = {c["restriction_criteria"]["packet"]["kind"]: c
+               for c in containers.values()}
+    for run in rt.SUPPORTED_RUNS:
+        container = by_kind[rt.run_kind(run)]
+        assert len(container["entry_list"]) == rt.run_token_count(run), run
+
+
+# ---------------------------------------------------------------- aistechsat2
+
+
+def _lume_frame(payload_id: int, overrides: dict | None = None, *,
+                day=9500, ms=43_200_123) -> bytes:
+    from mav_gss_lib.missions.aistechsat2 import telemetry as at
+
+    overrides = overrides or {}
+    _, fields = at.PAYLOADS[payload_id]
+    body = b""
+    for name, fmt, count, _render, _t in fields:
+        if fmt == "32s":
+            body += overrides.get(name, b"AIST fw v2.1").ljust(32, b"\x00")[:32]
+        elif count == 1:
+            default = 2.5 if fmt == "f" else 2
+            body += struct.pack(">" + fmt, overrides.get(name, default))
+        else:
+            default = [2.5 if fmt == "f" else 2] * count
+            body += struct.pack(">" + fmt * count, *overrides.get(name, default))
+    sp_header = struct.pack(">HHH", (1 << 11) | 100, (3 << 14) | 7, 0)
+    return (bytes(5) + sp_header + bytes(7) + struct.pack(">HI", day, ms)
+            + struct.pack(">H", payload_id) + body + bytes(8))
+
+
+def test_aistechsat2_all_payloads_end_to_end(tmp_path):
+    from mav_gss_lib.missions.aistechsat2 import telemetry as at
+
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "aistechsat2", {},
+    )
+    assert runtime.walker is not None
+    for payload_id, (name, _fields) in sorted(at.PAYLOADS.items()):
+        frame = _csp_header() + _lume_frame(payload_id)
+        result = runtime.process_rx(M5_META, frame)
+        assert result.container_id == name, (payload_id, result.container_id)
+        assert len(result.packet.parameters) == at.token_count(payload_id), name
+        assert result.packet.flags.is_unknown is False
+
+
+def test_aistechsat2_eps_values_end_to_end(tmp_path):
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "aistechsat2", {},
+    )
+    frame = _csp_header(src=5, dest=9) + _lume_frame(2, {
+        "vbatt": 7900,
+        "cursun": 415,
+        "battmode": 3,
+        "counter_boot": 88,
+        "output": bytes([1, 0, 1, 0, 0, 0, 0, 1]),
+    })
+    result = runtime.process_rx(M5_META, frame)
+    values = {u.name: u for u in result.packet.parameters}
+    assert result.container_id == "eps"
+    assert values["eps.eps_vbatt"].value == 7900
+    assert values["eps.eps_vbatt"].unit == "mV"
+    assert values["eps.eps_cursun"].value == 415
+    assert values["eps.eps_counter_boot"].value == 88
+    assert values["eps.eps_output"].value == "0x0100010000000001"
+    assert values["eps.eps_pus_day"].value == 9500
+    assert values["eps.eps_pus_ms"].value == 43_200_123
+    facts = result.packet.mission["facts"]
+    assert facts["beacon"]["kind"] == "eps"
+    assert facts["beacon"]["vbat_mv"] == 7900
+
+
+def test_aistechsat2_obc_string_and_temps():
+    from mav_gss_lib.missions.aistechsat2.telemetry import decode_beacon
+
+    hk = decode_beacon({}, _lume_frame(1, {"temp": [-125, 231]}))
+    assert hk is not None
+    tokens = hk.tokens.split(b" ")
+    assert b"AIST_fw_v2.1" in tokens
+    assert b"-12.5" in tokens
+    assert b"23.1" in tokens
+
+
+def test_aistechsat2_unknown_payload_id_is_opaque():
+    from mav_gss_lib.missions.aistechsat2.telemetry import decode_beacon
+
+    frame = bytearray(_lume_frame(1))
+    frame[24:26] = (99).to_bytes(2, "big")
+    assert decode_beacon({}, bytes(frame)) is None
+    assert decode_beacon({}, _lume_frame(2)[:40]) is None
+
+
+def test_aistechsat2_yml_containers_match_field_table():
+    """Every container's entry count equals the decoder's token count."""
+    import yaml as _yaml
+
+    from mav_gss_lib.missions.aistechsat2 import telemetry as at
+
+    yml = Path(__file__).resolve().parent.parent / "mav_gss_lib" / "missions" / "aistechsat2" / "mission.yml"
+    doc = _yaml.safe_load(yml.read_text(encoding="utf-8"))
+    containers = doc["sequence_containers"]
+    assert len(containers) == len(at.PAYLOADS)
+    for payload_id, (name, _fields) in at.PAYLOADS.items():
+        assert len(containers[name]["entry_list"]) == at.token_count(payload_id), name
+
+
+def test_aistechsat2_matches_gr_satellites_lume():
+    """The port must agree with the reference construct parser."""
+    satellites = pytest.importorskip("satellites.telemetry.lume")
+
+    frame_after_csp = _lume_frame(2, {
+        "vbatt": 7900,
+        "cursun": 415,
+        "battmode": 3,
+        "counter_boot": 88,
+        "curout": [10, 20, 30, 40, 50, 60],
+        "output": bytes([1, 0, 1, 0, 0, 0, 0, 1]),
+    })
+    parsed = satellites.lume.parse(_csp_header() + frame_after_csp)
+    data = parsed.payload.data
+    assert parsed.payload.id == 2
+    assert data.vbatt == 7900
+    assert data.cursun == 415
+    assert data.battmode == 3
+    assert data.counter_boot == 88
+    assert list(data.curout) == [10, 20, 30, 40, 50, 60]
+    assert list(data.output) == [1, 0, 1, 0, 0, 0, 0, 1]
+    assert parsed.pus_time_field.day == 9500
+    assert parsed.pus_time_field.milliseconds_of_day == 43_200_123
+
+    from mav_gss_lib.missions.aistechsat2.telemetry import decode_beacon
+
+    hk = decode_beacon({}, frame_after_csp)
+    assert hk is not None
+    tokens = hk.tokens.split(b" ")
+    assert tokens[0] == b"9500"
+    assert b"7900" in tokens
+    assert b"0x0100010000000001" in tokens
 
 
 # ---------------------------------------------------------------- decoder yml
