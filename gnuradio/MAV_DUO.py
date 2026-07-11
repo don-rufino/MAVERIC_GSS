@@ -558,7 +558,11 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         _tx_actual_freq_thread = threading.Thread(target=_tx_actual_freq_probe)
         _tx_actual_freq_thread.daemon = True
         _tx_actual_freq_thread.start()
-        self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = 'MAVERIC_DECODER.yml', samp_rate = (int(samp_rate/rx_decim)), grc_block = True, iq = True, options = "")
+        # --syncword_threshold 6 (default 4): at threshold BER a real frame
+        # can lose 5-6 of the 32 ASM bits; Golay length check + RS(255,223)
+        # + CSP CRC-32C gate the extra false correlations. AX100 branches
+        # only — the AX.25/HDLC branches have no syncword correlator.
+        self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = 'MAVERIC_DECODER.yml', samp_rate = (int(samp_rate/rx_decim)), grc_block = True, iq = True, options = "--syncword_threshold 6")
         self.satellites_hexdump_sink_0_0 = satellites.components.datasinks.hexdump_sink(options="")
         self.satellites_hexdump_sink_0 = satellites.components.datasinks.hexdump_sink(options="")
         self._rx_actual_freq_label_tool_bar = Qt.QToolBar(self)

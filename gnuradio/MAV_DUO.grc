@@ -999,7 +999,7 @@ blocks:
     minoutbuf: '0'
     name: ''
     norad: '0'
-    options: '""'
+    options: '"--syncword_threshold 6"'
     samp_rate: int(samp_rate/rx_decim)
   states:
     bus_sink: false

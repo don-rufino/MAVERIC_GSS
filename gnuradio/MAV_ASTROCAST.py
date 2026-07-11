@@ -9,8 +9,11 @@ spectrum/waterfall before any beacon filtering. The decimated stream also
 feeds MAV_DUO's waterfall autosave recorder (mission-tagged PNG per run
 under GSS_WATERFALL_DIR). Matched decoder branches every 2 kHz from -12 to
 +12 kHz cover +/-12 kHz of residual carrier error before FM demodulation
-and gr-satellites' native Astrocast FX.25 decoder. Both NRZ-I and legacy
-NRZ failsafe deframers run in parallel. Deframed PDUs publish on
+and gr-satellites' native Astrocast FX.25 decoder, and a dual-tone
+matched-filter fine bank (500 Hz centres across +/-3 kHz) bypasses the
+discriminator entirely for extra threshold where doppler-engaged residuals
+actually land. Both NRZ-I and legacy NRZ failsafe deframers run in
+parallel on every branch. Deframed PDUs publish on
 the GSS RX frame bus.
 
 Input modes:
@@ -38,7 +41,7 @@ import traceback
 
 import numpy as np
 
-from gnuradio import blocks, gr, zeromq
+from gnuradio import blocks, digital, gr, zeromq
 from gnuradio import filter as gr_filter
 from gnuradio.fft import window
 from gnuradio.filter import firdes
@@ -46,6 +49,8 @@ from gnuradio.filter import firdes
 import satellites
 import satellites.components.datasinks
 import satellites.core
+from satellites.components.deframers import astrocast_fx25_deframer
+from satellites.hier.rms_agc_f import rms_agc_f
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -79,6 +84,20 @@ BEACON_CHANNEL_TRANSITION_HZ = 900.0
 BEACON_CHANNEL_DECIM = 10
 BEACON_DECODER_RATE = ACQUISITION_RATE // BEACON_CHANNEL_DECIM
 BEACON_DEVIATION_HZ = 1_200.0
+BEACON_BAUD = 1_200.0
+# Matched-filter fine bank: deviation == baud (h = 2) makes the two beacon
+# tones orthogonal, so a per-symbol dual-tone integrate-and-dump detector
+# has no FM click threshold and out-decodes the discriminator branches at
+# low CNR (proven on the 2026-07-11 capture). Its correlators lose ~0.6 dB
+# at 250 Hz of mistune, hence dense 500 Hz centres across the +/-3 kHz
+# where doppler-engaged residuals actually land (measured -1.4..+2.6 kHz);
+# the discriminator bank keeps owning coverage out to +/-12 kHz.
+MATCHED_FILTER_BRANCH_CENTERS_HZ = tuple(
+    float(hz) for hz in range(-3_000, 3_001, 500))
+MATCHED_FILTER_DECIM = 10
+MATCHED_FILTER_CLK_BW = 0.06
+MATCHED_FILTER_CLK_LIMIT = 0.008
+MATCHED_FILTER_SYNC_THRESHOLD = 8
 WAV_SAMP_RATE = 48_000
 DECODER_OPTIONS = "--clk_limit 0.008"
 
@@ -343,6 +362,67 @@ class _IqRecorder(gr.sync_block):
         return True
 
 
+def _attach_matched_filter_bank(tb, source):
+    """Dual-tone noncoherent matched-filter decode bank on `source`.
+
+    One chain per MATCHED_FILTER_BRANCH_CENTERS_HZ entry: a pair of
+    one-symbol integrate-and-dump correlators parked on the two beacon
+    tones, magnitude-difference soft symbols, Gardner recovery, and the
+    FX.25 deframers directly — no discriminator. NRZ-I decoding is
+    polarity-invariant; the legacy-NRZ deframer gets both polarities.
+    Returns the deframers whose 'out' ports carry decoded PDUs (the
+    caller fans them into the PDU deduplicator, which collapses the
+    multi-branch decodes of a strong burst).
+    """
+    fs = float(ACQUISITION_RATE)
+    sps = (fs / MATCHED_FILTER_DECIM) / BEACON_BAUD
+    ntaps = int(round(fs / BEACON_BAUD))
+    taps = [1.0 / ntaps] * ntaps
+    tb.matched_filter_blocks = []
+    tb.matched_filter_constellations = []
+    deframers = []
+    for center_hz in MATCHED_FILTER_BRANCH_CENTERS_HZ:
+        tone_high = gr_filter.freq_xlating_fir_filter_ccf(
+            MATCHED_FILTER_DECIM, taps, center_hz + BEACON_DEVIATION_HZ, fs)
+        tone_low = gr_filter.freq_xlating_fir_filter_ccf(
+            MATCHED_FILTER_DECIM, taps, center_hz - BEACON_DEVIATION_HZ, fs)
+        mag_high = blocks.complex_to_mag(1)
+        mag_low = blocks.complex_to_mag(1)
+        soft_symbols = blocks.sub_ff(1)
+        agc = rms_agc_f(2e-2 / sps, 1)
+        # symbol_sync_ff keeps only a raw pointer to the constellation;
+        # the python object must stay referenced or it is GC'd mid-run.
+        constellation = digital.constellation_bpsk()
+        symbol_sync = digital.symbol_sync_ff(
+            digital.TED_GARDNER, sps, MATCHED_FILTER_CLK_BW, 1.0, 1.47,
+            MATCHED_FILTER_CLK_LIMIT * sps, 1, constellation.base(),
+            digital.IR_PFB_NO_MF)
+        invert = blocks.multiply_const_ff(-1.0)
+        deframer_nrzi = astrocast_fx25_deframer(
+            syncword_threshold=MATCHED_FILTER_SYNC_THRESHOLD,
+            nrzi=True, options="")
+        deframer_nrz = astrocast_fx25_deframer(
+            syncword_threshold=MATCHED_FILTER_SYNC_THRESHOLD,
+            nrzi=False, options="")
+        deframer_nrz_inverted = astrocast_fx25_deframer(
+            syncword_threshold=MATCHED_FILTER_SYNC_THRESHOLD,
+            nrzi=False, options="")
+        tb.connect(source, tone_high, mag_high)
+        tb.connect(source, tone_low, mag_low)
+        tb.connect(mag_high, (soft_symbols, 0))
+        tb.connect(mag_low, (soft_symbols, 1))
+        tb.connect(soft_symbols, agc, symbol_sync)
+        tb.connect(symbol_sync, deframer_nrzi)
+        tb.connect(symbol_sync, deframer_nrz)
+        tb.connect(symbol_sync, invert, deframer_nrz_inverted)
+        tb.matched_filter_constellations.append(constellation)
+        tb.matched_filter_blocks.extend([
+            tone_high, tone_low, mag_high, mag_low, soft_symbols, agc,
+            symbol_sync, invert])
+        deframers.extend([deframer_nrzi, deframer_nrz, deframer_nrz_inverted])
+    return deframers
+
+
 def _build_core(tb, wavfile, zmq_addr, doppler_addr):
     """Construct the shared DSP chain (sources, decoder, ZMQ/hexdump sinks)
     on `tb`. GUI-agnostic: both the Qt and headless top blocks call this."""
@@ -433,6 +513,13 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
                 (demodulator, 0),
                 (decoder, 0),
             )
+        tb.matched_filter_deframers = _attach_matched_filter_bank(tb, tb.rx_lpf)
+        mf_centers = MATCHED_FILTER_BRANCH_CENTERS_HZ
+        print(
+            f"MAV_ASTROCAST matched-filter bank: {len(mf_centers)} branches, "
+            f"{mf_centers[0] / 1_000:+g} to {mf_centers[-1] / 1_000:+g} kHz "
+            f"every {(mf_centers[1] - mf_centers[0]) / 1_000:g} kHz",
+            flush=True)
         tb.waterfall_logger = _WaterfallLogger()
         tb.connect((tb.rx_lpf, 0), (tb.waterfall_logger, 0))
         tb.iq_recorder = _IqRecorder(samp_rate=float(ACQUISITION_RATE))
@@ -450,6 +537,10 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
     for decoder in decoders:
         tb.msg_connect(
             (decoder, "out"),
+            (tb.beacon_pdu_deduplicator, "in"))
+    for deframer in getattr(tb, "matched_filter_deframers", ()):
+        tb.msg_connect(
+            (deframer, "out"),
             (tb.beacon_pdu_deduplicator, "in"))
     tb.msg_connect(
         (tb.beacon_pdu_deduplicator, "out"),

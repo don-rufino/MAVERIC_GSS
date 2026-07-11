@@ -109,6 +109,28 @@ def test_live_path_has_translated_frequency_search_branches():
         assert nearest_hz + flowgraph.BEACON_DEVIATION_HZ <= passband_edge_hz
 
 
+def test_live_matched_filter_bank_geometry_and_wiring():
+    flowgraph = _flowgraph_module()
+
+    centers = flowgraph.MATCHED_FILTER_BRANCH_CENTERS_HZ
+    assert centers == tuple(float(hz) for hz in range(-3_000, 3_001, 500))
+
+    # Tone correlators lose ~0.6 dB at 250 Hz of mistune; every residual in
+    # the fine-bank span must land within that of a centre.
+    for residual_hz in range(-3_000, 3_001, 50):
+        nearest_hz = min(abs(residual_hz - c) for c in centers)
+        assert nearest_hz <= 250.0
+
+    bank_source = inspect.getsource(flowgraph._attach_matched_filter_bank)
+    assert "astrocast_fx25_deframer" in bank_source
+    assert "complex_to_mag" in bank_source
+    assert "quadrature_demod" not in bank_source  # no discriminator here
+
+    core_source = inspect.getsource(flowgraph._build_core)
+    assert "_attach_matched_filter_bank" in core_source
+    assert "matched_filter_deframers" in core_source
+
+
 def test_live_search_bank_covers_satnogs_observed_frequency():
     flowgraph = _flowgraph_module()
 
