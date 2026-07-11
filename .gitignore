@@ -36,6 +36,10 @@ mav_gss_lib/missions/maveric/mission.yml.bak.*
 # === Operator-Local Config ===
 # Main station config — operator ZMQ addresses, local paths
 mav_gss_lib/gss.yml
+# Per-mission station config — same as above, fetched TLEs/tuned LO offsets
+# are instance-specific. gss.example.yml is the tracked template, not ignored.
+mav_gss_lib/gss.*.yml
+!mav_gss_lib/gss.example.yml
 # Common local secret/config files
 .env
 .env.*
