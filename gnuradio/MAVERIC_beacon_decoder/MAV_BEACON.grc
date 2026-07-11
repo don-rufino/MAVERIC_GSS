@@ -1,0 +1,338 @@
+options:
+  parameters:
+    author: Irfan Annuar - USC ISI SERC
+    catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
+    comment: 'Public SatNOGS-style MAVERIC beacon decoder. Default source is a live
+
+      RTL-SDR. For IQ-recording replay: enable the File Source + Throttle
+
+      (select, Ctrl+E), disable the RTL source (Ctrl+D), then set iq_file and
+
+      samp_rate to match the recording.'
+    copyright: USC ISI SERC
+    description: 'RX-only decoder for the MAVERIC 9k6 FSK AX100 ASM+Golay downlink.
+      Writes one timestamped hex line per decoded frame to log_path.'
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: no_gui
+    hier_block_src_path: '.:'
+    id: MAV_BEACON
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: run
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: MAVERIC PUBLIC BEACON DECODER
+    window_size: (1280,1024)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8.0]
+    rotation: 0
+    state: enabled
+
+blocks:
+- name: chdir_to_script_dir
+  id: snippet
+  parameters:
+    section: init_before_blocks
+    priority: '0'
+    code: |-
+      # Run from any directory: resolve MAVERIC_BEACON.yml and the hex log
+      # relative to this script, not the operator's shell working directory.
+      import os
+      os.chdir(os.path.dirname(os.path.abspath(__file__)))
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 224.0]
+    rotation: 0
+    state: enabled
+- name: samp_rate
+  id: variable
+  parameters:
+    comment: 'SDR / IQ sample rate (Hz). RTL-SDR legal min ~225 kHz; for replay
+      set this to the recording rate.'
+    value: '250000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 120.0]
+    rotation: 0
+    state: enabled
+- name: freq
+  id: variable
+  parameters:
+    comment: MAVERIC UHF downlink center (Hz)
+    value: 437.575e6
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [168, 120.0]
+    rotation: 0
+    state: enabled
+- name: gain
+  id: variable
+  parameters:
+    comment: RTL-SDR RF gain (dB)
+    value: '40'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [320, 120.0]
+    rotation: 0
+    state: enabled
+- name: freq_corr
+  id: variable
+  parameters:
+    comment: RTL-SDR frequency correction (PPM)
+    value: '0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [440, 120.0]
+    rotation: 0
+    state: enabled
+- name: freq_offset
+  id: variable
+  parameters:
+    comment: 'Manual tune nudge (Hz). The decoder already tolerates ~+/-10 kHz, so
+      leave 0 unless your dongle is off-frequency or the bird is mistuned.'
+    value: '0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [552, 120.0]
+    rotation: 0
+    state: enabled
+- name: iq_file
+  id: variable
+  parameters:
+    comment: Complex IQ recording path (replay mode only)
+    value: '""'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [576, 120.0]
+    rotation: 0
+    state: enabled
+- name: log_path
+  id: variable
+  parameters:
+    comment: Decoded-frame hex log (hand this file to the MAVERIC team)
+    value: '"maveric_beacon.log"'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [760, 120.0]
+    rotation: 0
+    state: enabled
+- name: soapy_rtlsdr_source_0
+  id: soapy_rtlsdr_source
+  parameters:
+    affinity: ''
+    agc: 'False'
+    alias: ''
+    bias: 'False'
+    bufflen: '16384'
+    center_freq: freq + freq_offset
+    comment: 'LIVE MODE (default). Tune an RTL-SDR to the MAVERIC downlink.
+
+      Disable (Ctrl+D) to use the File Source replay path instead.'
+    dev_args: ''
+    freq_correction: freq_corr
+    gain: gain
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_rate: samp_rate
+    type: fc32
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [88, 244.0]
+    rotation: 0
+    state: enabled
+- name: blocks_file_source_0
+  id: blocks_file_source
+  parameters:
+    affinity: ''
+    alias: ''
+    begin_tag: pmt.PMT_NIL
+    comment: 'REPLAY MODE. Enable this + the Throttle (Ctrl+E), disable the RTL
+
+      source, set iq_file and samp_rate.'
+    file: iq_file
+    length: '0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    offset: '0'
+    repeat: 'False'
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [88, 396.0]
+    rotation: 0
+    state: disabled
+- name: blocks_throttle2_0
+  id: blocks_throttle2
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: Paces file replay to real time
+    ignoretag: 'True'
+    limit: auto
+    maximum: '0.1'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samples_per_second: samp_rate
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [352, 404.0]
+    rotation: 0
+    state: disabled
+- name: satellites_satellite_decoder_0
+  id: satellites_satellite_decoder
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 9k6 FSK AX100 ASM+Golay (from MAVERIC_BEACON.yml)
+    definition: file
+    file: MAVERIC_BEACON.yml
+    iq: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: ''
+    norad: '0'
+    options: '""'
+    samp_rate: samp_rate
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 288.0]
+    rotation: 0
+    state: enabled
+- name: epy_block_0
+  id: epy_block
+  parameters:
+    _source_code: |
+      """MAVERIC beacon hex logger.
+
+      Appends one line per decoded gr-satellites frame to a log file:
+
+          <ISO-8601 UTC timestamp> <hex>
+
+      Flushes after every frame so the file is safe to copy mid-pass and hand
+      to the MAVERIC ground team. No console output.
+      """
+
+      import datetime
+
+      import pmt
+      from gnuradio import gr
+
+
+      class blk(gr.basic_block):
+          """Append decoded frames as 'timestamp hex' lines to log_path."""
+
+          def __init__(self, log_path='maveric_beacon.log'):
+              gr.basic_block.__init__(
+                  self,
+                  name='MAVERIC Hex Logger',
+                  in_sig=[],
+                  out_sig=[],
+              )
+              self.log_path = log_path
+              self.message_port_register_in(pmt.intern('pdu'))
+              self.set_msg_handler(pmt.intern('pdu'), self.handle_pdu)
+
+          def handle_pdu(self, msg):
+              # A raised exception here would kill the message-handler thread and
+              # stop logging for the rest of the pass, so drop malformed PDUs.
+              try:
+                  if not pmt.is_pair(msg) or not pmt.is_u8vector(pmt.cdr(msg)):
+                      return
+                  frame = bytes(pmt.u8vector_elements(pmt.cdr(msg)))
+              except Exception:
+                  return
+              stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(
+                  timespec='milliseconds')
+              with open(self.log_path, 'a') as handle:
+                  handle.write('{} {}\n'.format(stamp, frame.hex()))
+    affinity: ''
+    alias: ''
+    comment: ''
+    log_path: log_path
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: ('MAVERIC Hex Logger', 'blk', [('log_path', "'maveric_beacon.log'")],
+      [('pdu', 'message', 1)], [], '', ['log_path'])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [848, 300.0]
+    rotation: 0
+    state: enabled
+- name: gpredict_doppler_0
+  id: gpredict_doppler
+  parameters:
+    comment: 'Optional live Doppler from Gpredict. Point Gpredict Radio Control at
+      127.0.0.1:7356; it streams the Doppler-corrected downlink frequency here.'
+    gpredict_host: '127.0.0.1'
+    gpredict_port: '7356'
+    verbose: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [88, 380.0]
+    rotation: 0
+    state: enabled
+- name: gpredict_MsgPairToVar_0
+  id: gpredict_MsgPairToVar
+  parameters:
+    comment: Applies Gpredict's corrected frequency to the RTL-SDR tune (sets freq).
+    target: freq
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [344, 392.0]
+    rotation: 0
+    state: enabled
+
+connections:
+- [blocks_file_source_0, '0', blocks_throttle2_0, '0']
+- [blocks_throttle2_0, '0', satellites_satellite_decoder_0, '0']
+- [gpredict_doppler_0, freq, gpredict_MsgPairToVar_0, inpair]
+- [soapy_rtlsdr_source_0, '0', satellites_satellite_decoder_0, '0']
+- [satellites_satellite_decoder_0, out, epy_block_0, pdu]
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0
