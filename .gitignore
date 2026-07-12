@@ -21,6 +21,8 @@ tests/test_images/
 tests/images/
 # Machine-local beacon log fixtures for Task 9a regression tests
 tests/fixtures/beacon_samples/
+# Machine-local golden IQ slices for tests/test_golden_iq_replay.py
+tests/fixtures/iq/
 backup_control/logs/
 generated_commands/
 .pending_queue.jsonl

@@ -78,19 +78,29 @@ def test_live_frontend_forces_maveric_idle_rx_gpio_state():
 
 def test_live_path_has_translated_frequency_search_branches():
     flowgraph = _flowgraph_module()
-    source = inspect.getsource(flowgraph._build_core)
+    banks_source = inspect.getsource(flowgraph._attach_decode_banks)
+    core_source = inspect.getsource(flowgraph._build_core)
 
-    assert "samp_rate=BEACON_DECODER_RATE, iq=False" in source
-    assert "fir_filter_ccf" in source
-    assert "freq_xlating_fir_filter_ccf" in source
-    assert "quadrature_demod_cf" in source
+    assert "samp_rate=BEACON_DECODER_RATE, iq=False" in banks_source
+    assert "freq_xlating_fir_filter_ccf" in banks_source
+    assert "quadrature_demod_cf" in banks_source
+    assert "fir_filter_ccf" in core_source
     assert not hasattr(flowgraph, "_BeaconAfcSink")
 
     assert flowgraph.BEACON_DECODER_RATE == 20_000
     assert flowgraph.BEACON_BRANCH_CENTERS_HZ == tuple(
         float(hz) for hz in range(-12_000, 12_001, 2_000)
     )
-    assert source.count("satellites.core.gr_satellites_flowgraph(") == 2
+    # One decoder instantiation in the shared banks, one in the wav path.
+    assert banks_source.count("satellites.core.gr_satellites_flowgraph(") == 1
+    assert core_source.count("satellites.core.gr_satellites_flowgraph(") == 1
+
+    # The live USRP path and the --iqfile replay path must feed the SAME
+    # bank constructor — replay through anything less than the production
+    # chain is not a valid regression signal.
+    assert core_source.count("_attach_decode_banks(") == 2
+    assert "_attach_decode_banks(tb, tb.rx_lpf)" in core_source
+    assert "_attach_decode_banks(tb, tb.blocks_iq_throttle)" in core_source
 
     # The closest branch is never more than 1 kHz away over the requested
     # +/-12 kHz acquisition range, and both +/-1.2 kHz tones stay inside the
@@ -126,9 +136,9 @@ def test_live_matched_filter_bank_geometry_and_wiring():
     assert "complex_to_mag" in bank_source
     assert "quadrature_demod" not in bank_source  # no discriminator here
 
-    core_source = inspect.getsource(flowgraph._build_core)
-    assert "_attach_matched_filter_bank" in core_source
-    assert "matched_filter_deframers" in core_source
+    banks_source = inspect.getsource(flowgraph._attach_decode_banks)
+    assert "_attach_matched_filter_bank" in banks_source
+    assert "matched_filter_deframers" in banks_source
 
 
 def test_live_search_bank_covers_satnogs_observed_frequency():

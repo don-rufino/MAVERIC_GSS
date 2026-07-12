@@ -24,6 +24,12 @@ Input modes:
                    into the UHD command port.
   --wavfile PATH   Offline replay of a 48 kHz mono FM-demodulated wav
                    recording (e.g. satellite-recordings/astrocast.wav).
+                   Single central decoder only — bypasses the banks.
+  --iqfile PATH    Offline replay of a 200 ksps cf32 IQ recording (an
+                   _IqRecorder capture, e.g. <log_dir>/iq/
+                   iq_astrocast_*.sigmf-data) through the exact live
+                   decode chain: all 13 discriminator branches plus the
+                   matched-filter fine bank.
 
 Pass --headless to skip the Qt GUI entirely (scripted replay / SSH use).
 """
@@ -41,7 +47,7 @@ import traceback
 
 import numpy as np
 
-from gnuradio import blocks, digital, gr, zeromq
+from gnuradio import analog, blocks, digital, gr, zeromq
 from gnuradio import filter as gr_filter
 from gnuradio.fft import window
 from gnuradio.filter import firdes
@@ -426,7 +432,61 @@ def _attach_matched_filter_bank(tb, source):
     return deframers
 
 
-def _build_core(tb, wavfile, zmq_addr, doppler_addr):
+def _attach_decode_banks(tb, source):
+    """Construct the full production decode chain — the 13 discriminator
+    branches plus the matched-filter fine bank — fed from `source`, a
+    200 ksps complex stream (rx_lpf live, or the --iqfile replay)."""
+    tb.beacon_channelizers = []
+    tb.beacon_demodulators = []
+    tb.satellites_satellite_decoders = []
+    channel_taps = _beacon_channel_taps()
+    demod_gain = BEACON_DECODER_RATE / (
+        2.0 * pi * BEACON_DEVIATION_HZ)
+    for branch_center_hz in BEACON_BRANCH_CENTERS_HZ:
+        channelizer = gr_filter.freq_xlating_fir_filter_ccf(
+            BEACON_CHANNEL_DECIM,
+            channel_taps,
+            branch_center_hz,
+            ACQUISITION_RATE,
+        )
+        demodulator = analog.quadrature_demod_cf(demod_gain)
+        decoder = satellites.core.gr_satellites_flowgraph(
+            file=DECODER_YML, samp_rate=BEACON_DECODER_RATE, iq=False,
+            grc_block=True, options=DECODER_OPTIONS)
+        tb.beacon_channelizers.append(channelizer)
+        tb.beacon_demodulators.append(demodulator)
+        tb.satellites_satellite_decoders.append(decoder)
+
+    central_branch = BEACON_BRANCH_CENTERS_HZ.index(0.0)
+    tb.beacon_channelizer = tb.beacon_channelizers[central_branch]
+    tb.beacon_demodulator = tb.beacon_demodulators[central_branch]
+    tb.satellites_satellite_decoder_0 = (
+        tb.satellites_satellite_decoders[central_branch])
+    branch_labels = ", ".join(
+        f"{center_hz / 1_000:+g} kHz"
+        for center_hz in BEACON_BRANCH_CENTERS_HZ)
+    print(f"MAV_ASTROCAST 1k2 decoder branches: {branch_labels}",
+          flush=True)
+    for channelizer, demodulator, decoder in zip(
+            tb.beacon_channelizers,
+            tb.beacon_demodulators,
+            tb.satellites_satellite_decoders):
+        tb.connect(
+            (source, 0),
+            (channelizer, 0),
+            (demodulator, 0),
+            (decoder, 0),
+        )
+    tb.matched_filter_deframers = _attach_matched_filter_bank(tb, source)
+    mf_centers = MATCHED_FILTER_BRANCH_CENTERS_HZ
+    print(
+        f"MAV_ASTROCAST matched-filter bank: {len(mf_centers)} branches, "
+        f"{mf_centers[0] / 1_000:+g} to {mf_centers[-1] / 1_000:+g} kHz "
+        f"every {(mf_centers[1] - mf_centers[0]) / 1_000:g} kHz",
+        flush=True)
+
+
+def _build_core(tb, wavfile, iqfile, zmq_addr, doppler_addr):
     """Construct the shared DSP chain (sources, decoder, ZMQ/hexdump sinks)
     on `tb`. GUI-agnostic: both the Qt and headless top blocks call this."""
     tb.zeromq_pub_msg_sink_0 = zeromq.pub_msg_sink(zmq_addr, 100, True)
@@ -446,8 +506,21 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
             (tb.blocks_wavfile_source_0, 0),
             (tb.blocks_wav_throttle, 0),
             (tb.satellites_satellite_decoder_0, 0))
+    elif iqfile:
+        print(f"MAV_ASTROCAST IQ replay: {iqfile} "
+              f"({ACQUISITION_RATE} sps cf32 through the live decode banks)",
+              flush=True)
+        tb.blocks_iqfile_source = blocks.file_source(
+            gr.sizeof_gr_complex, iqfile, False)
+        # Same pacing rationale as the wav throttle: without it a finite
+        # recording reaches symbol_sync in scheduler-dependent burst sizes
+        # and marginal clock acquisition becomes nondeterministic.
+        tb.blocks_iq_throttle = blocks.throttle(
+            gr.sizeof_gr_complex, ACQUISITION_RATE, True)
+        tb.connect((tb.blocks_iqfile_source, 0), (tb.blocks_iq_throttle, 0))
+        _attach_decode_banks(tb, tb.blocks_iq_throttle)
     else:
-        from gnuradio import analog, uhd
+        from gnuradio import uhd
 
         tb.rx_freq = float(os.environ.get("GSS_RX_FREQ_HZ", DEFAULT_RX_FREQ_HZ))
         tb.rx_lo_offset = float(os.environ.get("GSS_RX_LO_OFFSET_HZ", DEFAULT_RX_LO_OFFSET_HZ))
@@ -471,58 +544,11 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
 
         tb.rx_lpf = gr_filter.fir_filter_ccf(
             RX_DECIM, _rx_frontend_taps())
-        tb.beacon_channelizers = []
-        tb.beacon_demodulators = []
-        tb.satellites_satellite_decoders = []
-        channel_taps = _beacon_channel_taps()
-        demod_gain = BEACON_DECODER_RATE / (
-            2.0 * pi * BEACON_DEVIATION_HZ)
-        for branch_center_hz in BEACON_BRANCH_CENTERS_HZ:
-            channelizer = gr_filter.freq_xlating_fir_filter_ccf(
-                BEACON_CHANNEL_DECIM,
-                channel_taps,
-                branch_center_hz,
-                ACQUISITION_RATE,
-            )
-            demodulator = analog.quadrature_demod_cf(demod_gain)
-            decoder = satellites.core.gr_satellites_flowgraph(
-                file=DECODER_YML, samp_rate=BEACON_DECODER_RATE, iq=False,
-                grc_block=True, options=DECODER_OPTIONS)
-            tb.beacon_channelizers.append(channelizer)
-            tb.beacon_demodulators.append(demodulator)
-            tb.satellites_satellite_decoders.append(decoder)
-
-        central_branch = BEACON_BRANCH_CENTERS_HZ.index(0.0)
-        tb.beacon_channelizer = tb.beacon_channelizers[central_branch]
-        tb.beacon_demodulator = tb.beacon_demodulators[central_branch]
-        tb.satellites_satellite_decoder_0 = (
-            tb.satellites_satellite_decoders[central_branch])
-        branch_labels = ", ".join(
-            f"{center_hz / 1_000:+g} kHz"
-            for center_hz in BEACON_BRANCH_CENTERS_HZ)
-        print(f"MAV_ASTROCAST 1k2 decoder branches: {branch_labels}",
-              flush=True)
         tb.zeromq_sub_msg_source_rxcmd = zeromq.sub_msg_source(
             doppler_addr, 100, False)
 
         tb.connect((tb.uhd_usrp_source_0, 0), (tb.rx_lpf, 0))
-        for channelizer, demodulator, decoder in zip(
-                tb.beacon_channelizers,
-                tb.beacon_demodulators,
-                tb.satellites_satellite_decoders):
-            tb.connect(
-                (tb.rx_lpf, 0),
-                (channelizer, 0),
-                (demodulator, 0),
-                (decoder, 0),
-            )
-        tb.matched_filter_deframers = _attach_matched_filter_bank(tb, tb.rx_lpf)
-        mf_centers = MATCHED_FILTER_BRANCH_CENTERS_HZ
-        print(
-            f"MAV_ASTROCAST matched-filter bank: {len(mf_centers)} branches, "
-            f"{mf_centers[0] / 1_000:+g} to {mf_centers[-1] / 1_000:+g} kHz "
-            f"every {(mf_centers[1] - mf_centers[0]) / 1_000:g} kHz",
-            flush=True)
+        _attach_decode_banks(tb, tb.rx_lpf)
         tb.waterfall_logger = _WaterfallLogger()
         tb.connect((tb.rx_lpf, 0), (tb.waterfall_logger, 0))
         tb.iq_recorder = _IqRecorder(samp_rate=float(ACQUISITION_RATE))
@@ -555,10 +581,10 @@ def _build_core(tb, wavfile, zmq_addr, doppler_addr):
 
 class mav_astrocast_headless(gr.top_block):
 
-    def __init__(self, wavfile=None, zmq_addr=FRAME_ZMQ_ADDR,
+    def __init__(self, wavfile=None, iqfile=None, zmq_addr=FRAME_ZMQ_ADDR,
                  doppler_addr=DOPPLER_ZMQ_ADDR):
         gr.top_block.__init__(self, "MAV_ASTROCAST", catch_exceptions=True)
-        _build_core(self, wavfile, zmq_addr, doppler_addr)
+        _build_core(self, wavfile, iqfile, zmq_addr, doppler_addr)
 
 
 def _make_qt_class():
@@ -570,7 +596,7 @@ def _make_qt_class():
 
     class mav_astrocast(gr.top_block, Qt.QWidget):
 
-        def __init__(self, wavfile=None, zmq_addr=FRAME_ZMQ_ADDR,
+        def __init__(self, wavfile=None, iqfile=None, zmq_addr=FRAME_ZMQ_ADDR,
                      doppler_addr=DOPPLER_ZMQ_ADDR):
             gr.top_block.__init__(self, "MAV_ASTROCAST", catch_exceptions=True)
             Qt.QWidget.__init__(self)
@@ -601,8 +627,9 @@ def _make_qt_class():
                 print(f"Qt GUI: Could not restore geometry: {str(exc)}", file=sys.stderr)
             self.flowgraph_started = threading.Event()
 
-            _build_core(self, wavfile, zmq_addr, doppler_addr)
+            _build_core(self, wavfile, iqfile, zmq_addr, doppler_addr)
             self.wavfile = wavfile
+            self.iqfile = iqfile
 
             if wavfile:
                 spectrum_fc = 0
@@ -623,7 +650,7 @@ def _make_qt_class():
                     spectrum_fft_size, window.WIN_BLACKMAN_hARRIS,
                     spectrum_fc, spectrum_bw,
                     "", 1, None)
-                spectrum_tap = self.rx_lpf
+                spectrum_tap = self.blocks_iq_throttle if iqfile else self.rx_lpf
 
             self.qtgui_freq_sink_x_0.set_update_time(0.05)
             self.qtgui_freq_sink_x_0.set_y_axis((-140), 10)
@@ -643,19 +670,6 @@ def _make_qt_class():
             self.connect((spectrum_tap, 0), (self.qtgui_freq_sink_x_0, 0))
 
             if not wavfile:
-                self.rx_gain = RX_GAIN
-                self._rx_gain_range = qtgui.Range(0, 76, 1, RX_GAIN, 200)
-                self._rx_gain_win = qtgui.RangeWidget(
-                    self._rx_gain_range, self.set_rx_gain, "RX Gain (dB)",
-                    "counter_slider", float, QtCore.Qt.Horizontal)
-                self.top_grid_layout.addWidget(self._rx_gain_win, 0, 0, 1, 1)
-
-                self._rx_actual_freq_tool_bar = Qt.QToolBar(self)
-                self._rx_actual_freq_tool_bar.addWidget(Qt.QLabel("USRP RX achieved"))
-                self._rx_actual_freq_label = Qt.QLabel("--")
-                self._rx_actual_freq_tool_bar.addWidget(self._rx_actual_freq_label)
-                self.top_grid_layout.addWidget(self._rx_actual_freq_tool_bar, 0, 1, 1, 1)
-
                 self.qtgui_waterfall_sink_x_0 = qtgui.waterfall_sink_c(
                     1024, window.WIN_BLACKMAN_hARRIS, spectrum_fc, spectrum_bw,
                     "", 1, None)
@@ -668,6 +682,20 @@ def _make_qt_class():
                     self.qtgui_waterfall_sink_x_0.qwidget(), Qt.QWidget)
                 self.top_grid_layout.addWidget(self._qtgui_waterfall_sink_x_0_win, 2, 0, 1, 2)
                 self.connect((spectrum_tap, 0), (self.qtgui_waterfall_sink_x_0, 0))
+
+            if not wavfile and not iqfile:
+                self.rx_gain = RX_GAIN
+                self._rx_gain_range = qtgui.Range(0, 76, 1, RX_GAIN, 200)
+                self._rx_gain_win = qtgui.RangeWidget(
+                    self._rx_gain_range, self.set_rx_gain, "RX Gain (dB)",
+                    "counter_slider", float, QtCore.Qt.Horizontal)
+                self.top_grid_layout.addWidget(self._rx_gain_win, 0, 0, 1, 1)
+
+                self._rx_actual_freq_tool_bar = Qt.QToolBar(self)
+                self._rx_actual_freq_tool_bar.addWidget(Qt.QLabel("USRP RX achieved"))
+                self._rx_actual_freq_label = Qt.QLabel("--")
+                self._rx_actual_freq_tool_bar.addWidget(self._rx_actual_freq_label)
+                self.top_grid_layout.addWidget(self._rx_actual_freq_tool_bar, 0, 1, 1, 1)
 
                 probe = threading.Thread(target=self._rx_actual_freq_probe, daemon=True)
                 probe.start()
@@ -750,7 +778,8 @@ class _PduDeduplicator(gr.basic_block):
 
 
 def _run_headless(args):
-    tb = mav_astrocast_headless(wavfile=args.wavfile, zmq_addr=args.zmq_addr,
+    tb = mav_astrocast_headless(wavfile=args.wavfile, iqfile=args.iqfile,
+                                zmq_addr=args.zmq_addr,
                                 doppler_addr=args.doppler_addr)
 
     def _quit(signum, frame):
@@ -761,7 +790,7 @@ def _run_headless(args):
     signal.signal(signal.SIGINT, _quit)
     signal.signal(signal.SIGTERM, _quit)
 
-    if args.wavfile:
+    if args.wavfile or args.iqfile:
         time.sleep(args.wait_s)
         tb.run()
         time.sleep(0.5)  # let the ZMQ PUB flush before teardown
@@ -774,9 +803,10 @@ def _run_gui(args):
     top_block_cls, Qt = _make_qt_class()
     qapp = Qt.QApplication(sys.argv)
 
-    if args.wavfile:
+    if args.wavfile or args.iqfile:
         time.sleep(args.wait_s)
-    tb = top_block_cls(wavfile=args.wavfile, zmq_addr=args.zmq_addr,
+    tb = top_block_cls(wavfile=args.wavfile, iqfile=args.iqfile,
+                       zmq_addr=args.zmq_addr,
                        doppler_addr=args.doppler_addr)
     tb.start()
     tb.flowgraph_started.set()
@@ -799,13 +829,17 @@ def _run_gui(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--wavfile", help="48 kHz mono wav replay instead of the USRP")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--wavfile", help="48 kHz mono wav replay instead of the USRP")
+    source.add_argument("--iqfile",
+                        help="200 ksps cf32 IQ replay (an _IqRecorder capture) "
+                             "through the full live decode banks")
     parser.add_argument("--zmq-addr", default=FRAME_ZMQ_ADDR,
                         help=f"frame PDU PUB bind address [default {FRAME_ZMQ_ADDR}]")
     parser.add_argument("--doppler-addr", default=DOPPLER_ZMQ_ADDR,
                         help=f"Doppler tune SUB address [default {DOPPLER_ZMQ_ADDR}]")
     parser.add_argument("--wait-s", type=float, default=1.0,
-                        help="wav mode: delay before decode so ZMQ subscribers can join")
+                        help="replay modes: delay before decode so ZMQ subscribers can join")
     parser.add_argument("--headless", action="store_true",
                         help="run without the Qt GUI (scripted replay / SSH)")
     args = parser.parse_args()
