@@ -113,18 +113,31 @@ class ChannelSet:
     cfos_hz: list[float]
     lead_gaps: list[int]      # samples; randomizes timing phase per trial
     noise_seed: int
+    # Opt-in impairments (all-zero by default so the pinned regression-gate
+    # baselines stay untouched). A coherent detector must be benchmarked
+    # WITH random carrier phase and sample-clock error, or it gets a free
+    # phase/clock reference the real chain never has.
+    phases_rad: list[float] | None = None
+    clock_ppm: list[float] | None = None
 
 
 def make_channel_set(trials: int, base_seed: int,
                      cfo_span_hz: float = DEFAULT_CFO_SPAN_HZ,
-                     payload_len: int = MODE5_PAYLOAD_LEN) -> ChannelSet:
+                     payload_len: int = MODE5_PAYLOAD_LEN,
+                     random_phase: bool = False,
+                     clock_ppm_span: float = 0.0) -> ChannelSet:
     rng = np.random.default_rng(base_seed)
     payloads = [bytes([i & 0xFF]) + rng.bytes(payload_len - 1) for i in range(trials)]
     cfos = rng.uniform(-cfo_span_hz, cfo_span_hz, size=trials).tolist()
     # 0..2 symbol-ish extra lead per trial on top of the base gap
     leads = rng.integers(0, int(0.02 * FS), size=trials).tolist()
+    phases = (rng.uniform(0.0, 2.0 * np.pi, size=trials).tolist()
+              if random_phase else None)
+    ppm = (rng.uniform(-clock_ppm_span, clock_ppm_span, size=trials).tolist()
+           if clock_ppm_span else None)
     return ChannelSet(payloads=payloads, cfos_hz=cfos, lead_gaps=leads,
-                      noise_seed=int(rng.integers(0, 2**31 - 1)))
+                      noise_seed=int(rng.integers(0, 2**31 - 1)),
+                      phases_rad=phases, clock_ppm=ppm)
 
 
 def compose_fer_record(bursts: list[np.ndarray], lead_gaps: list[int],
@@ -152,13 +165,35 @@ def _apply_cfo(iq: np.ndarray, cfo_hz: float) -> np.ndarray:
     return iq * np.exp(2j * np.pi * cfo_hz * np.arange(iq.size) / FS)
 
 
+def _apply_clock_ppm(iq: np.ndarray, ppm: float) -> np.ndarray:
+    """Resample by (1 + ppm*1e-6): the transmitter's sample clock error as
+    seen by a perfect receiver clock. Linear interpolation is exact enough
+    at ~40 samples/symbol."""
+    if not ppm:
+        return iq
+    factor = 1.0 + ppm * 1e-6
+    positions = np.arange(int(iq.size / factor)) * factor
+    base = np.arange(iq.size)
+    return (np.interp(positions, base, iq.real)
+            + 1j * np.interp(positions, base, iq.imag))
+
+
+def _apply_channel(iq: np.ndarray, channel: ChannelSet, i: int) -> np.ndarray:
+    iq = _apply_clock_ppm(iq, channel.clock_ppm[i] if channel.clock_ppm else 0.0)
+    iq = _apply_cfo(iq, channel.cfos_hz[i])
+    if channel.phases_rad:
+        iq = iq * np.exp(1j * channel.phases_rad[i])
+    return iq
+
+
 # ---------------------------------------------------------------- Mode 5 path
 
 def mode5_bursts(channel: ChannelSet, baud: float, deviation_hz: float) -> list[np.ndarray]:
     from mav_gss_lib.platform.framing.asm_golay import build_asm_golay_frame
     return [
-        _apply_cfo(_gfsk_iq(build_asm_golay_frame(payload), baud, deviation_hz), cfo)
-        for payload, cfo in zip(channel.payloads, channel.cfos_hz)
+        _apply_channel(_gfsk_iq(build_asm_golay_frame(payload), baud, deviation_hz),
+                       channel, i)
+        for i, payload in enumerate(channel.payloads)
     ]
 
 
