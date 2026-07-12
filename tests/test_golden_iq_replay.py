@@ -61,7 +61,7 @@ class GoldenIqReplayTests(unittest.TestCase):
         record = np.fromfile(cf32, dtype=np.complex64)
         expected = {bytes.fromhex(h) for h in meta["expected_frames_hex"]}
         pdus = _run_decoder(GNURADIO / "ROADS_DECODER.yml", "--syncword_threshold 6",
-                            record, expected=len(expected), wait_s=90)
+                            record, wait_s=120)
         missing = expected - set(pdus)
         self.assertFalse(
             missing,

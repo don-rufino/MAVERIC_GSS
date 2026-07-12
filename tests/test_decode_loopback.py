@@ -94,8 +94,7 @@ _DECODE_SCRIPT = textwrap.dedent(
     import pmt
     from satellites.core.gr_satellites_flowgraph import gr_satellites_flowgraph
 
-    db, iq_path, options, expected, wait_s = (
-        sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), float(sys.argv[5]))
+    db, iq_path, options = sys.argv[1], sys.argv[2], sys.argv[3]
 
     fg = gr_satellites_flowgraph(file=db, samp_rate=200000, iq=True,
                                  grc_block=True, options=options)
@@ -104,16 +103,13 @@ _DECODE_SCRIPT = textwrap.dedent(
     tb = gr.top_block()
     tb.connect(src, fg)
     tb.msg_connect((fg, 'out'), (dbg, 'store'))
+    # Run to EOF, never to a message count: multi-hypothesis databases decode
+    # one burst on several branches, and counting duplicates toward an
+    # expected total truncates the read mid-record (caught as a spurious
+    # high-SNR FER floor on the dual-branch MAVERIC database).
     tb.start()
-    deadline = time.monotonic() + wait_s
-    settled = None
-    while time.monotonic() < deadline:
-        n = dbg.num_messages()
-        if n >= expected and settled is None:
-            settled = time.monotonic() + 1.0   # drain late duplicate decodes
-        if settled is not None and time.monotonic() > settled:
-            break
-        time.sleep(0.1)
+    tb.wait()
+    time.sleep(1.0)   # let the last deframer messages drain into the store
     pdus = []
     for i in range(dbg.num_messages()):
         pdus.append(bytes(pmt.u8vector_elements(pmt.cdr(dbg.get_message(i)))).hex())
@@ -123,9 +119,10 @@ _DECODE_SCRIPT = textwrap.dedent(
 )
 
 
-def _run_decoder(db: Path, options: str, record: np.ndarray, expected: int,
-                 wait_s: float = 60.0) -> list[bytes]:
-    """Run one record through the production-instantiated decoder; return PDUs.
+def _run_decoder(db: Path, options: str, record: np.ndarray,
+                 wait_s: float = 120.0) -> list[bytes]:
+    """Run one record through the production-instantiated decoder to EOF;
+    return every PDU it emitted (duplicates included).
 
     Raises AssertionError on any failure mode — never skips."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -133,7 +130,7 @@ def _run_decoder(db: Path, options: str, record: np.ndarray, expected: int,
         record.tofile(iq_path)
         proc = subprocess.run(
             [GNURADIO_PYTHON, "-u", "-c", _DECODE_SCRIPT,
-             str(db), str(iq_path), options, str(expected), str(wait_s)],
+             str(db), str(iq_path), options],
             capture_output=True, text=True, timeout=wait_s + 60,
         )
     if proc.returncode != 0:
@@ -160,7 +157,7 @@ class DecodeLoopbackTests(unittest.TestCase):
 
     def _assert_decodes(self, db: str, options: str, cases: list[tuple[bytes, np.ndarray]]) -> None:
         record = _compose_record([burst for _, burst in cases])
-        pdus = _run_decoder(GNURADIO / db, options, record, expected=len(cases))
+        pdus = _run_decoder(GNURADIO / db, options, record)
         decoded = {p for p in pdus}
         for payload, _ in cases:
             self.assertIn(payload, decoded,
