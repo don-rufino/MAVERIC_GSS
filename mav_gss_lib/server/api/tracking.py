@@ -100,8 +100,16 @@ async def api_tracking_tle_fetch(request: Request) -> dict[str, Any] | JSONRespo
     if denied:
         return denied
     runtime = get_runtime(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    identifier = body.get("identifier") if isinstance(body, dict) else None
     # Blocking urllib runs off the event loop.
-    return await run_in_threadpool(runtime.tle_fetch.fetch_preview)
+    return await run_in_threadpool(
+        runtime.tle_fetch.fetch_preview,
+        identifier if isinstance(identifier, str) else None,
+    )
 
 
 @router.get("/api/tracking/tle/status", response_model=None)

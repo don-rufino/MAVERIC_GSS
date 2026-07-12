@@ -14,14 +14,38 @@ const CONFIG = {
   },
   mission: { id: 'maveric', name: 'MAVERIC', config: { csp: { source: 1, dest: 5 }, imaging: { thumb_prefix: 'thumb_' } } },
 }
+const FAMILY_CONFIG = {
+  platform: {
+    ...CONFIG.platform,
+    rx: { zmq_addr: 'tcp://127.0.0.1:52001', tx_blackout_ms: 0, frequency: '435.400 MHz' },
+    tracking: {
+      ...CONFIG.platform.tracking,
+      tle_fetch: { identifier: '64535', auto_refresh: false, refresh_interval_hours: 12 },
+      frequencies: { rx_hz: 435400000, tx_hz: 435400000 },
+    },
+  },
+  mission: {
+    id: 'roads', name: 'ROADS',
+    config: {
+      mission_name: 'ROADS',
+      target_birds: [
+        { id: 'roads1', label: 'ROADS 1', norad: 64535, rx_frequency: '435.400 MHz' },
+        { id: 'roads2', label: 'ROADS 2', norad: 64549, rx_frequency: '435.400 MHz' },
+      ],
+    },
+  },
+}
 const STATUS = { version: '1.2.3', schema_path: '/x/maveric.yml', schema_count: 42, log_dir: '/var/log/gss', session_log_json: '/var/log/gss/json/session_x.jsonl' }
 
+let configBody: unknown = CONFIG
+
 beforeEach(() => {
+  configBody = CONFIG
   global.fetch = vi.fn((url: RequestInfo | URL) => {
     const u = String(url)
     const body = u.includes('/api/tracking/tle/status')
       ? { ok: false, spacetrack: { identity_set: true, password_set: false } }
-      : u.includes('/api/status') ? STATUS : CONFIG
+      : u.includes('/api/status') ? STATUS : configBody
     return Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response)
   }) as unknown as typeof fetch
 })
@@ -75,6 +99,25 @@ describe('ConfigModal', () => {
     expect(screen.getByText('Csp')).toBeTruthy()
     expect(screen.getByText('Imaging')).toBeTruthy()
     expect(screen.getByText('Thumb Prefix')).toBeTruthy()
+  })
+
+  it('family missions get a Target-satellite select that fills identifier + RX freq', async () => {
+    configBody = FAMILY_CONFIG
+    await openModal()
+    fireEvent.click(within(rail()).getByRole('button', { name: /Mission/ }))
+    expect(screen.getByText('Target satellite')).toBeTruthy()
+    const select = screen.getAllByDisplayValue('ROADS 1 · 435.400 MHz').find((el) => el.tagName === 'SELECT')
+    expect(select).toBeTruthy()
+    expect(screen.getByText(/Same frequency as saved/)).toBeTruthy()
+    fireEvent.change(select!, { target: { value: 'roads2' } })
+    fireEvent.click(within(rail()).getByText('Tracking'))
+    expect(screen.getByDisplayValue('64549')).toBeTruthy()
+  })
+
+  it('single-bird missions render no Target-satellite select', async () => {
+    await openModal()
+    fireEvent.click(within(rail()).getByRole('button', { name: /Mission/ }))
+    expect(screen.queryByText('Target satellite')).toBeNull()
   })
 
   it('About pane shows read-only session info', async () => {

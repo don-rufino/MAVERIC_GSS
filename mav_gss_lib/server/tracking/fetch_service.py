@@ -14,6 +14,7 @@ import copy
 import logging
 import os
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -52,10 +53,16 @@ class TleFetchService:
     def _run_fetch(self) -> FetchResult:
         return self._fetch_fn(self.settings(), now_ms=_now_ms())
 
-    def fetch_preview(self) -> dict:
+    def fetch_preview(self, identifier: str | None = None) -> dict:
         # Manual preview is returned to the caller directly and deliberately does
         # NOT touch _status, which tracks only the auto-refresh lifecycle.
-        result = self._run_fetch()
+        # `identifier` lets the UI fetch its unsaved draft (e.g. a
+        # Target-satellite selection) without a Save round-trip first;
+        # None keeps the saved config identifier.
+        settings = self.settings()
+        if isinstance(identifier, str) and identifier.strip():
+            settings = replace(settings, identifier=identifier.strip())
+        result = self._fetch_fn(settings, now_ms=_now_ms())
         return self._as_dict(result)
 
     def refresh_and_persist(self) -> dict:

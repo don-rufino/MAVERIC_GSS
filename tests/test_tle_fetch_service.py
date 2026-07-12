@@ -46,6 +46,26 @@ class TleFetchServiceTests(unittest.TestCase):
         self.assertEqual(out["line1"], ISS_L1)
         self.assertEqual(rt.platform_cfg["tracking"]["tle"]["line1"], "x")
 
+    def test_preview_identifier_override_beats_saved_config(self):
+        # The UI fetches its unsaved draft (e.g. a Target-satellite pick)
+        # without a Save round-trip; blank/None falls back to saved config.
+        cfg = {"tle": {}, "tle_fetch": {"identifier": "25544"}}
+        rt = _FakeRuntime(cfg)
+        seen = []
+
+        def fetch_fn(settings, now_ms):
+            seen.append(settings.identifier)
+            return _good_result()
+
+        svc = TleFetchService(rt, fetch_fn=fetch_fn)
+        svc.fetch_preview("64549")
+        svc.fetch_preview("  ")
+        svc.fetch_preview(None)
+        svc.fetch_preview()
+        self.assertEqual(seen, ["64549", "25544", "25544", "25544"])
+        # saved config identifier untouched by the override
+        self.assertEqual(rt.platform_cfg["tracking"]["tle_fetch"]["identifier"], "25544")
+
     def test_refresh_persists_and_marks_fetched(self):
         cfg = {"tle": {"line1": "x", "line2": "y", "method": "seed"},
                "tle_fetch": {"identifier": "25544"}}

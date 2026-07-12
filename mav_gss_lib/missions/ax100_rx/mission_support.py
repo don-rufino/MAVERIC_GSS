@@ -30,6 +30,16 @@ _RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
 
 
 @dataclass(frozen=True, slots=True)
+class Ax100Bird:
+    """One selectable spacecraft of a formation mission (SNIPE, ROADS)."""
+
+    bird_id: str
+    label: str
+    norad: int
+    freq_hz: float
+
+
+@dataclass(frozen=True, slots=True)
 class Ax100Target:
     mission_id: str
     mission_name: str
@@ -39,6 +49,10 @@ class Ax100Target:
     tle_line1: str
     tle_line2: str
     freq_hz: float
+    # Formation members selectable from the Mission pane's Target-satellite
+    # dropdown; empty for single-spacecraft missions. The TARGET fields above
+    # stay the seeded default.
+    birds: tuple[Ax100Bird, ...] = ()
 
     @property
     def frequency_label(self) -> str:
@@ -51,6 +65,20 @@ def seed_ax100_defaults(
     """Gap-fill mission name, RX frequency, radio script, and tracking."""
     if isinstance(mission_cfg, dict):
         mission_cfg.setdefault("mission_name", target.mission_name)
+        if target.birds:
+            # UI-facing formation table (Mission pane Target-satellite select).
+            # Not in editable_paths, so it never persists — reseeded from code
+            # every boot; selection itself lives in the platform fields the
+            # select fills (tle_fetch.identifier + rx.frequency).
+            mission_cfg.setdefault("target_birds", [
+                {
+                    "id": bird.bird_id,
+                    "label": bird.label,
+                    "norad": bird.norad,
+                    "rx_frequency": f"{bird.freq_hz / 1e6:.3f} MHz",
+                }
+                for bird in target.birds
+            ])
     if not isinstance(platform_cfg, dict):
         return
 

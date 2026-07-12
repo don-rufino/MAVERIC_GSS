@@ -732,3 +732,37 @@ def test_radio_decoder_has_2k4_mode5_branch_for_catsat():
     assert branch["baudrate"] == 2400
     assert branch["deviation"] == 750
     assert branch["framing"] == "AX100 ASM+Golay"
+
+
+def test_family_missions_seed_target_bird_tables():
+    from mav_gss_lib.missions.ax100_rx import seed_ax100_defaults
+    from mav_gss_lib.missions.roads.mission import TARGET as ROADS
+    from mav_gss_lib.missions.snipe.mission import TARGET as SNIPE
+
+    roads_cfg: dict = {}
+    seed_ax100_defaults(roads_cfg, {}, ROADS)
+    roads_birds = roads_cfg["target_birds"]
+    assert [(b["label"], b["norad"]) for b in roads_birds] == [
+        ("ROADS 1", 64535), ("ROADS 2", 64549)]
+    # shared downlink: a ROADS swap is TLE-only (re-engage Doppler, no restart)
+    assert {b["rx_frequency"] for b in roads_birds} == {"435.400 MHz"}
+
+    snipe_cfg: dict = {}
+    seed_ax100_defaults(snipe_cfg, {}, SNIPE)
+    assert [(b["label"], b["norad"], b["rx_frequency"]) for b in snipe_cfg["target_birds"]] == [
+        ("SNIPE-1", 56749, "435.450 MHz"),
+        ("SNIPE-2", 56745, "436.000 MHz"),
+        ("SNIPE-3", 56746, "436.950 MHz"),
+        ("SNIPE-4", 56744, "437.800 MHz"),
+    ]
+
+    # single-bird family missions seed no table
+    from mav_gss_lib.missions.catsat.mission import TARGET as CATSAT
+    catsat_cfg: dict = {}
+    seed_ax100_defaults(catsat_cfg, {}, CATSAT)
+    assert "target_birds" not in catsat_cfg
+
+    # operator values always win: an existing table is left untouched
+    preset = {"target_birds": [{"id": "x"}]}
+    seed_ax100_defaults(preset, {}, ROADS)
+    assert preset["target_birds"] == [{"id": "x"}]

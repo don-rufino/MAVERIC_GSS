@@ -17,12 +17,14 @@ from mav_gss_lib.missions.ax100_rx.packets import (
     TokenPacket,
 )
 from mav_gss_lib.missions.ax100_rx.mission_support import (
+    Ax100Bird,
     Ax100Target,
     build_ax100_mission,
     seed_ax100_defaults,
 )
 
 __all__ = [
+    "Ax100Bird",
     "Ax100Payload",
     "Ax100RxPacketOps",
     "Ax100Target",

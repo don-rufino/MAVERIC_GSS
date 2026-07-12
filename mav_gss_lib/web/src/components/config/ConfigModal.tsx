@@ -86,6 +86,21 @@ const RAIL_ITEMS: RailItem[] = [
   { id: 'about', label: 'About', group: 'System', Icon: Info },
 ]
 
+interface TargetBird {
+  id: string
+  label: string
+  norad: number
+  rx_frequency: string
+}
+
+function targetBirds(config: GssConfig): TargetBird[] {
+  const raw = config.mission.config.target_birds
+  if (!Array.isArray(raw)) return []
+  return raw.filter((b): b is TargetBird =>
+    isRecord(b) && typeof b.id === 'string' && typeof b.label === 'string'
+    && typeof b.norad === 'number' && typeof b.rx_frequency === 'string')
+}
+
 function missionRow(key: string, value: unknown, onChange: (v: unknown) => void): SettingRow {
   const label = configLabel(key)
   if (typeof value === 'boolean') return { id: key, label, control: { kind: 'toggle', value, onChange: (v) => onChange(v) } }
@@ -350,7 +365,14 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
     setFetching(true)
     setFetchMsg('')
     try {
-      const resp = await authFetch('/api/tracking/tle/fetch', { method: 'POST' })
+      // Send the draft identifier so Fetch works on the unsaved edit (e.g. a
+      // fresh Target-satellite selection) instead of the last-saved value.
+      const identifier = (cfg?.platform.tracking?.tle_fetch?.identifier ?? '').trim()
+      const resp = await authFetch('/api/tracking/tle/fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(identifier ? { identifier } : {}),
+      })
       const data = await resp.json()
       if (data.ok) {
         const tle = { source: `${data.via} (fetched)`, name: data.name,
@@ -368,7 +390,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
     } finally {
       setFetching(false)
     }
-  }, [updateTrackingTle])
+  }, [cfg, updateTrackingTle])
 
   // The textarea holds the raw paste; only the lines that successfully
   // parse are written back, so a partial edit never wipes a good field.
@@ -444,7 +466,41 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
         }],
       })
     }
-    const scalars = Object.entries(cfg.mission.config).filter(([, v]) => !isRecord(v))
+    const birds = targetBirds(cfg)
+    if (birds.length) {
+      const identifier = (cfg.platform.tracking?.tle_fetch?.identifier ?? '').trim()
+      const selected = birds.find((b) => String(b.norad) === identifier)
+      const savedRxHz = initialRef.current ? parseFrequencyHz(radioFrequencyValue(initialRef.current, 'rx')) : null
+      const description = !selected
+        ? 'Fills the TLE identifier and RX frequency; Fetch the TLE, then Save.'
+        : parseFrequencyHz(selected.rx_frequency) === savedRxHz
+          ? 'Same frequency as saved — Fetch the TLE, Save, then re-engage Doppler.'
+          : 'Frequency differs from saved — Fetch the TLE, Save, then restart the radio.'
+      missionGroups.push({
+        title: 'Target Satellite',
+        rows: [{
+          id: 'target_bird',
+          label: 'Target satellite',
+          description,
+          control: {
+            kind: 'select',
+            value: selected?.id ?? '',
+            options: [
+              ...(selected ? [] : [{ value: '', label: '—' }]),
+              ...birds.map((b) => ({ value: b.id, label: `${b.label} · ${b.rx_frequency}` })),
+            ],
+            onChange: (v) => {
+              const bird = birds.find((b) => b.id === v)
+              if (!bird) return
+              updateTrackingFetch({ identifier: String(bird.norad) })
+              updateRadioFrequency('rx', bird.rx_frequency)
+            },
+          },
+        }],
+      })
+    }
+    const scalars = Object.entries(cfg.mission.config)
+      .filter(([key, v]) => !isRecord(v) && key !== 'target_birds')
     if (scalars.length) {
       missionGroups.push({
         title: cfg.mission.name || cfg.mission.id || 'Mission',

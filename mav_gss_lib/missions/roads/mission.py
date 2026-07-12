@@ -20,6 +20,7 @@ from pathlib import Path
 from mav_gss_lib.platform import MissionContext, MissionSpec
 
 from mav_gss_lib.missions.ax100_rx import (
+    Ax100Bird,
     Ax100RxPacketOps,
     Ax100Target,
     build_ax100_mission,
@@ -39,6 +40,10 @@ TARGET = Ax100Target(
     tle_line1="1 64535U 25135H   26192.25625457  .00003849  00000+0  16789-3 0  9992",
     tle_line2="2 64535  97.4692 307.1505 0005939  96.6332 263.5581 15.22749399 58529",
     freq_hz=435_400_000.0,
+    birds=(
+        Ax100Bird("roads1", "ROADS 1", 64535, 435_400_000.0),
+        Ax100Bird("roads2", "ROADS 2", 64549, 435_400_000.0),
+    ),
 )
 
 
