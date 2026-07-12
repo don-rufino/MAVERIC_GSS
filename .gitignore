@@ -21,8 +21,11 @@ tests/test_images/
 tests/images/
 # Machine-local beacon log fixtures for Task 9a regression tests
 tests/fixtures/beacon_samples/
-# Machine-local golden IQ slices for tests/test_golden_iq_replay.py
-tests/fixtures/iq/
+# Machine-local golden IQ binaries for tests/test_golden_iq_replay.py.
+# The .json manifests (expected frames, provenance, sha256) ARE tracked —
+# a clone missing only the binaries skips the goldens loudly, not silently.
+tests/fixtures/iq/*
+!tests/fixtures/iq/*.json
 backup_control/logs/
 generated_commands/
 .pending_queue.jsonl

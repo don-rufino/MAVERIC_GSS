@@ -194,8 +194,7 @@ def astrocast_channel_set(trials: int, base_seed: int,
                       noise_seed=int(rng.integers(0, 2**31 - 1)))
 
 
-def run_point_astrocast(ebn0_db: float, channel: ChannelSet, *,
-                        zmq_port: int = 52092) -> FerPoint:
+def run_point_astrocast(ebn0_db: float, channel: ChannelSet) -> FerPoint:
     from test_astrocast_loopback import (
         BEACON_BAUD, BEACON_DEVIATION_HZ, astrocast_wire_bytes,
         replay_iq_through_banks)
@@ -208,8 +207,7 @@ def run_point_astrocast(ebn0_db: float, channel: ChannelSet, *,
                                 noise_sigma(ebn0_db, BEACON_BAUD),
                                 channel.noise_seed, gap_s=0.4)
     timeout_s = record.size / FS + 90.0   # replay is throttled to realtime
-    frames = set(replay_iq_through_banks(record, zmq_port=zmq_port,
-                                         timeout_s=timeout_s))
+    frames = set(replay_iq_through_banks(record, timeout_s=timeout_s))
     k = sum(1 for p in channel.payloads if p in frames)
     return FerPoint(ebn0_db=ebn0_db, decoded=k, trials=len(channel.payloads))
 
@@ -281,8 +279,8 @@ def main() -> None:
         print(f"FER sweep: MAV_ASTROCAST banks 1k2 h=2, "
               f"{args.trials} trials/point, seed {args.seed}")
         points = []
-        for i, ebn0 in enumerate(ebn0_points):
-            pt = run_point_astrocast(ebn0, channel, zmq_port=52092 + i)
+        for ebn0 in ebn0_points:
+            pt = run_point_astrocast(ebn0, channel)
             lo, hi = pt.ci
             print(f"  Eb/N0 {ebn0:5.1f} dB: {pt.decoded:3d}/{pt.trials}  "
                   f"p={pt.p:.2f}  CI[{lo:.2f},{hi:.2f}]")

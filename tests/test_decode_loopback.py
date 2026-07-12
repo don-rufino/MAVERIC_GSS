@@ -147,6 +147,18 @@ def _requires_full_gr() -> None:
         raise unittest.SkipTest("set MAVERIC_FULL_GR=1 to run the GNU Radio loopback tests")
 
 
+def _production_options(db_name: str) -> str:
+    """The options string a RadioService-launched MAV_DUO would pair with
+    this database — derived by the flowgraph's own `_decoder_options()`, so
+    the loopbacks exercise the real production pairing instead of a literal
+    that could silently diverge from it. Imported lazily: MAV_DUO pulls Qt
+    and UHD at module import, which only the gated tests may pay for."""
+    if str(GNURADIO) not in sys.path:
+        sys.path.insert(0, str(GNURADIO))
+    import MAV_DUO
+    return MAV_DUO._decoder_options(str(GNURADIO / db_name))
+
+
 class DecodeLoopbackTests(unittest.TestCase):
     """Synthetic bursts through the exact production decoder instantiation."""
 
@@ -167,28 +179,37 @@ class DecodeLoopbackTests(unittest.TestCase):
                          f"{db}: unexpected extra payloads decoded")
 
     def test_maveric_database_decodes_all_four_mode5_hypotheses(self):
-        # Production options pairing for an AX100 database — this also
-        # functionally proves --syncword_threshold 6 parses and decodes.
+        # Options derived by the production selector — this functionally
+        # proves _decoder_options() still pairs threshold 6 with an AX100
+        # database AND that the pairing parses and decodes.
+        options = _production_options("MAVERIC_DECODER.yml")
+        self.assertEqual(options, "--syncword_threshold 6")
         cases = []
         for i, (baud, dev) in enumerate([(4800, 1600), (4800, 1200),
                                          (9600, 3200), (9600, 2400)]):
             payload = bytes([0xA0 + i]) + f"MAVERIC-LOOP-{baud}-{dev}".encode().ljust(40, b"\x5A")
             cases.append((payload, _gfsk_iq(build_asm_golay_frame(payload), baud, dev)))
-        self._assert_decodes("MAVERIC_DECODER.yml", "--syncword_threshold 6", cases)
+        self._assert_decodes("MAVERIC_DECODER.yml", options, cases)
 
     def test_roads_database_decodes_measured_h05_branches(self):
+        options = _production_options("ROADS_DECODER.yml")
+        self.assertEqual(options, "--syncword_threshold 6")
         cases = []
         for i, (baud, dev) in enumerate([(4800, 1200), (9600, 2400)]):
             payload = bytes([0xB0 + i]) + f"ROADS-LOOP-{baud}-{dev}".encode().ljust(40, b"\x3C")
             cases.append((payload, _gfsk_iq(build_asm_golay_frame(payload), baud, dev)))
-        self._assert_decodes("ROADS_DECODER.yml", "--syncword_threshold 6", cases)
+        self._assert_decodes("ROADS_DECODER.yml", options, cases)
 
     def test_sharjahsat_database_decodes_official_g3ruh(self):
+        # The selector must return NO options for a pure-AX.25 database —
+        # the companion test below proves the flag would abort argparse.
+        options = _production_options("SHARJAHSAT_DECODER.yml")
+        self.assertEqual(options, "")
         cfg = AX25Config()
         cfg.dest_call, cfg.src_call = "GS1UOS", "A62UOS"
         packet = cfg.wrap(b"SHARJAHSAT-LOOPBACK" + bytes(range(48)))
         burst = _gfsk_iq(build_ax25_gfsk_frame(packet), 9600, 3000)
-        self._assert_decodes("SHARJAHSAT_DECODER.yml", "", [(packet, burst)])
+        self._assert_decodes("SHARJAHSAT_DECODER.yml", options, [(packet, burst)])
 
     def test_syncword_threshold_rejected_by_pure_ax25_database(self):
         # Pins the failure mode _decoder_options() exists to prevent: the

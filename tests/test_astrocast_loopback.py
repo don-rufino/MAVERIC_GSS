@@ -21,6 +21,8 @@ enabled, every failure mode fails the test.
 
 from __future__ import annotations
 
+import itertools
+import os
 import subprocess
 import sys
 import tempfile
@@ -142,15 +144,28 @@ def _compose(bursts: list[np.ndarray], gap_s: float = 0.5,
     return record.astype(np.complex64)
 
 
-def replay_iq_through_banks(record: np.ndarray | Path, *, zmq_port: int,
-                            timeout_s: float = 120.0) -> list[bytes]:
+_REPLAY_ADDR_COUNTER = itertools.count()
+
+
+def _throwaway_ipc_addr() -> str:
+    """Collision-free per-call frame-bus endpoint. ipc (not fixed TCP ports)
+    so parallel test runs cannot collide; kept under gettempdir with a short
+    name because macOS caps unix-socket paths at 104 chars."""
+    name = f"mavtest_{os.getpid()}_{next(_REPLAY_ADDR_COUNTER)}.ipc"
+    return "ipc://" + os.path.join(tempfile.gettempdir(), name)
+
+
+def replay_iq_through_banks(record: np.ndarray | Path, *,
+                            timeout_s: float = 120.0,
+                            zmq_addr: str | None = None) -> list[bytes]:
     """Run IQ through `MAV_ASTROCAST.py --headless --iqfile`, collecting
-    deframed PDUs from its ZMQ PUB (the production frame bus). Raises
-    AssertionError on any failure mode — never skips."""
+    deframed PDUs from its ZMQ PUB (the production frame-bus path, bound to
+    a throwaway ipc endpoint). Raises AssertionError on any failure mode —
+    never skips; the flowgraph child is always terminated."""
     import zmq
     import pmt
 
-    addr = f"tcp://127.0.0.1:{zmq_port}"
+    addr = zmq_addr or _throwaway_ipc_addr()
     with tempfile.TemporaryDirectory() as tmp:
         if isinstance(record, Path):
             iq_path = record
@@ -161,12 +176,12 @@ def replay_iq_through_banks(record: np.ndarray | Path, *, zmq_port: int,
         sub = ctx.socket(zmq.SUB)
         sub.connect(addr)
         sub.setsockopt(zmq.SUBSCRIBE, b"")
+        proc = subprocess.Popen(
+            [GNURADIO_PYTHON, "-u", str(GNURADIO / "MAV_ASTROCAST.py"),
+             "--headless", "--iqfile", str(iq_path), "--zmq-addr", addr],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
         try:
-            proc = subprocess.Popen(
-                [GNURADIO_PYTHON, "-u", str(GNURADIO / "MAV_ASTROCAST.py"),
-                 "--headless", "--iqfile", str(iq_path), "--zmq-addr", addr],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            )
             frames: list[bytes] = []
             deadline = time.monotonic() + timeout_s
             exited_at = None
@@ -181,8 +196,12 @@ def replay_iq_through_banks(record: np.ndarray | Path, *, zmq_port: int,
                     elif time.monotonic() - exited_at > 1.0:
                         break  # drained for a second past process exit
             if proc.poll() is None:
-                proc.kill()
-                out, err = proc.communicate()
+                out, err = "", ""
+                try:
+                    proc.kill()
+                    out, err = proc.communicate(timeout=10)
+                except Exception:
+                    pass
                 raise AssertionError(
                     f"MAV_ASTROCAST --iqfile did not finish in {timeout_s}s:\n"
                     f"{err[-800:]}")
@@ -192,6 +211,15 @@ def replay_iq_through_banks(record: np.ndarray | Path, *, zmq_port: int,
                     f"MAV_ASTROCAST --iqfile exited rc={proc.returncode}:\n{err[-800:]}")
             return frames
         finally:
+            # The child must never outlive the test — an exception anywhere
+            # above (e.g. a deserialize error) must not orphan a 26-branch
+            # flowgraph.
+            if proc.poll() is None:
+                proc.kill()
+                try:
+                    proc.communicate(timeout=10)
+                except Exception:
+                    pass
             sub.close(0)
             ctx.term()
 
@@ -213,7 +241,7 @@ class AstrocastLoopbackTests(unittest.TestCase):
             _beacon_burst(BEACON_FRAME_1, 0.0),
             _beacon_burst(BEACON_FRAME_2, 1_700.0),
         ])
-        frames = replay_iq_through_banks(record, zmq_port=52084)
+        frames = replay_iq_through_banks(record)
         decoded = set(frames)
         self.assertIn(BEACON_FRAME_1, decoded,
                       f"DC burst not decoded (got {len(frames)} PDUs)")

@@ -22,6 +22,7 @@ decoded; add one after the next successful pass.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -40,11 +41,23 @@ FIXTURES = TESTS_DIR / "fixtures" / "iq"
 
 
 def _fixture(name: str) -> tuple[Path, dict]:
+    # Manifests are tracked (expected frames + provenance + sha256); only
+    # the IQ binaries are machine-local. A missing binary skips with the
+    # manifest's provenance in the message; a CORRUPT binary fails.
+    meta = json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
     cf32 = FIXTURES / f"{name}.cf32"
     if not cf32.is_file():
         raise unittest.SkipTest(
-            f"local golden fixture {cf32} not present on this machine")
-    meta = json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+            f"golden IQ binary {cf32.name} not on this machine — regenerate "
+            f"from {meta.get('source_file', '?')} span "
+            f"{meta.get('source_span_s', '?')} s ({meta.get('sample_count')} "
+            f"samples, sha256 {str(meta.get('sha256'))[:16]}…)")
+    if meta.get("sha256"):
+        digest = hashlib.sha256(cf32.read_bytes()).hexdigest()
+        if digest != meta["sha256"]:
+            raise AssertionError(
+                f"{cf32.name} does not match its manifest (sha256 {digest[:16]}… "
+                f"vs {meta['sha256'][:16]}…) — stale or corrupt slice")
     return cf32, meta
 
 
@@ -69,13 +82,12 @@ class GoldenIqReplayTests(unittest.TestCase):
             f"{[m[:16].hex() for m in missing]} (got {len(pdus)} PDUs)")
 
     def test_astrocast_pass_beacons_still_decode(self):
-        for i, name in enumerate(
-                ("astrocast_beacon1_200k", "astrocast_beacon2_200k",
-                 "astrocast_beacon3_200k")):
+        for name in ("astrocast_beacon1_200k", "astrocast_beacon2_200k",
+                     "astrocast_beacon3_200k"):
             with self.subTest(fixture=name):
                 cf32, meta = _fixture(name)
                 expected = {bytes.fromhex(h) for h in meta["expected_frames_hex"]}
-                frames = replay_iq_through_banks(cf32, zmq_port=52088 + i)
+                frames = replay_iq_through_banks(cf32)
                 missing = expected - set(frames)
                 self.assertFalse(
                     missing,

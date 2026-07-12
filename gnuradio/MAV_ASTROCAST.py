@@ -31,6 +31,11 @@ Input modes:
                    decode chain: all 13 discriminator branches plus the
                    matched-filter fine bank.
 
+Replay modes publish frames on a throwaway ipc endpoint by default so a
+historical recording can never be ingested as current telemetry (or
+collide with the live flowgraph's bind); pass
+--zmq-addr tcp://127.0.0.1:52001 explicitly to feed the GSS.
+
 Pass --headless to skip the Qt GUI entirely (scripted replay / SSH use).
 """
 
@@ -926,6 +931,26 @@ def _run_gui(args):
     qapp.exec_()
 
 
+def _resolve_zmq_addr(explicit_addr, replaying):
+    """Frame-bus endpoint policy.
+
+    Live RX publishes on the production bus by default. Replay modes must
+    NOT: a recording replayed while the GSS backend runs would be ingested
+    as *current* telemetry (logged, parameters applied, alarms evaluated),
+    and while the live flowgraph runs the PUB bind collides. So replays
+    default to a throwaway ipc endpoint (kept under gettempdir with a short
+    name — macOS caps unix-socket paths at 104 chars) and feeding the GSS
+    takes an explicit --zmq-addr tcp://127.0.0.1:52001.
+    """
+    if explicit_addr:
+        return explicit_addr
+    if not replaying:
+        return FRAME_ZMQ_ADDR
+    import tempfile
+    return "ipc://" + os.path.join(
+        tempfile.gettempdir(), f"mav_astrocast_replay_{os.getpid()}.ipc")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     source = parser.add_mutually_exclusive_group()
@@ -933,8 +958,11 @@ def main():
     source.add_argument("--iqfile",
                         help="200 ksps cf32 IQ replay (an _IqRecorder capture) "
                              "through the full live decode banks")
-    parser.add_argument("--zmq-addr", default=FRAME_ZMQ_ADDR,
-                        help=f"frame PDU PUB bind address [default {FRAME_ZMQ_ADDR}]")
+    parser.add_argument("--zmq-addr", default=None,
+                        help="frame PDU PUB bind address "
+                             f"[live default {FRAME_ZMQ_ADDR}; replay modes "
+                             "default to a throwaway ipc endpoint — pass "
+                             f"{FRAME_ZMQ_ADDR} explicitly to feed the GSS]")
     parser.add_argument("--doppler-addr", default=DOPPLER_ZMQ_ADDR,
                         help=f"Doppler tune SUB address [default {DOPPLER_ZMQ_ADDR}]")
     parser.add_argument("--wait-s", type=float, default=1.0,
@@ -942,6 +970,12 @@ def main():
     parser.add_argument("--headless", action="store_true",
                         help="run without the Qt GUI (scripted replay / SSH)")
     args = parser.parse_args()
+
+    replaying = bool(args.wavfile or args.iqfile)
+    args.zmq_addr = _resolve_zmq_addr(args.zmq_addr, replaying)
+    if replaying:
+        print(f"MAV_ASTROCAST replay frame bus: {args.zmq_addr} "
+              f"(pass --zmq-addr {FRAME_ZMQ_ADDR} to feed the GSS)", flush=True)
 
     if args.headless:
         _run_headless(args)

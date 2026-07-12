@@ -260,3 +260,19 @@ def test_stream_health_report_matches_radio_service_contract():
     assert payload["clip_count"] == 3
     assert payload["overflows_total"] == 2
     assert payload["span_s"] == 10.0
+
+
+def test_replay_frame_bus_defaults_to_throwaway_endpoint():
+    flowgraph = _flowgraph_module()
+    # Live keeps the production bus; replays must never default onto it —
+    # a historical recording replayed with the backend up would be ingested
+    # as CURRENT telemetry (and the PUB bind collides with a live flowgraph).
+    assert flowgraph._resolve_zmq_addr(None, False) == flowgraph.FRAME_ZMQ_ADDR
+    addr = flowgraph._resolve_zmq_addr(None, True)
+    assert addr.startswith("ipc://")
+    assert "52001" not in addr
+    # macOS caps unix-socket paths at 104 chars
+    assert len(addr) - len("ipc://") < 104
+    # explicit override (including onto the GSS bus) is honoured verbatim
+    assert flowgraph._resolve_zmq_addr("tcp://127.0.0.1:52001", True) == \
+        "tcp://127.0.0.1:52001"
