@@ -93,7 +93,7 @@ class MAV_BEACON(gr.top_block):
         self._soapy_rtlsdr_source_0_gain_value = gain
         self.set_soapy_rtlsdr_source_0_gain_mode(0, bool(False))
         self.set_soapy_rtlsdr_source_0_gain(0, 'TUNER', gain)
-        self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = 'MAVERIC_BEACON.yml', samp_rate = samp_rate, grc_block = True, iq = True, options = "")
+        self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = 'MAVERIC_BEACON.yml', samp_rate = samp_rate, grc_block = True, iq = True, options = "--syncword_threshold 6")
         self.gpredict_doppler_0 = gpredict.doppler('127.0.0.1', 7356, False)
         self.gpredict_MsgPairToVar_0 = gpredict.MsgPairToVar(self.set_freq)
         self.epy_block_0 = epy_block_0.blk(log_path=log_path)

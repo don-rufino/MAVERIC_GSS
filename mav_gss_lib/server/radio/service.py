@@ -259,8 +259,9 @@ class RadioService:
         # relative log_dir would land waterfall PNGs inside the flowgraph dir.
         env["GSS_WATERFALL_DIR"] = str(resolve_project_path(log_dir_raw) / "waterfalls")
         # Mission-specific gr-satellites SatYAML (seeded by the mission's
-        # build(ctx), like radio.script); MAV_DUO falls back to
-        # MAVERIC_DECODER.yml when unset. Repo-root-relative or absolute,
+        # build(ctx)). Standalone MAV_DUO resolves the exact
+        # decoders/<GSS_MISSION>_DECODER.yml and fails closed when absent.
+        # Repo-root-relative or absolute,
         # like every other config path — absolutized here because the child
         # runs from gnuradio/, where a relative value would resolve wrongly.
         if isinstance(decoder_yml, str) and decoder_yml.strip():

@@ -1,0 +1,18 @@
+# Suomi 100 production beacon profile. The 9k6 / 2400 Hz h=0.5 waveform is
+# published upstream and was verified on the 2026-07-12 first-light capture.
+
+name: Suomi 100
+norad: 43804
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  9k6 FSK AX100 ASM+Golay downlink:
+    frequency: 437.775e+6
+    modulation: FSK
+    baudrate: 9600
+    deviation: 2400
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm

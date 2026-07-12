@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from mav_gss_lib.missions.ax100_rx import HkDecode
+from mav_gss_lib.platform.framing.crc import crc32c
 
 
 _B0_EPS = struct.Struct(">I3HH7H3HHH6hB")
@@ -52,7 +53,7 @@ def _split(payload: bytes, eps: struct.Struct, com: struct.Struct,
     return _Sections(eps=e, com=c, obc=b)
 
 
-def _beacon0(payload: bytes) -> HkDecode:
+def _beacon0(csp_header: dict, payload: bytes) -> HkDecode:
     s = _split(payload, _B0_EPS, _B0_COM, _B0_OBC)
     eps_ts, pv1, pv2, pv3, vbat = s.eps[0:5]
     out_cur = s.eps[5:12]
@@ -72,15 +73,17 @@ def _beacon0(payload: bytes) -> HkDecode:
         _iso(obc_ts), *obc_cur, ot1, ot2,
     ]
     facts = {"kind": "hk", "vbat_mv": vbat, "rssi_dbm": rssi, "rferr_hz": rferr}
+    warnings, integrity_ok = _integrity(csp_header, payload, BEACON0_SIZE)
     return HkDecode(
         container_kind="beacon0",
         tokens=" ".join(str(t) for t in tokens).encode("ascii"),
         facts=facts,
-        warnings=_trailing_warning(payload, BEACON0_SIZE),
+        warnings=warnings,
+        integrity_ok=integrity_ok,
     )
 
 
-def _beacon1(payload: bytes) -> HkDecode:
+def _beacon1(csp_header: dict, payload: bytes) -> HkDecode:
     s = _split(payload, _B1_EPS, _B1_COM, _B1_OBC)
     (eps_ts, wdt_i2c, wdt_gnd, eps_boots, wdt_i2c_count, wdt_gnd_count,
      csp_count_a, csp_count_b) = s.eps[0:8]
@@ -111,19 +114,77 @@ def _beacon1(payload: bytes) -> HkDecode:
         "tx_count": tx_count,
         "rx_count": rx_count,
     }
+    warnings, integrity_ok = _integrity(csp_header, payload, BEACON1_SIZE)
     return HkDecode(
         container_kind="beacon1",
         tokens=" ".join(str(t) for t in tokens).encode("ascii"),
         facts=facts,
-        warnings=_trailing_warning(payload, BEACON1_SIZE),
+        warnings=warnings,
+        integrity_ok=integrity_ok,
     )
 
 
-def _trailing_warning(payload: bytes, expected: int) -> tuple[str, ...]:
+def _csp_header_bytes(csp: dict) -> bytes | None:
+    fields = ("prio", "src", "dest", "dport", "sport", "flags")
+    if not all(name in csp for name in fields):
+        return None
+    h = (
+        (int(csp["prio"]) & 0x03) << 30
+        | (int(csp["src"]) & 0x1F) << 25
+        | (int(csp["dest"]) & 0x1F) << 20
+        | (int(csp["dport"]) & 0x3F) << 14
+        | (int(csp["sport"]) & 0x3F) << 8
+        | (int(csp["flags"]) & 0xFF)
+    )
+    return h.to_bytes(4, "big")
+
+
+def _integrity(
+    csp_header: dict, payload: bytes, expected: int
+) -> tuple[tuple[str, ...], bool | None]:
+    """Validate SUOMI's payload CRC followed by the outer CSP CRC.
+
+    Flight beacons append CRC-32C(beacon block), then
+    CRC-32C(CSP header + beacon block + first CRC). CSP flag bit 0 declares
+    that trailer mandatory. Older synthetic fixtures with flags=0 and no
+    trailer remain decodable with integrity unassessed.
+    """
     extra = len(payload) - expected
-    if extra > 0:
-        return (f"{extra} trailing bytes after the beacon block",)
-    return ()
+    crc_required = bool(int(csp_header.get("flags", 0)) & 0x01)
+    if extra == 0:
+        if crc_required:
+            return (("missing required 8-byte SUOMI CRC-32C trailer",), False)
+        return (), None
+    if extra < 8:
+        return (
+            (f"partial SUOMI CRC-32C trailer ({extra} of 8 bytes)",),
+            False,
+        )
+
+    warnings: list[str] = []
+    inner_received = int.from_bytes(payload[expected:expected + 4], "big")
+    inner_computed = crc32c(payload[:expected])
+    if inner_received != inner_computed:
+        warnings.append(
+            "beacon CRC-32C mismatch "
+            f"(received 0x{inner_received:08x}, computed 0x{inner_computed:08x})"
+        )
+
+    header = _csp_header_bytes(csp_header)
+    if header is None:
+        warnings.append("CSP header unavailable for outer CRC-32C validation")
+    else:
+        outer_received = int.from_bytes(payload[expected + 4:expected + 8], "big")
+        outer_computed = crc32c(header + payload[:expected + 4])
+        if outer_received != outer_computed:
+            warnings.append(
+                "CSP CRC-32C mismatch "
+                f"(received 0x{outer_received:08x}, computed 0x{outer_computed:08x})"
+            )
+
+    if extra > 8:
+        warnings.append(f"{extra - 8} bytes after the CRC-32C trailer")
+    return tuple(warnings), not warnings
 
 
 def decode_beacon(csp_header: dict, payload: bytes) -> HkDecode | None:
@@ -136,9 +197,9 @@ def decode_beacon(csp_header: dict, payload: bytes) -> HkDecode | None:
         return None
     try:
         if payload[0] == 0x00 and len(payload) >= BEACON0_SIZE:
-            return _beacon0(payload)
+            return _beacon0(csp_header, payload)
         if payload[0] == 0x01 and len(payload) >= BEACON1_SIZE:
-            return _beacon1(payload)
+            return _beacon1(csp_header, payload)
     except (struct.error, ValueError, OverflowError, OSError):
         return None
     return None

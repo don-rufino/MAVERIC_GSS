@@ -1,7 +1,7 @@
 """AISTECHSAT-2 mission assembly (Aistech Space, NORAD 43768).
 
-RX-only AX100 Mode 5 family mission on 436.600 MHz, 4k8 FSK (deviation
-1600 Hz) and 9k6 FSK. Standard housekeeping frames decode per the
+RX-only AX100 Mode 5 family mission on the active 436.730 MHz carrier,
+4k8 FSK at 1600 Hz deviation. Standard housekeeping frames decode per the
 gr-satellites `lume` telemetry stack ported in telemetry.py (PUS TM with
 five payload tables — OBC / EPS / TTC+GSSB / AOCS / TEMPS); Aistech's
 undocumented "custom telemetry" frames log raw with CSP header facts.
@@ -32,7 +32,7 @@ TARGET = Ax100Target(
     tle_source="CelesTrak (seeded 2026-07-11)",
     tle_line1="1 43768U 18099L   26190.40518050  .00004147  00000+0  22132-3 0  9994",
     tle_line2="2 43768  97.4285 237.9540 0004036 200.8293 159.2775 15.15677823415643",
-    freq_hz=436_600_000.0,
+    freq_hz=436_730_000.0,
 )
 
 

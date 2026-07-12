@@ -6,10 +6,17 @@ production RX rate (200 ksps = MAV_DUO samp_rate/rx_decim), then runs them
 through gr_satellites_flowgraph instantiated exactly as MAV_DUO does it:
 same database file, same samp_rate, same options string.
 
-Positive matrix — six Mode 5 cases plus the AX.25 G3RUH case:
+Positive matrix — every production MAV_DUO decoder profile:
 
-    MAVERIC_DECODER.yml     4k8/1600  4k8/1200  9k6/3200  9k6/2400
+    MAVERIC_DECODER.yml     9k6/3200
     ROADS_DECODER.yml       4k8/1200  9k6/2400
+    SUOMI100_DECODER.yml    9k6/2400
+    LUOJIA1_DECODER.yml     4k8/1600
+    CATSAT_DECODER.yml      2k4/750
+    AISTECHSAT2_DECODER.yml 4k8/1600
+    INNOCUBE_DECODER.yml    9k6/3200
+    SNIPE_DECODER.yml       4k8/1600  4k8/1200
+    NUSHSAT1_DECODER.yml    1k2/575  2k4/600  2k4/800
     SHARJAHSAT_DECODER.yml  9k6/3000 AX.25 G3RUH
 
 The GNU Radio tests are gated behind MAVERIC_FULL_GR=1 (they spawn real
@@ -46,6 +53,7 @@ from mav_gss_lib.platform.framing.asm_golay import build_asm_golay_frame  # noqa
 from mav_gss_lib.platform.framing.ax25 import AX25Config, build_ax25_gfsk_frame  # noqa: E402
 
 GNURADIO = CODE_DIR / "gnuradio"
+DECODERS = GNURADIO / "decoders"
 FS = 200_000  # production decode rate: MAV_DUO samp_rate (1 Msps) / rx_decim (5)
 GNURADIO_PYTHON = os.environ.get("MAVERIC_GNURADIO_PYTHON", sys.executable)
 
@@ -147,6 +155,11 @@ def _requires_full_gr() -> None:
         raise unittest.SkipTest("set MAVERIC_FULL_GR=1 to run the GNU Radio loopback tests")
 
 
+def _decoder_path(db_name: str) -> Path:
+    path = Path(db_name)
+    return GNURADIO / path if len(path.parts) > 1 else DECODERS / path
+
+
 def _production_options(db_name: str) -> str:
     """The options string a RadioService-launched MAV_DUO would pair with
     this database — derived by the flowgraph's own `_decoder_options()`, so
@@ -156,7 +169,7 @@ def _production_options(db_name: str) -> str:
     if str(GNURADIO) not in sys.path:
         sys.path.insert(0, str(GNURADIO))
     import MAV_DUO
-    return MAV_DUO._decoder_options(str(GNURADIO / db_name))
+    return MAV_DUO._decoder_options(str(_decoder_path(db_name)))
 
 
 class DecodeLoopbackTests(unittest.TestCase):
@@ -169,7 +182,7 @@ class DecodeLoopbackTests(unittest.TestCase):
 
     def _assert_decodes(self, db: str, options: str, cases: list[tuple[bytes, np.ndarray]]) -> None:
         record = _compose_record([burst for _, burst in cases])
-        pdus = _run_decoder(GNURADIO / db, options, record)
+        pdus = _run_decoder(_decoder_path(db), options, record)
         decoded = {p for p in pdus}
         for payload, _ in cases:
             self.assertIn(payload, decoded,
@@ -178,18 +191,20 @@ class DecodeLoopbackTests(unittest.TestCase):
         self.assertEqual(decoded, {payload for payload, _ in cases},
                          f"{db}: unexpected extra payloads decoded")
 
-    def test_maveric_database_decodes_all_four_mode5_hypotheses(self):
+    def test_maveric_databases_decode_flight_mode(self):
         # Options derived by the production selector — this functionally
         # proves _decoder_options() still pairs threshold 6 with an AX100
         # database AND that the pairing parses and decodes.
-        options = _production_options("MAVERIC_DECODER.yml")
-        self.assertEqual(options, "--syncword_threshold 6")
-        cases = []
-        for i, (baud, dev) in enumerate([(4800, 1600), (4800, 1200),
-                                         (9600, 3200), (9600, 2400)]):
-            payload = bytes([0xA0 + i]) + f"MAVERIC-LOOP-{baud}-{dev}".encode().ljust(40, b"\x5A")
-            cases.append((payload, _gfsk_iq(build_asm_golay_frame(payload), baud, dev)))
-        self._assert_decodes("MAVERIC_DECODER.yml", options, cases)
+        payload = b"\xA0" + b"MAVERIC-LOOP-9600-3200".ljust(40, b"\x5A")
+        burst = _gfsk_iq(build_asm_golay_frame(payload), 9600, 3200)
+        for database in (
+            "MAVERIC_DECODER.yml",
+            "public/MAVERIC_beacon_decoder/MAVERIC_BEACON.yml",
+        ):
+            with self.subTest(database=database):
+                options = _production_options(database)
+                self.assertEqual(options, "--syncword_threshold 6")
+                self._assert_decodes(database, options, [(payload, burst)])
 
     def test_roads_database_decodes_measured_h05_branches(self):
         options = _production_options("ROADS_DECODER.yml")
@@ -199,6 +214,31 @@ class DecodeLoopbackTests(unittest.TestCase):
             payload = bytes([0xB0 + i]) + f"ROADS-LOOP-{baud}-{dev}".encode().ljust(40, b"\x3C")
             cases.append((payload, _gfsk_iq(build_asm_golay_frame(payload), baud, dev)))
         self._assert_decodes("ROADS_DECODER.yml", options, cases)
+
+    def test_other_ax100_databases_decode_exact_mission_profiles(self):
+        profiles = {
+            "SUOMI100_DECODER.yml": [(9600, 2400)],
+            "LUOJIA1_DECODER.yml": [(4800, 1600)],
+            "CATSAT_DECODER.yml": [(2400, 750)],
+            "AISTECHSAT2_DECODER.yml": [(4800, 1600)],
+            "INNOCUBE_DECODER.yml": [(9600, 3200)],
+            "SNIPE_DECODER.yml": [(4800, 1600), (4800, 1200)],
+            "NUSHSAT1_DECODER.yml": [(1200, 575), (2400, 600), (2400, 800)],
+        }
+        for db, waveforms in profiles.items():
+            with self.subTest(database=db):
+                options = _production_options(db)
+                self.assertEqual(options, "--syncword_threshold 6")
+                cases = []
+                for i, (baud, dev) in enumerate(waveforms):
+                    payload = bytes([0xC0 + i]) + (
+                        f"{db}-{baud}-{dev}".encode().ljust(48, b"\x69")
+                    )
+                    cases.append((
+                        payload,
+                        _gfsk_iq(build_asm_golay_frame(payload), baud, dev),
+                    ))
+                self._assert_decodes(db, options, cases)
 
     def test_sharjahsat_database_decodes_official_g3ruh(self):
         # The selector must return NO options for a pure-AX.25 database —
@@ -225,7 +265,8 @@ class DecodeLoopbackTests(unittest.TestCase):
             """
         )
         proc = subprocess.run(
-            [GNURADIO_PYTHON, "-u", "-c", script, str(GNURADIO / "SHARJAHSAT_DECODER.yml")],
+            [GNURADIO_PYTHON, "-u", "-c", script,
+             str(DECODERS / "SHARJAHSAT_DECODER.yml")],
             capture_output=True, text=True, timeout=120,
         )
         self.assertNotEqual(proc.returncode, 0,
@@ -246,6 +287,20 @@ class FlowgraphParamGuards(unittest.TestCase):
         grc = yaml.safe_load((GNURADIO / "MAV_DUO.grc").read_text(encoding="utf-8"))
         (block,) = [b for b in grc["blocks"] if b["name"] == "modindex"]
         self.assertEqual(block["parameters"]["value"], "1/1.5")
+
+    def test_decoder_selector_is_fail_closed_in_py_and_grc(self):
+        py = (GNURADIO / "MAV_DUO.py").read_text(encoding="utf-8")
+        self.assertIn("resolve_mav_duo_decoder", py)
+        self.assertNotIn("MAVERIC_DECODER.yml (default)", py)
+
+        grc = yaml.safe_load((GNURADIO / "MAV_DUO.grc").read_text(encoding="utf-8"))
+        blocks = {block["name"]: block for block in grc["blocks"]}
+        selector = blocks["decoder_yml"]["parameters"]["value"]
+        self.assertIn("GSS_DECODER_YML", selector)
+        self.assertIn("GSS_MISSION", selector)
+        self.assertIn("'decoders'", selector)
+        self.assertIn("'_DECODER.yml'", selector)
+        self.assertNotIn("isfile", selector)
 
     def test_stream_instrumentation_mirrored_in_py_and_grc(self):
         # Pre-FIR health probe + raw 1 Msps recorder + env RX gain must stay

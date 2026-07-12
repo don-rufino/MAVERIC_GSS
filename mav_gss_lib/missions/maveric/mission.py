@@ -40,6 +40,8 @@ _CSP_DEFAULTS = {
 _IMAGING_DEFAULTS = {"thumb_prefix": "tn_"}
 _RX_DEFAULTS = {"frequency": "437.575 MHz"}
 _TX_DEFAULTS = {"frequency": "437.575 MHz"}
+_RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
+_DECODER_YML = "gnuradio/decoders/MAVERIC_DECODER.yml"
 
 
 def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
@@ -63,6 +65,10 @@ def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
         if isinstance(tx_cfg, dict):
             for k, v in _TX_DEFAULTS.items():
                 tx_cfg.setdefault(k, v)
+        radio_cfg = platform_cfg.setdefault("radio", {})
+        if isinstance(radio_cfg, dict):
+            radio_cfg.setdefault("script", _RADIO_SCRIPT)
+            radio_cfg["decoder_yml"] = _DECODER_YML
         # MAVERIC TLE / station / frequency. Platform ships neutral
         # Sample-LEO defaults; MAVERIC seeds its actual values here so a
         # fresh checkout starts with the right satellite without the

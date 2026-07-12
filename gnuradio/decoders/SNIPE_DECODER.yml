@@ -1,0 +1,28 @@
+# One decoder profile covers all four SNIPE spacecraft. They use different RF
+# centres but the same 4k8 AX100 Mode-5 waveform; tuning remains mission state.
+# The published definitions omit modulation index, so both plausible AX100
+# settings remain until a captured frame can settle it.
+
+name: SNIPE family
+norad: 56749
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  4k8 FSK AX100 ASM+Golay downlink:
+    frequency: 435.450e+6
+    modulation: FSK
+    baudrate: 4800
+    deviation: 1600
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm
+  4k8 FSK AX100 ASM+Golay downlink (h=0.5):
+    frequency: 435.450e+6
+    modulation: FSK
+    baudrate: 4800
+    deviation: 1200
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm

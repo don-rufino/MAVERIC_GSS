@@ -44,7 +44,7 @@ EXPECTED = {
     "suomi100": (43804, 437_775_000.0, "437.775 MHz"),
     "luojia1": (43485, 437_250_000.0, "437.250 MHz"),
     "roads": (64535, 435_400_000.0, "435.400 MHz"),
-    "aistechsat2": (43768, 436_600_000.0, "436.600 MHz"),
+    "aistechsat2": (43768, 436_730_000.0, "436.730 MHz"),
     "innocube": (62616, 435_950_000.0, "435.950 MHz"),
     "nushsat1": (63211, 436_200_000.0, "436.200 MHz"),
 }
@@ -84,6 +84,9 @@ def test_build_seeds_frequency_tracking_and_radio(target, tmp_path):
     assert spec.spec_root is not None
     assert platform_cfg["rx"]["frequency"] == label
     assert platform_cfg["radio"]["script"] == "gnuradio/MAV_DUO.py"
+    assert platform_cfg["radio"]["decoder_yml"] == (
+        f"gnuradio/decoders/{target.mission_id.upper()}_DECODER.yml"
+    )
     tracking = platform_cfg["tracking"]
     assert tracking["tle_fetch"]["identifier"] == str(norad)
     assert tracking["frequencies"]["rx_hz"] == freq_hz
@@ -244,6 +247,7 @@ def test_suomi_beacon0_end_to_end_parameters(tmp_path):
     assert facts["beacon"]["vbat_mv"] == 8123
     assert facts["beacon"]["rssi_dbm"] == -97
     assert packet.flags.is_unknown is False
+    assert packet.flags.integrity_ok is None
 
 
 def test_suomi_beacon1_end_to_end_parameters(tmp_path):
@@ -291,7 +295,56 @@ def test_suomi_trailing_bytes_warn_but_decode():
     hk = decode_beacon({}, _suomi_beacon0() + b"\xaa\xbb")
     assert hk is not None
     assert hk.container_kind == "beacon0"
-    assert any("trailing" in w for w in hk.warnings)
+    assert hk.integrity_ok is False
+    assert any("partial" in w for w in hk.warnings)
+
+
+# SUOMI-100 first light at 2026-07-12T05:12:00Z. The final eight bytes
+# are CRC-32C(beacon block), then CRC-32C(CSP header + block + first CRC).
+SUOMI_FIRST_LIGHT_B0 = bytes.fromhex(
+    "82a78001006a532220015c039c01531d47001b0001004d0003003b000400b200"
+    "b200110009003601d1fffafffcfffcffff00000000036a532220ffc8ffc6ff92"
+    "06faff946a532220000100000001000300000353ffccffd0de2fecbfe3993d61"
+)
+
+
+def test_suomi_first_light_nested_crc32c_validates(tmp_path):
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "suomi100", {},
+    )
+    result = runtime.process_rx(M5_META, SUOMI_FIRST_LIGHT_B0)
+    assert result.container_id == "beacon0"
+    assert result.packet.warnings == []
+    assert result.packet.flags.integrity_ok is True
+    values = {u.name: u.value for u in result.packet.parameters}
+    assert values["eps.vbat"] == 7495
+    assert values["com.rferr"] == 1786
+
+
+def test_suomi_invalid_nested_crc32c_is_flagged(tmp_path):
+    damaged = bytearray(SUOMI_FIRST_LIGHT_B0)
+    damaged[-8] ^= 0x01
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "suomi100", {},
+    )
+    result = runtime.process_rx(M5_META, bytes(damaged))
+    assert result.container_id is None
+    assert result.packet.parameters == ()
+    assert result.packet.flags.integrity_ok is False
+    assert any("beacon CRC-32C mismatch" in w for w in result.packet.warnings)
+    assert any("CSP CRC-32C mismatch" in w for w in result.packet.warnings)
+
+
+def test_suomi_required_crc32c_trailer_must_be_present(tmp_path):
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "suomi100", {},
+    )
+    result = runtime.process_rx(M5_META, SUOMI_FIRST_LIGHT_B0[:-8])
+
+    assert result.container_id is None
+    assert result.packet.parameters == ()
+    assert result.packet.flags.integrity_ok is False
+    assert any("missing required" in w for w in result.packet.warnings)
 
 
 # ---------------------------------------------------------------- catsat
@@ -722,13 +775,16 @@ def test_aistechsat2_matches_gr_satellites_lume():
 # ---------------------------------------------------------------- decoder yml
 
 
-def test_radio_decoder_has_2k4_mode5_branch_for_catsat():
+def test_catsat_decoder_is_2k4_beacon_only():
     import yaml
 
-    decoder = Path(__file__).resolve().parent.parent / "gnuradio" / "MAVERIC_DECODER.yml"
+    decoder = (
+        Path(__file__).resolve().parent.parent
+        / "gnuradio" / "decoders" / "CATSAT_DECODER.yml"
+    )
     doc = yaml.safe_load(decoder.read_text(encoding="utf-8"))
-    branch = doc["transmitters"].get("2k4 FSK AX100 ASM+Golay downlink")
-    assert branch is not None
+    assert len(doc["transmitters"]) == 1
+    (branch,) = doc["transmitters"].values()
     assert branch["baudrate"] == 2400
     assert branch["deviation"] == 750
     assert branch["framing"] == "AX100 ASM+Golay"

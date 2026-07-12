@@ -20,6 +20,7 @@ from mav_gss_lib.missions.ax100_rx.mission_support import (
     Ax100Bird,
     Ax100Target,
     build_ax100_mission,
+    decoder_yml_for,
     seed_ax100_defaults,
 )
 
@@ -31,5 +32,6 @@ __all__ = [
     "HkDecode",
     "TokenPacket",
     "build_ax100_mission",
+    "decoder_yml_for",
     "seed_ax100_defaults",
 ]

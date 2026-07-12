@@ -86,6 +86,15 @@ class TestSplitToPersistable(unittest.TestCase):
 
         self.assertEqual(native["platform"]["tx"], {"delay_ms": 100})
 
+    def test_strips_runtime_derived_radio_decoder_profile(self):
+        platform = {"radio": {
+            "enabled": True,
+            "decoder_yml": "gnuradio/decoders/MAVERIC_DECODER.yml",
+        }}
+        native = cfg_module.split_to_persistable(platform, "maveric", {})
+
+        self.assertEqual(native["platform"]["radio"], {"enabled": True})
+
 
 class TestWebRuntimePrimarySplitState(unittest.TestCase):
     def test_runtime_exposes_split_state_without_mission_leak(self):

@@ -156,6 +156,9 @@ def test_build_seeds_rx_frequency_and_tracking(tmp_path):
     load_mission_spec_from_split(platform_cfg, "sharjahsat", mission_cfg, data_dir=tmp_path)
     assert platform_cfg["rx"]["frequency"] == "437.325 MHz"
     assert platform_cfg["radio"]["script"] == "gnuradio/MAV_DUO.py"
+    assert platform_cfg["radio"]["decoder_yml"] == (
+        "gnuradio/decoders/SHARJAHSAT_DECODER.yml"
+    )
     assert platform_cfg["tracking"]["frequencies"]["rx_hz"] == 437_325_000.0
     assert mission_cfg["mission_name"] == "SharjahSat-1"
 
@@ -172,7 +175,7 @@ def test_mission_yml_parses_standalone():
 
 
 def test_radio_decoder_has_sharjahsat_branch():
-    yml = Path("gnuradio/MAVERIC_DECODER.yml")
+    yml = Path("gnuradio/decoders/SHARJAHSAT_DECODER.yml")
     raw = yaml.safe_load(yml.read_text(encoding="utf-8"))
     branch = raw["transmitters"]["9k6 FSK AX.25 G3RUH downlink"]
     assert branch["baudrate"] == 9600

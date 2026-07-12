@@ -1,0 +1,22 @@
+# MAVERIC flight decoder profile.
+#
+# The flight AX100 is configured for Mode 5 at 9k6. Its automatic modulation
+# index at this baud is h=2/3, hence a 3200 Hz peak deviation. The former
+# multi-baud / Mode-6 entries were a pre-first-light search profile; production
+# mission switching now selects a dedicated database for every other target.
+
+name: MAVERIC
+norad: 0
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  9k6 FSK AX100 ASM+Golay downlink:
+    frequency: 437.575e+6
+    modulation: FSK
+    baudrate: 9600
+    deviation: 3200
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm

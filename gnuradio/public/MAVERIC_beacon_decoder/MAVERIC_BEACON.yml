@@ -9,8 +9,8 @@
 #
 #  Nominal mode:  9k6 FSK, AX100 Mode 5 (ASM+Golay), 437.575 MHz UHF.
 #
-#  For the full multi-baud / multi-framing matrix used by the ground
-#  station itself, see MAVERIC_DECODER.yml instead.
+#  The ground station uses the same flight waveform through its dedicated
+#  MAVERIC_DECODER.yml mission profile.
 
 name: MAVERIC
 norad: 0              # No NORAD catalog number assigned (pre-launch)
@@ -25,6 +25,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 9600
+    deviation: 3200
     framing: AX100 ASM+Golay
     data:
       - *tlm

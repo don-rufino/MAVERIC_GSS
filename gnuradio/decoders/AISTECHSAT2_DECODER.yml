@@ -1,0 +1,19 @@
+# AISTECHSAT-2 AX100 housekeeping profiles. The separate custom-CCSDS modes
+# are deliberately omitted because the MAVERIC mission backend accepts the
+# AX100 Mode-5 CSP telemetry path.
+
+name: AISTECHSAT-2
+norad: 43768
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  4k8 FSK AX100 ASM+Golay downlink:
+    frequency: 436.730e+6
+    modulation: FSK
+    baudrate: 4800
+    deviation: 1600
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm

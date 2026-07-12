@@ -146,6 +146,9 @@ def test_build_seeds_rx_frequency_and_tracking(tmp_path):
     load_mission_spec_from_split(platform_cfg, "astrocast", mission_cfg, data_dir=tmp_path)
     assert platform_cfg["rx"]["frequency"] == "437.150 MHz"
     assert platform_cfg["radio"]["script"] == "gnuradio/MAV_ASTROCAST.py"
+    assert platform_cfg["radio"]["decoder_yml"] == (
+        "gnuradio/decoders/ASTROCAST_DECODER.yml"
+    )
     assert platform_cfg["tracking"]["frequencies"]["rx_hz"] == 437_150_000.0
     assert mission_cfg["mission_name"] == "Astrocast 0.1"
 
@@ -163,7 +166,7 @@ def test_mission_yml_parses_standalone():
 
 
 def test_radio_decoder_yml_is_1k2_beacon_only():
-    yml = Path("gnuradio/ASTROCAST_DECODER.yml")
+    yml = Path("gnuradio/decoders/ASTROCAST_DECODER.yml")
     raw = yaml.safe_load(yml.read_text(encoding="utf-8"))
     transmitters = raw["transmitters"]
     assert set(transmitters) == {

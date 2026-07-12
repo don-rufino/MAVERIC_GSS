@@ -64,6 +64,9 @@ class HkDecode:
     tokens: bytes                # whitespace-separated ascii_tokens payload
     facts: dict[str, Any]        # rendered under mission.facts.beacon
     warnings: tuple[str, ...] = ()
+    # None = not checked/not applicable; True = integrity passed;
+    # False = checked, missing when required, or failed.
+    integrity_ok: bool | None = None
 
 
 # hk_decoder(csp_header, payload_after_header) -> HkDecode | None
@@ -126,10 +129,14 @@ class Ax100RxPacketOps:
                         payload.kind = "beacon"
                         payload.hk = hk
                         payload.warnings.extend(hk.warnings)
-                        payload.walker_packet = TokenPacket(
-                            args_raw=hk.tokens,
-                            header={"kind": hk.container_kind},
-                        )
+                        # Keep failed frames visible for diagnosis, but never
+                        # project their untrusted values into parameter/alarm
+                        # state as clean housekeeping.
+                        if hk.integrity_ok is not False:
+                            payload.walker_packet = TokenPacket(
+                                args_raw=hk.tokens,
+                                header={"kind": hk.container_kind},
+                            )
 
         return MissionPacket(
             payload=payload,
@@ -163,6 +170,9 @@ class Ax100RxPacketOps:
             duplicate_key=payload.fingerprint,
             is_unknown=payload.kind == "unknown",
             is_uplink_echo=False,
+            integrity_ok=(
+                payload.hk.integrity_ok if payload.hk is not None else None
+            ),
         )
 
     def match_verifiers(self, envelope, open_instances, *, now_ms, rx_event_id=""):

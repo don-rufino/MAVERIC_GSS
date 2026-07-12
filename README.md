@@ -52,7 +52,7 @@ The platform is mission-agnostic. Transport, queueing, logging, protocol primiti
 - **Single-radio, full-duplex capable** — one USRP B210 drives both uplink and downlink channels via the `MAV_DUO` GNU Radio flowgraph. The deployed station operates half-duplex over a single UHF antenna switched between TX and RX by a coax switch.
 - **Declarative wire framing** — mission packages declare uplink chains in `mission.yml`, and the platform `DeclarativeFramer` composes registered framers (`csp_v1`, `ax25`, `asm_golay`) at send time. MAVERIC's operational chain is CSP v1 → ASM+Golay, while AX.25 / HDLC / G3RUH support remains available for missions or test profiles that use AX100 Mode 6-style framing.
 - **Mission-agnostic core** — swap the mission package to retarget the platform; a single `MissionSpec` contract (packets / commands / events / HTTP / config / preflight) is enforced at load time.
-- **Astrocast 0.1 reference mission** — RX-only decode of a real third-party satellite (non-standard FX.25 beacons + CCSDS Reed-Solomon downloads via `gnuradio/MAV_ASTROCAST.py`), proving the mission-plugin boundary end to end. See `mav_gss_lib/missions/astrocast/README.md`.
+- **Astrocast 0.1 reference mission** — RX-only decode of its 1k2 non-standard FX.25 beacon via `gnuradio/MAV_ASTROCAST.py`, proving the mission-plugin boundary end to end. The separate 9k6 download mode is intentionally outside the production beacon profile. See `mav_gss_lib/missions/astrocast/README.md`.
 - **Drag-to-reorder command queue** with command, delay, note, and manual checkpoint items, JSONL import/export, guard confirmation, verification-window admission gates, and persistent recovery after restart.
 - **Radio supervisor** — optional backend-managed GNU Radio process control for `gnuradio/MAV_DUO.py`, with `/api/radio/*`, `/ws/radio`, stdout/stderr fan-out, and a built-in Radio tab.
 - **Unified session logs** — one per-session JSONL stream under `logs/json/` for RX packets, TX commands, parameter rows, verifier events, and alarm audit records, plus an accepted-RX binary ingest journal under `<log_dir>/rx/`.
@@ -271,7 +271,10 @@ requirements.txt                    Backend Python dependencies
 gnuradio/
     MAV_DUO.py                      Runtime GNU Radio flowgraph script
     MAV_DUO.grc                     GNU Radio Companion source
-    MAVERIC_DECODER.yml             gr-satellites decoder metadata
+    MAV_ASTROCAST.py                Astrocast-specific RX flowgraph
+    decoders/                       Per-mission gr-satellites profiles
+        *_DECODER.yml
+    public/                         Portable standalone decoder bundles
 
 mav_gss_lib/
     config.py                       Split-state config loader (load_split_config)

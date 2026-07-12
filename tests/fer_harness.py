@@ -46,7 +46,7 @@ TESTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS_DIR))
 
 from test_decode_loopback import (  # noqa: E402
-    FS, GNURADIO, _gfsk_iq, _run_decoder)
+    DECODERS, FS, _gfsk_iq, _run_decoder)
 
 DEFAULT_BASE_SEED = 20260711
 DEFAULT_CFO_SPAN_HZ = 500.0   # uniform +/- span, the post-Doppler residual regime
@@ -204,7 +204,7 @@ def run_point_mode5(db: str, options: str, baud: float, deviation_hz: float,
     record = compose_fer_record(bursts, channel.lead_gaps,
                                 noise_sigma(ebn0_db, baud), channel.noise_seed)
     wait_s = record.size / FS * 3.0 + 30.0
-    pdus = _run_decoder(GNURADIO / db, options, record, wait_s=wait_s)
+    pdus = _run_decoder(DECODERS / db, options, record, wait_s=wait_s)
     decoded = set(pdus)
     k = sum(1 for p in channel.payloads if p in decoded)
     return FerPoint(ebn0_db=ebn0_db, decoded=k, trials=len(channel.payloads))
@@ -293,7 +293,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--path", choices=["mode5", "astrocast"], default="mode5")
     ap.add_argument("--db", default="ROADS_DECODER.yml",
-                    help="mode5: decoder database in gnuradio/")
+                    help="mode5: decoder database in gnuradio/decoders/")
     ap.add_argument("--options", default="--syncword_threshold 6")
     ap.add_argument("--baud", type=float, default=4800)
     ap.add_argument("--dev", type=float, default=1200)

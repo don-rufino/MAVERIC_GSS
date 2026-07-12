@@ -80,17 +80,22 @@ class TestDefaultPlatformSpec(unittest.TestCase):
         self.assertEqual(platform["stations"], {"pad-0": "PAD"})
 
     def test_radio_section_is_operator_editable(self):
-        platform = {"radio": {"script": "gnuradio/MAV_DUO.py"}}
+        platform = {"radio": {
+            "script": "gnuradio/MAV_DUO.py",
+            "decoder_yml": "gnuradio/decoders/MAVERIC_DECODER.yml",
+        }}
         apply_platform_config_update(platform, {
             "radio": {
                 "enabled": True,
                 "autostart": False,
                 "script": "gnuradio/ALT.py",
                 "log_lines": 500,
+                "decoder_yml": "gnuradio/decoders/ROADS_DECODER.yml",
             },
         })
         self.assertEqual(platform["radio"], {
             "script": "gnuradio/ALT.py",
+            "decoder_yml": "gnuradio/decoders/MAVERIC_DECODER.yml",
             "enabled": True,
             "autostart": False,
             "log_lines": 500,

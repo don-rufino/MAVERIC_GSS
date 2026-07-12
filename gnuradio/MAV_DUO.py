@@ -43,30 +43,21 @@ import json
 import struct
 import traceback
 import numpy as np
+from cpm_live import CpmDetectorSink
+from decoder_profiles import decoder_options, resolve_mav_duo_decoder
 
 
 def _decoder_yml():
     """Per-mission decoder database for the shared flowgraph.
 
-    Explicit GSS_DECODER_YML wins; otherwise <GSS_MISSION>_DECODER.yml is
-    used when that file ships next to this script (e.g. roads ->
-    ROADS_DECODER.yml, carrying its measured deviations), falling back to
-    the MAVERIC database for every mission without one. Missions need no
-    config: RadioService already injects GSS_MISSION.
+    Explicit GSS_DECODER_YML wins; otherwise the exact
+    decoders/<GSS_MISSION>_DECODER.yml beside this script is required. Missing
+    mission profiles fail closed instead of silently starting MAVERIC's decoder.
     """
-    explicit = os.environ.get("GSS_DECODER_YML")
-    if explicit:
-        print(f"MAV_DUO decoder database: {explicit} (GSS_DECODER_YML)", flush=True)
-        return explicit
-    mission = (os.environ.get("GSS_MISSION") or "maveric").upper()
-    candidate = f"{mission}_DECODER.yml"
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidate_path = os.path.join(script_dir, candidate)
-    if os.path.isfile(candidate_path):
-        print(f"MAV_DUO decoder database: {candidate} (mission {mission.lower()})", flush=True)
-        return candidate_path
-    print("MAV_DUO decoder database: MAVERIC_DECODER.yml (default)", flush=True)
-    return "MAVERIC_DECODER.yml"
+    path, source = resolve_mav_duo_decoder(script_dir)
+    print(f"MAV_DUO decoder database: {path} ({source})", flush=True)
+    return path
 
 
 def _decoder_options(decoder_yml):
@@ -80,17 +71,7 @@ def _decoder_options(decoder_yml):
     AX.25 database (e.g. SHARJAHSAT_DECODER.yml) aborts argparse at
     flowgraph start.
     """
-    try:
-        with open(decoder_yml) as fh:
-            text = fh.read()
-    except OSError:
-        text = ""
-    for line in text.splitlines():
-        payload = line.split('#')[0]
-        if payload.strip().startswith('framing:') and (
-                'AX100' in payload or 'FX.25' in payload):
-            return "--syncword_threshold 6"
-    return ""
+    return decoder_options(decoder_yml)
 
 
 def snipfcn_layout_stretch_snippet(self):
@@ -332,7 +313,7 @@ class _IqRecorder(gr.sync_block):
     sample-indexed SigMF capture/annotation entries. Every failure path
     prints and disables the block — capture must never take down the radio.
 
-    Offline replay: gr_satellites MAVERIC_DECODER.yml --iq --samp_rate 200e3
+    Offline replay: gr_satellites <MISSION>_DECODER.yml --iq --samp_rate 200e3
     --rawfile <capture>.sigmf-data
     """
 
@@ -1173,6 +1154,10 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.pdu_pdu_to_tagged_stream_0 = pdu.pdu_to_tagged_stream(gr.types.byte_t, 'packet_len')
         self.fir_filter_xxx_1 = filter.fir_filter_ccf(rx_decim, firdes.low_pass(2.0, samp_rate, 80e3, 15e3))
         self.fir_filter_xxx_1.declare_sample_delay(0)
+        self.cpm_detector = CpmDetectorSink(
+            decoder_yml=decoder_yml,
+            samp_rate=int(samp_rate/rx_decim),
+        )
         self.waterfall_logger = _WaterfallLogger()
         self.iq_recorder = _IqRecorder(
             samp_rate=(int(samp_rate/rx_decim)),
@@ -1199,8 +1184,9 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         ##################################################
         # Connections
         ##################################################
-        self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.satellites_hexdump_sink_0, 'in'))
-        self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
+        self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.cpm_detector, 'production'))
+        self.msg_connect((self.cpm_detector, 'out'), (self.satellites_hexdump_sink_0, 'in'))
+        self.msg_connect((self.cpm_detector, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.ptt_gate, 'pdu_in'))
         self.msg_connect((self.ptt_gate, 'pdu_out'), (self.pdu_pdu_to_tagged_stream_0, 'pdus'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.satellites_hexdump_sink_0_0, 'in'))
@@ -1215,6 +1201,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.connect((self.fir_filter_xxx_1, 0), (self.iq_recorder, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_freq_sink_x_1, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_waterfall_sink_x_0, 0))
+        self.connect((self.fir_filter_xxx_1, 0), (self.cpm_detector, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.satellites_satellite_decoder_0, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.waterfall_logger, 0))
         self.connect((self.pdu_pdu_to_tagged_stream_0, 0), (self.digital_gfsk_mod_0, 0))

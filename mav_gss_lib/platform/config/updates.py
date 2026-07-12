@@ -16,8 +16,12 @@ from typing import Any
 from ..contract.mission import MissionConfigSpec
 from .spec import DEFAULT_PLATFORM_CONFIG_SPEC, PlatformConfigSpec
 
-_RETIRED_SECTION_KEYS: dict[str, frozenset[str]] = {
+_NON_EDITABLE_SECTION_KEYS: dict[str, frozenset[str]] = {
     "tx": frozenset({"uplink_mode"}),
+    # Selected by the active mission builder.  Keeping this out of operator
+    # updates prevents a config PUT from silently restarting a mission with
+    # another mission's decoder database.
+    "radio": frozenset({"decoder_yml"}),
 }
 
 
@@ -36,7 +40,7 @@ def apply_platform_config_update(
         value = update.get(key)
         if isinstance(value, dict):
             dst = platform_cfg.setdefault(key, {})
-            _deep_merge_inplace(dst, _without_retired_keys(key, value))
+            _deep_merge_inplace(dst, _without_non_editable_keys(key, value))
     general_update = update.get("general")
     if isinstance(general_update, dict):
         dst_general = platform_cfg.setdefault("general", {})
@@ -45,11 +49,13 @@ def apply_platform_config_update(
                 dst_general[gkey] = gvalue
 
 
-def _without_retired_keys(section: str, value: dict[str, Any]) -> dict[str, Any]:
-    retired = _RETIRED_SECTION_KEYS.get(section)
-    if not retired:
+def _without_non_editable_keys(
+    section: str, value: dict[str, Any]
+) -> dict[str, Any]:
+    non_editable = _NON_EDITABLE_SECTION_KEYS.get(section)
+    if not non_editable:
         return value
-    return {k: v for k, v in value.items() if k not in retired}
+    return {k: v for k, v in value.items() if k not in non_editable}
 
 
 def _deep_merge_inplace(base: dict, override: dict) -> None:

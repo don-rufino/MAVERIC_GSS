@@ -67,7 +67,11 @@ from satellites.hier.rms_agc_f import rms_agc_f
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DECODER_YML = os.path.join(SCRIPT_DIR, "ASTROCAST_DECODER.yml")
+DECODER_YML = (os.environ.get("GSS_DECODER_YML") or "").strip() or os.path.join(
+    SCRIPT_DIR, "decoders", "ASTROCAST_DECODER.yml")
+if not os.path.isfile(DECODER_YML):
+    raise FileNotFoundError(
+        f"Astrocast decoder database does not exist: {DECODER_YML}")
 
 DEFAULT_RX_FREQ_HZ = 437.150e6
 DEFAULT_RX_LO_OFFSET_HZ = 250e3

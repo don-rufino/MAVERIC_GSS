@@ -3,8 +3,8 @@
 RX-only mission for the University of North Dakota ROADS pair (2025-135) —
 two CubeSats sharing one AX100 Mode 5 (ASM+Golay) CSP downlink format on a
 single frequency, 435.400 MHz, at 4k8 and 9k6 FSK. Decoded by the stock
-MAVERIC flowgraph's `4k8 FSK AX100 ASM+Golay downlink` and
-`9k6 FSK AX100 ASM+Golay downlink` branches.
+MAV_DUO flowgraph using the dedicated `gnuradio/decoders/ROADS_DECODER.yml` family
+profile (1200 / 2400 Hz deviations, measured h=0.5).
 
 Housekeeping beacons decode per the **on-air type-0x66 full-table format**,
 reverse-engineered from the first frame received (ROADS 2, 2026-07-11

@@ -262,11 +262,16 @@ class RadioServiceConfigTests(unittest.TestCase):
         # Config value is repo-root-relative; the env must arrive absolute
         # because the flowgraph child runs with cwd=gnuradio/, where a
         # relative path would resolve to gnuradio/gnuradio/....
-        rt = _fake_runtime({"enabled": True, "decoder_yml": "gnuradio/ROADS_DECODER.yml"})
+        rt = _fake_runtime({
+            "enabled": True,
+            "decoder_yml": "gnuradio/decoders/ROADS_DECODER.yml",
+        })
         svc = RadioService(rt)
         injected = Path(svc._frequency_env()["GSS_DECODER_YML"])
         self.assertTrue(injected.is_absolute())
-        self.assertEqual(injected.parts[-2:], ("gnuradio", "ROADS_DECODER.yml"))
+        self.assertEqual(
+            injected.parts[-3:], ("gnuradio", "decoders", "ROADS_DECODER.yml")
+        )
         self.assertTrue(injected.is_file())
 
     def test_frequency_env_omits_decoder_yml_by_default(self):
@@ -387,7 +392,10 @@ class RadioServiceConfigTests(unittest.TestCase):
             svc = RadioService(rt)
             self.assertIsNone(svc.status()["log_file"])
             run_log = svc._open_run_log(["python3", "gnuradio/MAV_DUO.py"])
-            run_log.write("10:00:00 MAV_DUO decoder database: MAVERIC_DECODER.yml (default)")
+            run_log.write(
+                "10:00:00 MAV_DUO decoder database: "
+                "/opt/gss/gnuradio/decoders/MAVERIC_DECODER.yml (mission maveric)"
+            )
             run_log.write('10:00:10 STREAM_HEALTH {"rms_dbfs": -44.0}')
             run_log.close("process exited code=0")
             log_file = svc.status()["log_file"]
@@ -396,7 +404,7 @@ class RadioServiceConfigTests(unittest.TestCase):
             self.assertTrue(os.path.basename(log_file).startswith("radio_maveric_"))
             text = Path(log_file).read_text(encoding="utf-8")
             self.assertIn("# command: python3 gnuradio/MAV_DUO.py", text)
-            self.assertIn("MAVERIC_DECODER.yml (default)", text)
+            self.assertIn("MAVERIC_DECODER.yml (mission maveric)", text)
             self.assertIn("STREAM_HEALTH", text)
             self.assertIn("# process exited code=0", text)
             # closing twice / writing after close must be harmless

@@ -2,8 +2,8 @@
 
 RX-only AX100 Mode 5 family mission on 437.185 MHz. CATSAT beacons at 2k4
 (deviation 750 Hz) and bursts data at 9k6 / 38k4 — all AX100 ASM+Golay CSP,
-matched by the MAVERIC decoder's Mode 5 branches (the 2k4 branch exists for
-this mission). All 18 beacon types decode into parameters via the ported
+with the production decoder intentionally scoped to the known 2k4 routine
+beacon. All 18 beacon types decode into parameters via the ported
 community catsat.ksy layout in `telemetry.py`; CATSAT's CSP header is
 little-endian on the wire, so the shared ops parse it with
 ``csp_endianness="little"``.

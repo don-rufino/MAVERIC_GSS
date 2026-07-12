@@ -24,8 +24,9 @@ Python file. It only needs:
 
 - read permission on the configured flowgraph Python file
 - execute/search permission on the parent directories
-- read permission on supporting files used by the flowgraph, such as
-  `gnuradio/MAVERIC_DECODER.yml`
+- read permission on supporting files used by the flowgraph: the selected
+  `gnuradio/decoders/<MISSION>_DECODER.yml`, plus `gnuradio/decoder_profiles.py` for
+  `MAV_DUO.py` mission-profile resolution
 
 For example, this is sufficient even if another user owns the file:
 

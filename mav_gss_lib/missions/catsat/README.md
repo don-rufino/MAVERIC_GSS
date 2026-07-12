@@ -2,9 +2,10 @@
 
 RX-only mission for CATSAT (University of Arizona 6U, NORAD 60246,
 437.185 MHz). AX100 Mode 5 (ASM+Golay) CSP downlink: routine beacons at
-2k4 FSK with 750 Hz deviation, data bursts at 9k6 / 38k4. The MAVERIC
-decoder's `2k4 FSK AX100 ASM+Golay downlink` branch exists specifically to
-catch the CATSAT beacon; 9k6 and 38k4 ride the standard Mode 5 branches.
+2k4 FSK with 750 Hz deviation, plus 9k6 / 38k4 data modes. The dedicated
+`gnuradio/decoders/CATSAT_DECODER.yml` production profile intentionally runs only
+the known routine-beacon waveform; higher-rate data modes can be added once
+their flight deviations are measured.
 
 All 18 beacon types decode into parameters: `telemetry.py` ports the
 community Kaitai definition (satnogs-decoders `catsat.ksy`) as a

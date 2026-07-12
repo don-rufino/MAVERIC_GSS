@@ -2,9 +2,9 @@
 
 Each mission package declares one `Ax100Target` (identity, downlink
 frequency, seeded TLE) and calls `build_ax100_mission` from its
-`build(ctx)`. Seeding is setdefault-only, matching the astrocast /
-sharjahsat pattern: operator values in the per-mission gss.<id>.yml
-always win.
+`build(ctx)`. Operator tuning values in per-mission gss.<id>.yml win;
+the decoder profile is the exception because it is derived from mission
+identity and is deliberately refreshed on every build.
 """
 
 from __future__ import annotations
@@ -27,6 +27,11 @@ STATION_ALT_M = 70.0
 STATION_MIN_ELEVATION_DEG = 5.0
 
 _RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
+
+
+def decoder_yml_for(mission_id: str) -> str:
+    """Return the tracked production decoder for an AX100 mission."""
+    return f"gnuradio/decoders/{mission_id.upper()}_DECODER.yml"
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +67,7 @@ class Ax100Target:
 def seed_ax100_defaults(
     mission_cfg: dict[str, Any], platform_cfg: dict[str, Any], target: Ax100Target
 ) -> None:
-    """Gap-fill mission name, RX frequency, radio script, and tracking."""
+    """Gap-fill mission settings and refresh its derived decoder profile."""
     if isinstance(mission_cfg, dict):
         mission_cfg.setdefault("mission_name", target.mission_name)
         if target.birds:
@@ -88,6 +93,9 @@ def seed_ax100_defaults(
     radio = platform_cfg.setdefault("radio", {})
     if isinstance(radio, dict):
         radio.setdefault("script", _RADIO_SCRIPT)
+        # Decoder choice is mission identity, not an operator tuning knob.
+        # Replace stale fallback values persisted by older releases.
+        radio["decoder_yml"] = decoder_yml_for(target.mission_id)
 
     tracking = platform_cfg.setdefault("tracking", {})
     if not isinstance(tracking, dict):

@@ -73,7 +73,8 @@ class GoldenIqReplayTests(unittest.TestCase):
         cf32, meta = _fixture("roads2_first_frame_200k")
         record = np.fromfile(cf32, dtype=np.complex64)
         expected = {bytes.fromhex(h) for h in meta["expected_frames_hex"]}
-        pdus = _run_decoder(GNURADIO / "ROADS_DECODER.yml", "--syncword_threshold 6",
+        pdus = _run_decoder(GNURADIO / "decoders" / "ROADS_DECODER.yml",
+                            "--syncword_threshold 6",
                             record, wait_s=120)
         missing = expected - set(pdus)
         self.assertFalse(

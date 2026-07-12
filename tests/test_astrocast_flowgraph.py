@@ -215,7 +215,7 @@ def test_decoder_yaml_is_native_astrocast_1k2_subset():
 
     native = yamlfiles.open_satyaml(name="Astrocast 0.1")
     ours = yaml.safe_load(
-        (ROOT / "gnuradio" / "ASTROCAST_DECODER.yml").read_text(
+        (ROOT / "gnuradio" / "decoders" / "ASTROCAST_DECODER.yml").read_text(
             encoding="utf-8"
         )
     )

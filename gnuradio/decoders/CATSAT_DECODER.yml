@@ -1,0 +1,19 @@
+# CATSAT routine-beacon profile. Higher-rate 9k6 / 38k4 data modes are not
+# beacon locating modes and their deviations are not published, so they do not
+# run continuously in the production ground-station flowgraph.
+
+name: CATSAT
+norad: 60246
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  2k4 FSK AX100 ASM+Golay beacon:
+    frequency: 437.185e+6
+    modulation: FSK
+    baudrate: 2400
+    deviation: 750
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm

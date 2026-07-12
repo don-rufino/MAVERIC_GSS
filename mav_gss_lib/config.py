@@ -269,6 +269,11 @@ def split_to_persistable(platform_cfg: dict, mission_id: str, mission_cfg: dict)
     tx = persistable_platform.get("tx")
     if isinstance(tx, dict):
         tx.pop("uplink_mode", None)
+    radio = persistable_platform.get("radio")
+    if isinstance(radio, dict):
+        # Runtime-derived from mission identity; never persist a profile that
+        # can become stale when this file is copied or the mission changes.
+        radio.pop("decoder_yml", None)
     general = persistable_platform.get("general")
     if isinstance(general, dict):
         persistable_platform["general"] = {

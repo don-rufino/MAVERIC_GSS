@@ -44,8 +44,8 @@ dropdown or `--mission` so each mission reads and writes its own file.
 
 ## Radio path
 
-The mission reuses the stock MAVERIC flowgraph (`gnuradio/MAV_DUO.py`
-with `MAVERIC_DECODER.yml`): SharjahSat-1 decodes through the
+The mission reuses the shared MAV_DUO flowgraph (`gnuradio/MAV_DUO.py`
+with `SHARJAHSAT_DECODER.yml`): SharjahSat-1 decodes through its sole
 `9k6 FSK AX.25 G3RUH downlink` branch, proven live on the 2026-07-10
 first-light pass. Only the tune changes — the mission seeds
 437.325 MHz and the 55104 TLE; Doppler engage/disengage works

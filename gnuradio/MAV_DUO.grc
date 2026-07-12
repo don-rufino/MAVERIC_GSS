@@ -50,10 +50,9 @@ blocks:
 - name: decoder_yml
   id: variable
   parameters:
-    comment: "Per-mission decoder database: GSS_DECODER_YML override, else\n<GSS_MISSION>_DECODER.yml when it exists (e.g. ROADS_DECODER.yml),\nelse the MAVERIC database. Mirrors _decoder_yml() in MAV_DUO.py."
-    value: (__import__('os').environ.get('GSS_DECODER_YML') or (__import__('os').environ.get('GSS_MISSION',
-      'maveric').upper() + '_DECODER.yml' if __import__('os').path.isfile(__import__('os').environ.get('GSS_MISSION',
-      'maveric').upper() + '_DECODER.yml') else 'MAVERIC_DECODER.yml'))
+    comment: "Per-mission decoder database: GSS_DECODER_YML override, otherwise\nthe exact decoders/<MISSION>_DECODER.yml beside this flowgraph. Missing profiles\nfail closed; there is no cross-mission MAVERIC fallback. Mirrors _decoder_yml()."
+    value: ((__import__('os').environ.get('GSS_DECODER_YML') or '').strip() or __import__('os').path.join(__import__('os').path.dirname(__import__('os').path.abspath(__import__('sys').argv[0])),
+      'decoders', ((__import__('os').environ.get('GSS_MISSION') or 'maveric').strip().upper() + '_DECODER.yml')))
   states:
     bus_sink: false
     bus_source: false
@@ -370,6 +369,43 @@ blocks:
     coordinate: [584, 500.0]
     rotation: 0
     state: enabled
+- name: epy_block_cpm
+  id: epy_block
+  parameters:
+    _source_code: |
+      """Thin GRC wrapper for the production coherent-CPM sink/arbiter."""
+
+      from cpm_live import CpmDetectorSink
+
+
+      class blk(CpmDetectorSink):
+          def __init__(self, decoder_yml='', samp_rate=200000.0):
+              super().__init__(
+                  decoder_yml=decoder_yml,
+                  samp_rate=samp_rate,
+              )
+
+
+      # GRC discovers the first GNU Radio block class in this module. Keep the
+      # imported implementation out of that namespace so it selects `blk`.
+      del CpmDetectorSink
+    affinity: ''
+    alias: ''
+    comment: 'Post-FIR coherent CPM detector with cross-decoder PDU arbitration.'
+    decoder_yml: decoder_yml
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_rate: int(samp_rate/rx_decim)
+  states:
+    _io_cache: ('coherent_cpm', 'blk', [('decoder_yml', "''"), ('samp_rate', '200000.0')],
+      [('0', 'complex', 1), ('production', 'message', 1)], [('out', 'message', 1)],
+      '', ['decoder_yml', 'samp_rate'])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [792, 572.0]
+    rotation: 0
+    state: enabled
 - name: epy_block_iq
   id: epy_block
   parameters:
@@ -401,7 +437,7 @@ blocks:
           sample-indexed SigMF capture/annotation entries. Every failure path
           prints and disables the block — capture must never take down the radio.
 
-          Offline replay: gr_satellites MAVERIC_DECODER.yml --iq --samp_rate 200e3
+          Offline replay: gr_satellites <MISSION>_DECODER.yml --iq --samp_rate 200e3
           --rawfile <capture>.sigmf-data
           """
 
@@ -736,7 +772,7 @@ blocks:
           sample-indexed SigMF capture/annotation entries. Every failure path
           prints and disables the block — capture must never take down the radio.
 
-          Offline replay: gr_satellites MAVERIC_DECODER.yml --iq --samp_rate 200e3
+          Offline replay: gr_satellites <MISSION>_DECODER.yml --iq --samp_rate 200e3
           --rawfile <capture>.sigmf-data
           """
 
@@ -2638,14 +2674,16 @@ connections:
 - [blocks_wavfile_source_0, '0', blocks_float_to_complex_0, '0']
 - [blocks_wavfile_source_0, '1', blocks_float_to_complex_0, '1']
 - [digital_gfsk_mod_0, '0', blocks_multiply_const_vxx_0, '0']
+- [epy_block_cpm, out, satellites_hexdump_sink_0, in]
+- [epy_block_cpm, out, zeromq_pub_msg_sink_0, in]
+- [fir_filter_xxx_1, '0', epy_block_cpm, '0']
 - [fir_filter_xxx_1, '0', epy_block_iq, '0']
 - [fir_filter_xxx_1, '0', epy_block_waterfall, '0']
 - [fir_filter_xxx_1, '0', qtgui_freq_sink_x_1, '0']
 - [fir_filter_xxx_1, '0', qtgui_waterfall_sink_x_0, '0']
 - [fir_filter_xxx_1, '0', satellites_satellite_decoder_0, '0']
 - [pdu_pdu_to_tagged_stream_0, '0', digital_gfsk_mod_0, '0']
-- [satellites_satellite_decoder_0, out, satellites_hexdump_sink_0, in]
-- [satellites_satellite_decoder_0, out, zeromq_pub_msg_sink_0, in]
+- [satellites_satellite_decoder_0, out, epy_block_cpm, production]
 - [uhd_usrp_source_0, '0', epy_block_iq_raw, '0']
 - [uhd_usrp_source_0, '0', epy_block_stream_health, '0']
 - [uhd_usrp_source_0, '0', fir_filter_xxx_1, '0']
