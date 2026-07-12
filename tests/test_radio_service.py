@@ -13,7 +13,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from mav_gss_lib.server.radio.service import RadioService
+from mav_gss_lib.server.radio.service import (
+    POST_FIR_IQ_MAX_BYTES,
+    RAW_IQ_MAX_BYTES,
+    RadioService,
+)
 
 
 def _fake_runtime(radio_cfg=None):
@@ -291,6 +295,80 @@ class RadioServiceConfigTests(unittest.TestCase):
         off = RadioService(_fake_runtime())._frequency_env()
         self.assertNotIn("GSS_IQ_RAW_RECORD", off)
 
+    def test_capture_storage_plan_injects_full_caps_above_reserve(self):
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            rt = _fake_runtime({
+                "enabled": True,
+                "iq_record": True,
+                "iq_raw_record": True,
+            })
+            rt.platform_cfg["general"] = {"log_dir": tmp}
+            svc = RadioService(rt)
+            env = svc._frequency_env()
+            usage = SimpleNamespace(free=80_000_000_000)
+            with mock.patch("shutil.disk_usage", return_value=usage):
+                notice = svc._plan_capture_storage(env)
+
+            self.assertEqual(notice, "")
+            self.assertEqual(env["GSS_IQ_MAX_BYTES"], str(POST_FIR_IQ_MAX_BYTES))
+            self.assertEqual(env["GSS_IQ_RAW_MAX_BYTES"], str(RAW_IQ_MAX_BYTES))
+            storage = svc.status()["capture_storage"]
+            self.assertFalse(storage["constrained"])
+            self.assertEqual(storage["allocated_bytes"], 58_000_000_000)
+            self.assertEqual(storage["reserve_bytes"], 10_000_000_000)
+
+    def test_capture_storage_plan_scales_both_caps_to_preserve_reserve(self):
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            rt = _fake_runtime({
+                "enabled": True,
+                "iq_record": True,
+                "iq_raw_record": True,
+            })
+            rt.platform_cfg["general"] = {"log_dir": tmp}
+            svc = RadioService(rt)
+            env = svc._frequency_env()
+            # 39 GB free - 10 GB reserve = 29 GB across both products.
+            usage = SimpleNamespace(free=39_000_000_000)
+            with mock.patch("shutil.disk_usage", return_value=usage):
+                notice = svc._plan_capture_storage(env)
+
+            self.assertIn("reduced", notice)
+            post_cap = int(env["GSS_IQ_MAX_BYTES"])
+            raw_cap = int(env["GSS_IQ_RAW_MAX_BYTES"])
+            self.assertEqual(post_cap + raw_cap, 29_000_000_000)
+            self.assertGreater(post_cap, 0)
+            self.assertGreater(raw_cap, post_cap)
+            self.assertTrue(svc.status()["capture_storage"]["constrained"])
+
+    def test_capture_storage_plan_disables_recorders_below_reserve(self):
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            rt = _fake_runtime({
+                "enabled": True,
+                "iq_record": True,
+                "iq_raw_record": True,
+            })
+            rt.platform_cfg["general"] = {"log_dir": tmp}
+            svc = RadioService(rt)
+            env = svc._frequency_env()
+            usage = SimpleNamespace(free=9_000_000_000)
+            with mock.patch("shutil.disk_usage", return_value=usage):
+                notice = svc._plan_capture_storage(env)
+
+            self.assertIn("disabled", notice)
+            self.assertNotIn("GSS_IQ_RECORD", env)
+            self.assertNotIn("GSS_IQ_RAW_RECORD", env)
+            self.assertEqual(svc.status()["capture_storage"]["allocated_bytes"], 0)
+
+    def test_capture_storage_reserve_can_be_configured(self):
+        svc = RadioService(_fake_runtime({
+            "enabled": True,
+            "iq_disk_reserve_gb": 3.5,
+        }))
+        self.assertEqual(svc.iq_disk_reserve_bytes(), 3_500_000_000)
+
     def test_frequency_env_carries_rx_gain_and_build_sha(self):
         rt = _fake_runtime({"enabled": True, "rx_gain": 70})
         rt.platform_cfg["general"] = {"build_sha": "abc1234"}
@@ -387,6 +465,42 @@ class RadioServiceConfigTests(unittest.TestCase):
         # Malformed payloads never clobber the last good report.
         svc._ingest_stream_health("STREAM_HEALTH {not json")
         self.assertEqual(svc.status()["stream_health"]["rms_dbfs"], -44.1)
+
+    def test_stream_health_is_marked_stale_while_running(self):
+        svc = RadioService(_fake_runtime())
+        svc.proc = _SignalProcess()
+        svc.started_at = time.time()
+        svc._stream_health = {
+            "rms_dbfs": -44.1,
+            "ts_ms": int((time.time() - 31.0) * 1000),
+        }
+        health = svc.status()["stream_health"]
+        self.assertTrue(health["stale"])
+        self.assertGreaterEqual(health["age_s"], 30.0)
+
+    def test_tx_health_lines_surface_in_status(self):
+        svc = RadioService(_fake_runtime())
+        self.assertIsNone(svc.status()["tx_health"])
+        svc._ingest_tx_health(
+            'TX_HEALTH {"underflows_total": 3, "seq_errors_total": 1, '
+            '"time_errors_total": 0, "last_event_code": 2}')
+        health = svc.status()["tx_health"]
+        self.assertEqual(health["underflows_total"], 3)
+        self.assertEqual(health["seq_errors_total"], 1)
+        self.assertGreater(health["ts_ms"], 0)
+        self.assertFalse(health["stale"])
+        svc._ingest_tx_health("TX_HEALTH {not json")
+        self.assertEqual(svc.status()["tx_health"]["underflows_total"], 3)
+
+    def test_tx_health_is_marked_stale_while_running(self):
+        svc = RadioService(_fake_runtime())
+        svc.proc = _SignalProcess()
+        svc.started_at = time.time()
+        svc._tx_health = {
+            "underflows_total": 0,
+            "ts_ms": int((time.time() - 31.0) * 1000),
+        }
+        self.assertTrue(svc.status()["tx_health"]["stale"])
 
     def test_frequency_env_omits_iq_gate_when_disabled(self):
         svc = RadioService(_fake_runtime())
@@ -503,8 +617,8 @@ class RadioServiceLogPrefixTests(unittest.TestCase):
         svc._append_log("hello world")
         snapshot = svc.log_snapshot()
         self.assertEqual(len(snapshot), 1)
-        # Local time, seconds resolution: HH:MM:SS
-        self.assertRegex(snapshot[0], r"^\d{2}:\d{2}:\d{2}\s")
+        # UTC, seconds resolution: HH:MM:SSZ
+        self.assertRegex(snapshot[0], r"^\d{2}:\d{2}:\d{2}Z\s")
         self.assertTrue(snapshot[0].endswith("hello world"))
 
 

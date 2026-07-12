@@ -347,6 +347,7 @@ export interface PlatformConfig {
     log_lines?: number
     iq_record?: boolean
     iq_raw_record?: boolean
+    iq_disk_reserve_gb?: number
     rx_gain?: number
   }
   tracking?: PlatformTrackingConfig

@@ -99,9 +99,13 @@ _DEFAULTS = {
         # as GSS_IQ_RECORD (destination GSS_IQ_DIR = <log_dir>/iq) at start.
         "iq_record": False,
         # Diagnostic raw 1 Msps pre-decimation capture (GSS_IQ_RAW_RECORD,
-        # ~8 MB/s, hard 50 GB cap in the flowgraph). For impulse/QRM analysis
-        # the post-FIR recording cannot support.
+        # ~8 MB/s, nominal 50 GB maximum). For impulse/QRM analysis the
+        # post-FIR recording cannot support.
         "iq_raw_record": False,
+        # Minimum free space retained when either IQ recorder is enabled.
+        # Radio startup reduces the requested 8/50 GB caps as necessary;
+        # capture may stop early, but decoding remains live.
+        "iq_disk_reserve_gb": 10.0,
         # Boot gain for the flowgraph RX chain (GSS_RX_GAIN). The GUI slider
         # still allows live override; this makes the ops value reproducible
         # instead of a per-pass manual step.

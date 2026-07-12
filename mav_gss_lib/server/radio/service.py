@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -39,11 +39,18 @@ DEFAULT_RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
 DEFAULT_LOG_LINES = 1000
 DEFAULT_STOP_TIMEOUT_S = 30.0
 TERMINAL_FINALIZE_TIMEOUT_S = 10.0
+HEALTH_STALE_AFTER_S = 30.0
+DEFAULT_IQ_DISK_RESERVE_BYTES = 10_000_000_000
+POST_FIR_IQ_MAX_BYTES = 8_000_000_000
+RAW_IQ_MAX_BYTES = 50_000_000_000
 _FREQ_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(ghz|mhz|khz|hz)?\s*$", re.IGNORECASE)
 
 
 def _stamp_log_line(line: str) -> str:
-    ts = datetime.now().strftime("%H:%M:%S")
+    # The persistent run-log header is UTC; keep every line in that same
+    # clock domain so a pass can be correlated with tracking and SigMF data
+    # without first knowing the station host's local timezone.
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%SZ")
     return f"{ts} {line}" if line else ts
 
 
@@ -136,6 +143,8 @@ class RadioService:
         self._command_snapshot: list[str] = []
         self._exit_callbacks: list[Callable[[], None]] = []
         self._stream_health: dict[str, Any] | None = None
+        self._tx_health: dict[str, Any] | None = None
+        self._capture_storage: dict[str, Any] | None = None
         self._run_log_path: Path | None = None
         # Set only after the current run's waiter has drained stdout,
         # published its terminal state, and completed exit callbacks. Public
@@ -177,6 +186,23 @@ class RadioService:
             return max(1.0, min(float(cfg.get("stop_timeout_s", DEFAULT_STOP_TIMEOUT_S)), 120.0))
         except (TypeError, ValueError):
             return DEFAULT_STOP_TIMEOUT_S
+
+    def iq_disk_reserve_bytes(self) -> int:
+        """Free space that IQ recording is never allowed to consume.
+
+        The optional config value is expressed in decimal GB to match the
+        recorder caps and operator-facing storage figures. Keeping the
+        fallback here avoids making capture safety depend on a UI/config
+        migration; existing station configs immediately get the reserve.
+        """
+        cfg = self.config()
+        try:
+            return max(
+                0,
+                int(float(cfg.get("iq_disk_reserve_gb", 10.0)) * 1_000_000_000),
+            )
+        except (TypeError, ValueError):
+            return DEFAULT_IQ_DISK_RESERVE_BYTES
 
     def _resize_log_if_needed(self) -> None:
         capacity = self.log_capacity()
@@ -263,6 +289,108 @@ class RadioService:
             env["GSS_MISSION"] = mission_id
         return env
 
+    def _plan_capture_storage(self, env: dict[str, str]) -> str:
+        """Bound enabled IQ recorders to space available above the reserve.
+
+        This is deliberately fail-open for the radio and fail-closed for the
+        optional recorders: an unavailable/full capture destination disables
+        recording for that run but never prevents receiving/decoding. The
+        flowgraphs consume the two injected byte caps and stop their own file
+        writers when they reach them.
+
+        Returns an operator-facing notice when recording was constrained.
+        """
+        post_requested = env.get("GSS_IQ_RECORD") == "1"
+        raw_requested = env.get("GSS_IQ_RAW_RECORD") == "1"
+        if not post_requested and not raw_requested:
+            with self._state_lock:
+                self._capture_storage = None
+            return ""
+
+        iq_dir = Path(env["GSS_IQ_DIR"])
+        reserve = self.iq_disk_reserve_bytes()
+        requested_post = POST_FIR_IQ_MAX_BYTES if post_requested else 0
+        requested_raw = RAW_IQ_MAX_BYTES if raw_requested else 0
+        requested_total = requested_post + requested_raw
+
+        try:
+            iq_dir.mkdir(parents=True, exist_ok=True)
+            free = int(shutil.disk_usage(iq_dir).free)
+        except OSError as exc:
+            env.pop("GSS_IQ_RECORD", None)
+            env.pop("GSS_IQ_RAW_RECORD", None)
+            env.pop("GSS_IQ_MAX_BYTES", None)
+            env.pop("GSS_IQ_RAW_MAX_BYTES", None)
+            warning = f"IQ recording disabled: capture storage unavailable ({exc})"
+            plan = {
+                "path": str(iq_dir),
+                "requested_bytes": requested_total,
+                "allocated_bytes": 0,
+                "reserve_bytes": reserve,
+                "free_bytes": None,
+                "constrained": True,
+                "warning": warning,
+            }
+            with self._state_lock:
+                self._capture_storage = plan
+            return warning
+
+        available = max(0, free - reserve)
+        allocatable = min(requested_total, available)
+        if allocatable >= requested_total:
+            post_cap = requested_post
+            raw_cap = requested_raw
+        elif requested_total:
+            # Scale both explicitly requested products together. This avoids
+            # silently starving one recorder merely because it was allocated
+            # second, while preserving the operator's 8:50 cap ratio.
+            post_cap = (
+                int(allocatable * requested_post / requested_total)
+                if post_requested else 0
+            )
+            raw_cap = allocatable - post_cap if raw_requested else 0
+        else:
+            post_cap = raw_cap = 0
+
+        if post_cap > 0:
+            env["GSS_IQ_MAX_BYTES"] = str(post_cap)
+        else:
+            env.pop("GSS_IQ_RECORD", None)
+            env.pop("GSS_IQ_MAX_BYTES", None)
+        if raw_cap > 0:
+            env["GSS_IQ_RAW_MAX_BYTES"] = str(raw_cap)
+        else:
+            env.pop("GSS_IQ_RAW_RECORD", None)
+            env.pop("GSS_IQ_RAW_MAX_BYTES", None)
+
+        allocated = post_cap + raw_cap
+        constrained = allocated < requested_total
+        warning = ""
+        if allocated == 0:
+            warning = (
+                "IQ recording disabled: no capture space remains above the "
+                f"{reserve / 1e9:.1f} GB disk reserve"
+            )
+        elif constrained:
+            warning = (
+                f"IQ capture caps reduced to {allocated / 1e9:.1f} GB total "
+                f"to preserve a {reserve / 1e9:.1f} GB disk reserve"
+            )
+        plan = {
+            "path": str(iq_dir),
+            "requested_bytes": requested_total,
+            "allocated_bytes": allocated,
+            "post_fir_max_bytes": post_cap,
+            "raw_max_bytes": raw_cap,
+            "reserve_bytes": reserve,
+            "free_bytes": free,
+            "constrained": constrained,
+            "warning": warning,
+        }
+        with self._state_lock:
+            self._capture_storage = plan
+        return warning
+
     def command(self) -> list[str]:
         return [self._python_path(), "-u", str(self._script_path()), *self._args()]
 
@@ -276,6 +404,11 @@ class RadioService:
             stopping = self._stopping
             last_runtime_s = self.last_runtime_s
             command_snapshot = list(self._command_snapshot)
+            stream_health = dict(self._stream_health) if self._stream_health else None
+            tx_health = dict(self._tx_health) if self._tx_health else None
+            capture_storage = (
+                dict(self._capture_storage) if self._capture_storage else None
+            )
 
         running = proc is not None and proc.poll() is None
         if running:
@@ -289,6 +422,27 @@ class RadioService:
                 state = "stopped"
             else:
                 state = "crashed"
+
+        if stream_health is not None:
+            now_ms = int(time.time() * 1000)
+            report_ms = int(stream_health.get("ts_ms") or 0)
+            age_s = max(0.0, (now_ms - report_ms) / 1000.0) if report_ms else 0.0
+            stream_health["age_s"] = age_s
+            stream_health["stale"] = bool(
+                running
+                and report_ms
+                and age_s > HEALTH_STALE_AFTER_S
+            )
+        if tx_health is not None:
+            now_ms = int(time.time() * 1000)
+            report_ms = int(tx_health.get("ts_ms") or 0)
+            age_s = max(0.0, (now_ms - report_ms) / 1000.0) if report_ms else 0.0
+            tx_health["age_s"] = age_s
+            tx_health["stale"] = bool(
+                running
+                and report_ms
+                and age_s > HEALTH_STALE_AFTER_S
+            )
 
         script = self._script_path()
         return {
@@ -307,7 +461,9 @@ class RadioService:
             "log_lines": self.log_capacity(),
             "last_runtime_s": float(last_runtime_s),
             "stop_timeout_s": self.stop_timeout_s(),
-            "stream_health": dict(self._stream_health) if self._stream_health else None,
+            "stream_health": stream_health,
+            "tx_health": tx_health,
+            "capture_storage": capture_storage,
             "log_file": str(self._run_log_path) if self._run_log_path else None,
         }
 
@@ -471,6 +627,7 @@ class RadioService:
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         env.update(self._frequency_env())
+        capture_notice = self._plan_capture_storage(env)
         command_text = " ".join(cmd)
 
         try:
@@ -500,11 +657,16 @@ class RadioService:
             self._stopping = False
             self._command_snapshot = list(cmd)
             self._stream_health = None
+            self._tx_health = None
             self._terminal_done = terminal_done
             self._resize_log_if_needed()
             self._log.clear()
 
         run_log = self._open_run_log(list(cmd))
+        if capture_notice:
+            stamped = _stamp_log_line(capture_notice)
+            run_log.write(stamped)
+            self._publish_log_line(stamped)
 
         self._reader_thread = threading.Thread(
             target=self._reader,
@@ -539,6 +701,7 @@ class RadioService:
                 # stay out of the live surfaces (UI stream, health status).
                 if self.proc is proc:
                     self._ingest_stream_health(stamped)
+                    self._ingest_tx_health(stamped)
                     self._publish_log_line(stamped)
         except Exception as exc:
             logging.warning("radio stdout reader failed: %s", exc)
@@ -560,10 +723,32 @@ class RadioService:
             return
         if isinstance(payload, dict):
             payload["ts_ms"] = int(time.time() * 1000)
-            self._stream_health = payload
+            with self._state_lock:
+                self._stream_health = payload
             # Live delivery: the frontend polls only while the websocket is
             # down, so each health report must push a status update itself
             # (the transition-only broadcasts would leave it stale).
+            self._schedule_broadcast({"type": "status", "status": self.status()})
+
+    def _ingest_tx_health(self, line: str) -> None:
+        """Parse structured UHD async-event totals (`TX_HEALTH {json}`).
+
+        The flowgraph retains UHD fastpath suppression because raw ``U``
+        characters have no line boundaries. Its async-metadata monitor emits
+        these JSON records instead, preserving underflow/time/sequence counts
+        without corrupting stdout or turning them into an RX alarm.
+        """
+        marker = line.find("TX_HEALTH ")
+        if marker < 0:
+            return
+        try:
+            payload = json.loads(line[marker + len("TX_HEALTH "):])
+        except (ValueError, TypeError):
+            return
+        if isinstance(payload, dict):
+            payload["ts_ms"] = int(time.time() * 1000)
+            with self._state_lock:
+                self._tx_health = payload
             self._schedule_broadcast({"type": "status", "status": self.status()})
 
     def _waiter(self, proc: subprocess.Popen[str],

@@ -7,8 +7,9 @@ import { colors } from '@/lib/colors'
  * tone so live downlink data stands out from structural chatter.
  */
 export function lineColor(line: string): string {
-  // Strip the supervisor's "HH:MM:SS " local-time prefix.
-  const body = line.replace(/^\d{2}:\d{2}:\d{2}\s/, '')
+  // Strip the supervisor's UTC "HH:MM:SSZ " prefix. Accept the old local
+  // form as well so historical/in-memory lines remain classified correctly.
+  const body = line.replace(/^\d{2}:\d{2}:\d{2}Z?\s/, '')
 
   // GR canonical level brackets.
   if (body.startsWith('[ERROR]') || body.startsWith('gr::log :ERROR')) return colors.danger

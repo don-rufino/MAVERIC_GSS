@@ -20,6 +20,8 @@ import { useRadio } from '@/state/radioHooks'
 import { useTracking } from '@/state/trackingHooks'
 import { DopplerSection } from './DopplerSection'
 
+const HEALTH_STALE_AFTER_MS = 30_000
+
 function fmtUptime(startedAtMs: number | null, fallbackSeconds: number): string {
   const total = startedAtMs ? Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)) : Math.floor(fallbackSeconds)
   const h = Math.floor(total / 3600)
@@ -53,6 +55,10 @@ function btnTone(enabled: boolean, accent: string) {
   return enabled
     ? { color: accent, borderColor: `${accent}66`, backgroundColor: `${accent}08` }
     : { color: colors.textDisabled, borderColor: colors.borderSubtle, backgroundColor: 'transparent' }
+}
+
+function healthIsStale(health: { stale: boolean; ts_ms: number }, nowMs: number): boolean {
+  return health.stale || health.ts_ms <= 0 || nowMs - health.ts_ms > HEALTH_STALE_AFTER_MS
 }
 
 function PanelHeader({ icon, title, right }: { icon: ReactNode; title: string; right?: ReactNode }) {
@@ -101,7 +107,7 @@ export function RadioPage() {
   const { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError } = useRadio()
   const tracking = useTracking()
   const [apiStatus, setApiStatus] = useState<{ zmq_rx?: string; zmq_tx?: string }>({})
-  const [, setNowTick] = useState(0)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const logRef = useRef<HTMLDivElement>(null)
   const stickyRef = useRef(true)
 
@@ -122,7 +128,7 @@ export function RadioPage() {
   }, [])
 
   useEffect(() => {
-    const id = window.setInterval(() => setNowTick(n => n + 1), 1000)
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
 
@@ -147,6 +153,12 @@ export function RadioPage() {
   }, [logs])
 
   const dot = processDot(status)
+  const rxHealthStale = status.stream_health
+    ? healthIsStale(status.stream_health, nowMs)
+    : false
+  const txHealthStale = status.tx_health
+    ? healthIsStale(status.tx_health, nowMs)
+    : false
 
   void lastUpdateMs
 
@@ -209,7 +221,13 @@ export function RadioPage() {
                 <DataCell label="Exit Code" value={status.exit_code === null ? '--' : String(status.exit_code)} tone={status.state === 'crashed' ? colors.danger : undefined} />
               </div>
               {status.running && status.stream_health && (
-                <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+                <div className="grid grid-cols-4 gap-x-3 gap-y-1">
+                  <DataCell
+                    label="RX Health"
+                    value={rxHealthStale ? 'STALE' : 'CURRENT'}
+                    titleOverride={rxHealthStale ? 'no recent structured receive-health report' : 'receive-health reports are current'}
+                    tone={rxHealthStale ? colors.warning : colors.success}
+                  />
                   <DataCell
                     label="RF Level"
                     value={`${status.stream_health.rms_dbfs.toFixed(1)} dBFS`}
@@ -223,10 +241,38 @@ export function RadioPage() {
                     tone={status.stream_health.clip_count > 0 ? colors.danger : colors.textMuted}
                   />
                   <DataCell
-                    label="Overflows"
+                    label="RX Overflow"
                     value={String(status.stream_health.overflows_total)}
-                    titleOverride="UHD stream discontinuities since radio start (dropped samples)"
-                    tone={status.stream_health.overflows_total > 0 ? colors.danger : colors.textMuted}
+                    titleOverride="informational count of UHD stream discontinuities since radio start"
+                    tone={colors.textMuted}
+                  />
+                </div>
+              )}
+              {status.running && status.tx_health && (
+                <div className="grid grid-cols-4 gap-x-3 gap-y-1">
+                  <DataCell
+                    label="TX Health"
+                    value={txHealthStale ? 'STALE' : 'CURRENT'}
+                    titleOverride={txHealthStale ? 'no recent structured transmit-health report' : 'transmit-health reports are current'}
+                    tone={txHealthStale ? colors.warning : colors.success}
+                  />
+                  <DataCell
+                    label="TX Underflow"
+                    value={String(status.tx_health.underflows_total)}
+                    titleOverride="UHD transmit underflow events since radio start"
+                    tone={status.tx_health.underflows_total > 0 ? colors.warning : colors.textMuted}
+                  />
+                  <DataCell
+                    label="TX Time Err"
+                    value={String(status.tx_health.time_errors_total)}
+                    titleOverride="UHD transmit timing errors since radio start"
+                    tone={status.tx_health.time_errors_total > 0 ? colors.warning : colors.textMuted}
+                  />
+                  <DataCell
+                    label="TX Seq Err"
+                    value={String(status.tx_health.seq_errors_total)}
+                    titleOverride="UHD transmit sequence errors since radio start"
+                    tone={status.tx_health.seq_errors_total > 0 ? colors.warning : colors.textMuted}
                   />
                 </div>
               )}

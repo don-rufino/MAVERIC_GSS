@@ -9,6 +9,15 @@ export interface StreamHealth {
   overflows_total: number
   span_s: number
   ts_ms: number
+  stale: boolean
+}
+
+export interface TxHealth {
+  underflows_total: number
+  time_errors_total: number
+  seq_errors_total: number
+  ts_ms: number
+  stale: boolean
 }
 
 export interface RadioStatus {
@@ -28,6 +37,7 @@ export interface RadioStatus {
   stop_timeout_s: number
   log_lines: number
   stream_health?: StreamHealth | null
+  tx_health?: TxHealth | null
   log_file?: string | null
 }
 

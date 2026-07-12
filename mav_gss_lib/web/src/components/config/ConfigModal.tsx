@@ -536,7 +536,8 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
         ]},
         { title: 'Capture', rows: [
           { id: 'iq_record', label: 'IQ recording', description: 'Record the RX stream as SigMF under <log dir>/iq (~1.6 MB/s). Applies on radio start.', control: { kind: 'toggle', value: cfg.platform.radio?.iq_record ?? false, onChange: (v) => updatePlatform('radio', 'iq_record', v) } },
-          { id: 'iq_raw_record', label: 'Raw 1 Msps capture', description: 'Diagnostic pre-decimation recording for impulse/QRM analysis (~8 MB/s, hard 50 GB cap ≈ 104 min — mind station disk space). Applies on radio start.', control: { kind: 'toggle', value: cfg.platform.radio?.iq_raw_record ?? false, onChange: (v) => updatePlatform('radio', 'iq_raw_record', v) } },
+          { id: 'iq_raw_record', label: 'Raw 1 Msps capture', description: 'Diagnostic pre-decimation recording for impulse/QRM analysis (~8 MB/s, 50 GB maximum ≈ 104 min). Applies on radio start.', control: { kind: 'toggle', value: cfg.platform.radio?.iq_raw_record ?? false, onChange: (v) => updatePlatform('radio', 'iq_raw_record', v) } },
+          { id: 'iq_disk_reserve_gb', label: 'Disk reserve', description: 'Free space preserved when capture caps are planned; recording is reduced or disabled before decoding is put at risk.', control: { kind: 'number', unit: 'GB', value: cfg.platform.radio?.iq_disk_reserve_gb ?? 10, onChange: (v) => updatePlatform('radio', 'iq_disk_reserve_gb', v) } },
         ]},
       ],
     })

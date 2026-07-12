@@ -40,6 +40,7 @@ Pass --headless to skip the Qt GUI entirely (scripted replay / SSH use).
 """
 
 import argparse
+from datetime import datetime, timezone
 from math import pi
 import json
 import os
@@ -51,6 +52,7 @@ import time
 import traceback
 
 import numpy as np
+import pmt
 
 from gnuradio import analog, blocks, digital, gr, zeromq
 from gnuradio import filter as gr_filter
@@ -276,56 +278,76 @@ class _WaterfallLogger(gr.sync_block):
 class _IqRecorder(gr.sync_block):
     """Env-gated raw IQ recorder for an RX stream tap.
 
-    Two instances run live: the pass recorder on the decimated 200 ksps
-    stream (GSS_IQ_RECORD, `platform.radio.iq_record`, 8 GB cap) and the
-    diagnostic raw recorder on the pre-decimation 1 Msps stream
-    (GSS_IQ_RAW_RECORD, `platform.radio.iq_raw_record`, 50 GB cap ~ 104 min).
-    Appends the complex64 stream to <prefix>_<mission>_<start>.sigmf-data
-    under GSS_IQ_DIR and writes the SigMF metadata up front — including
-    capture provenance (mission, RX gain, LO offset, build SHA, decoder
-    database, tap point) — so even a hard crash leaves a replayable pair.
-    Every failure path prints and disables the block — IQ capture must
-    never take down the radio. Same recorder as MAV_DUO's; only the
-    mission fallback differs.
+    Two instances run in this flowgraph: the pass recorder on the decimated
+    200 ksps stream (GSS_IQ_RECORD, `platform.radio.iq_record`, 8 GB cap)
+    and the diagnostic raw recorder on the pre-decimation 1 Msps stream
+    (GSS_IQ_RAW_RECORD, `platform.radio.iq_raw_record`, nominally 50 GB).
+    Files are created exclusively, never appended, so a same-second restart
+    cannot join two runs. The first UHD ``rx_time`` tag (the B210 clock is
+    synchronized to host UTC before streaming) stamps sample zero with its
+    fractional seconds; later tags preserve discontinuity boundaries.
+    Doppler commands and live gain changes are written immediately as
+    sample-indexed SigMF capture/annotation entries. Every failure path
+    prints and disables the block — capture must never take down the radio.
+
+    Offline replay: MAV_ASTROCAST.py --iqfile <capture>.sigmf-data --headless
     """
 
     MAX_BYTES = 8_000_000_000  # ~83 min of 200 ksps complex64
 
     def __init__(self, samp_rate=200_000.0, prefix="iq",
-                 gate_env="GSS_IQ_RECORD", max_bytes=None, extra_meta=None):
+                 gate_env="GSS_IQ_RECORD", max_bytes=None, extra_meta=None,
+                 cap_env=None):
         gr.sync_block.__init__(self, name="iq_recorder",
                                in_sig=[np.complex64], out_sig=None)
+        self.message_port_register_in(pmt.intern("command"))
+        self.set_msg_handler(pmt.intern("command"), self._handle_tune_command)
         self._file = None
         self._data_path = ""
         self._meta_path = ""
         self._written = 0
-        self._max_bytes = int(max_bytes or self.MAX_BYTES)
+        self._samp_rate = float(samp_rate)
+        self._lock = threading.RLock()
+        self._rx_time_key = pmt.intern("rx_time")
+        self._rx_time_seen = False
+        self._time_anchor_sample = None
+        self._time_anchor_seconds = None
+        self._last_frequency = None
+        self._stop_reported = False
+        if cap_env is None:
+            cap_env = ("GSS_IQ_RAW_MAX_BYTES" if gate_env == "GSS_IQ_RAW_RECORD"
+                       else "GSS_IQ_MAX_BYTES")
+        env_cap = os.environ.get(cap_env, "").strip()
+        self._max_bytes = int(env_cap) if env_cap else int(
+            self.MAX_BYTES if max_bytes is None else max_bytes)
         self._meta = None
-        self._first_sample_pending = False
         gate = os.environ.get(gate_env, "").strip().lower()
-        if gate in ("", "0", "false", "no", "off"):
+        if gate in ("", "0", "false", "no", "off") or self._max_bytes < 8:
             return
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             out_dir = os.environ.get("GSS_IQ_DIR") or os.path.join(script_dir, "iq")
             os.makedirs(out_dir, exist_ok=True)
             mission = os.environ.get("GSS_MISSION") or "astrocast"
-            start = time.gmtime()
-            stem = "%s_%s_%s" % (prefix, mission,
-                                 time.strftime("%Y%m%dT%H%M%SZ", start))
-            self._data_path = os.path.join(out_dir, stem + ".sigmf-data")
-            self._meta_path = os.path.join(out_dir, stem + ".sigmf-meta")
+            constructed = time.time()
+            stem = "%s_%s_%s" % (
+                prefix, mission,
+                time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(constructed)))
+            self._reserve_unique_pair(out_dir, stem)
             raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
             capture = {"core:sample_start": 0,
-                       "core:datetime": time.strftime("%Y-%m-%dT%H:%M:%SZ", start)}
+                       "core:datetime": self._utc_iso(constructed),
+                       "maveric:datetime_source": "construction_fallback"}
             if raw_center:
-                capture["core:frequency"] = float(raw_center)
+                self._last_frequency = float(raw_center)
+                capture["core:frequency"] = self._last_frequency
             meta = {
                 "global": {
                     "core:datatype": "cf32_le",
-                    "core:sample_rate": float(samp_rate),
+                    "core:sample_rate": self._samp_rate,
                     "core:version": "1.0.0",
                     "core:recorder": "MAVERIC GSS",
+                    "maveric:constructed_utc": self._utc_iso(constructed),
                 },
                 "captures": [capture],
                 "annotations": [],
@@ -340,17 +362,162 @@ class _IqRecorder(gr.sync_block):
             for key, value in provenance.items():
                 if value not in ("", None):
                     meta["global"][key] = value
-            with open(self._meta_path, "w") as meta_file:
-                json.dump(meta, meta_file, indent=2)
-            self._file = open(self._data_path, "ab")
             self._meta = meta
-            self._first_sample_pending = True
+            self._write_meta_locked()
             print(f"iq_recorder: recording {self._data_path} "
                   f"(cap {self._max_bytes / 1e9:.1f} GB)", flush=True)
         except Exception:
             traceback.print_exc()
             print("iq_recorder: init failed; IQ capture disabled", flush=True)
             self._close_quietly()
+
+    @staticmethod
+    def _utc_iso(epoch_seconds):
+        return (datetime.fromtimestamp(float(epoch_seconds), timezone.utc)
+                .isoformat(timespec="microseconds").replace("+00:00", "Z"))
+
+    def _reserve_unique_pair(self, out_dir, stem):
+        for suffix in range(10_000):
+            candidate = stem if suffix == 0 else f"{stem}_{suffix:03d}"
+            data_path = os.path.join(out_dir, candidate + ".sigmf-data")
+            meta_path = os.path.join(out_dir, candidate + ".sigmf-meta")
+            try:
+                data_file = open(data_path, "xb")
+            except FileExistsError:
+                continue
+            if os.path.exists(meta_path):
+                data_file.close()
+                os.remove(data_path)
+                continue
+            self._data_path = data_path
+            self._meta_path = meta_path
+            self._file = data_file
+            return
+        raise RuntimeError(f"could not allocate unique SigMF name for {stem}")
+
+    def _write_meta_locked(self):
+        if self._meta is None or not self._meta_path:
+            return
+        tmp = f"{self._meta_path}.{os.getpid()}.{threading.get_ident()}.tmp"
+        with open(tmp, "w") as meta_file:
+            json.dump(self._meta, meta_file, indent=2)
+        os.replace(tmp, self._meta_path)
+
+    @staticmethod
+    def _pmt_number(message, key):
+        if not pmt.is_dict(message):
+            return None
+        value = pmt.dict_ref(message, pmt.intern(key), pmt.PMT_NIL)
+        if pmt.eq(value, pmt.PMT_NIL):
+            return None
+        try:
+            return float(pmt.to_python(value))
+        except Exception:
+            return None
+
+    def _event_datetime_locked(self, sample_start):
+        if self._time_anchor_sample is not None:
+            elapsed = ((sample_start - self._time_anchor_sample)
+                       / self._samp_rate)
+            return self._utc_iso(self._time_anchor_seconds + elapsed), "usrp_rx_time"
+        return self._utc_iso(time.time()), "host_wall_clock"
+
+    def _handle_tune_command(self, message):
+        if (pmt.is_pair(message) and pmt.is_symbol(pmt.car(message))
+                and pmt.symbol_to_string(pmt.car(message)) == "rx_gain"):
+            try:
+                self.note_gain(float(pmt.to_python(pmt.cdr(message))))
+            except Exception:
+                pass
+            return
+        lo_hz = self._pmt_number(message, "lo_freq")
+        dsp_hz = self._pmt_number(message, "dsp_freq")
+        frequency_hz = self._pmt_number(message, "freq")
+        if lo_hz is not None and dsp_hz is not None:
+            frequency_hz = lo_hz - dsp_hz  # UHD RX tuning convention
+        if frequency_hz is not None:
+            self.note_tune(frequency_hz, lo_hz=lo_hz, dsp_hz=dsp_hz,
+                           source="doppler_command")
+
+    def note_tune(self, frequency_hz, *, lo_hz=None, dsp_hz=None,
+                  source="live_tune"):
+        with self._lock:
+            if self._file is None or self._meta is None:
+                return
+            sample_start = self._written // 8
+            stamp, stamp_source = self._event_datetime_locked(sample_start)
+            capture = {
+                "core:sample_start": sample_start,
+                "core:frequency": float(frequency_hz),
+                "core:datetime": stamp,
+                "maveric:event": source,
+                "maveric:datetime_source": stamp_source,
+            }
+            if lo_hz is not None:
+                capture["maveric:lo_freq_hz"] = float(lo_hz)
+            if dsp_hz is not None:
+                capture["maveric:dsp_freq_hz"] = float(dsp_hz)
+            if sample_start == 0:
+                self._meta["captures"][0].update(capture)
+            else:
+                self._meta["captures"].append(capture)
+            self._last_frequency = float(frequency_hz)
+            self._write_meta_locked()
+
+    def note_gain(self, gain_db):
+        with self._lock:
+            if self._file is None or self._meta is None:
+                return
+            sample_start = self._written // 8
+            stamp, stamp_source = self._event_datetime_locked(sample_start)
+            self._meta["annotations"].append({
+                "core:sample_start": sample_start,
+                "maveric:event": "rx_gain_change",
+                "maveric:rx_gain_db": float(gain_db),
+                "maveric:datetime": stamp,
+                "maveric:datetime_source": stamp_source,
+            })
+            self._write_meta_locked()
+
+    @staticmethod
+    def _rx_time_seconds(value):
+        try:
+            if pmt.is_tuple(value) and pmt.length(value) >= 2:
+                whole = pmt.to_uint64(pmt.tuple_ref(value, 0))
+                fraction = pmt.to_double(pmt.tuple_ref(value, 1))
+                return float(whole) + float(fraction)
+        except Exception:
+            pass
+        return None
+
+    def _record_rx_time_tags_locked(self, tags, nread):
+        base_sample = self._written // 8
+        for tag in sorted(tags, key=lambda item: item.offset):
+            seconds = self._rx_time_seconds(tag.value)
+            if seconds is None:
+                continue
+            sample_start = base_sample + max(0, int(tag.offset - nread))
+            self._time_anchor_sample = sample_start
+            self._time_anchor_seconds = seconds
+            if not self._rx_time_seen:
+                self._rx_time_seen = True
+                zero_seconds = seconds - sample_start / self._samp_rate
+                initial = self._meta["captures"][0]
+                initial["core:datetime"] = self._utc_iso(zero_seconds)
+                initial["maveric:datetime_source"] = "usrp_rx_time"
+                self._meta["global"]["maveric:time_reference"] = (
+                    "B210 device time synchronized to host UTC")
+            else:
+                capture = {
+                    "core:sample_start": sample_start,
+                    "core:datetime": self._utc_iso(seconds),
+                    "maveric:event": "rx_time_discontinuity",
+                    "maveric:datetime_source": "usrp_rx_time",
+                }
+                if self._last_frequency is not None:
+                    capture["core:frequency"] = self._last_frequency
+                self._meta["captures"].append(capture)
+            self._write_meta_locked()
 
     def _close_quietly(self):
         try:
@@ -364,27 +531,21 @@ class _IqRecorder(gr.sync_block):
         n_in = len(input_items[0])
         if self._file is None:
             return n_in
-        if self._first_sample_pending and n_in:
-            # The provisional meta carries construction time; the first
-            # buffer's arrival is the honest capture start (construction
-            # precedes streaming by seconds of USRP init).
-            self._first_sample_pending = False
-            try:
-                self._meta["global"]["maveric:constructed_utc"] = (
-                    self._meta["captures"][0]["core:datetime"])
-                self._meta["captures"][0]["core:datetime"] = time.strftime(
-                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                with open(self._meta_path, "w") as meta_file:
-                    json.dump(self._meta, meta_file, indent=2)
-            except Exception:
-                pass  # the provisional construction-time meta stays valid
         try:
-            self._file.write(input_items[0].tobytes())
-            self._written += n_in * 8
-            if self._written >= self._max_bytes:
-                self._close_quietly()
-                print(f"iq_recorder: size cap reached; saved {self._data_path} "
-                      f"({self._written} bytes)", flush=True)
+            nread = self.nitems_read(0)
+            with self._lock:
+                remaining_samples = max(0, self._max_bytes - self._written) // 8
+                take = min(n_in, remaining_samples)
+                tags = self.get_tags_in_range(
+                    0, nread, nread + take, self._rx_time_key) if take else []
+                self._record_rx_time_tags_locked(tags, nread)
+                if take:
+                    self._file.write(input_items[0][:take].tobytes())
+                    self._written += take * 8
+                if self._written >= self._max_bytes or take < n_in:
+                    self._close_quietly()
+                    print(f"iq_recorder: size cap reached; saved {self._data_path} "
+                          f"({self._written} bytes)", flush=True)
         except Exception:
             traceback.print_exc()
             print("iq_recorder: write failed; IQ capture disabled for this run", flush=True)
@@ -392,18 +553,21 @@ class _IqRecorder(gr.sync_block):
         return n_in
 
     def stop(self):
-        if self._file is None:
-            return True
-        self._close_quietly()
-        try:
-            if self._written == 0:
-                os.remove(self._data_path)
-                os.remove(self._meta_path)
-                print("iq_recorder: empty capture; files removed", flush=True)
-            else:
-                print(f"iq_recorder: saved {self._data_path} ({self._written} bytes)", flush=True)
-        except Exception:
-            traceback.print_exc()
+        with self._lock:
+            if self._stop_reported or not self._data_path:
+                return True
+            self._stop_reported = True
+            self._close_quietly()
+            try:
+                if self._written == 0:
+                    os.remove(self._data_path)
+                    os.remove(self._meta_path)
+                    print("iq_recorder: empty capture; files removed", flush=True)
+                else:
+                    self._write_meta_locked()
+                    print(f"iq_recorder: saved {self._data_path} ({self._written} bytes)", flush=True)
+            except Exception:
+                traceback.print_exc()
         return True
 
 
@@ -649,6 +813,10 @@ def _build_core(tb, wavfile, iqfile, zmq_addr, doppler_addr):
             uhd.tune_request(tb.rx_freq, tb.rx_lo_offset), 0)
         tb.uhd_usrp_source_0.set_antenna("RX2", 0)
         tb.uhd_usrp_source_0.set_gain(RX_GAIN, 0)
+        # Tie UHD rx_time tags to UTC; recorders use the tag value/offset for
+        # fractional sample-zero time rather than scheduler callback time.
+        tb.uhd_usrp_source_0.set_time_now(
+            uhd.time_spec(time.time()), uhd.ALL_MBOARDS)
         _force_rx_relay(tb.uhd_usrp_source_0)
         print("MAV_ASTROCAST relay GPIO forced to idle/RX", flush=True)
 
@@ -678,6 +846,12 @@ def _build_core(tb, wavfile, iqfile, zmq_addr, doppler_addr):
         tb.msg_connect(
             (tb.zeromq_sub_msg_source_rxcmd, 'out'),
             (tb.uhd_usrp_source_0, 'command'))
+        tb.msg_connect(
+            (tb.zeromq_sub_msg_source_rxcmd, 'out'),
+            (tb.iq_recorder, 'command'))
+        tb.msg_connect(
+            (tb.zeromq_sub_msg_source_rxcmd, 'out'),
+            (tb.iq_raw_recorder, 'command'))
 
     decoders = getattr(
         tb,
@@ -825,6 +999,10 @@ def _make_qt_class():
         def set_rx_gain(self, gain):
             self.rx_gain = gain
             self.uhd_usrp_source_0.set_gain(gain, 0)
+            for recorder in (getattr(self, "iq_recorder", None),
+                             getattr(self, "iq_raw_recorder", None)):
+                if recorder is not None:
+                    recorder.note_gain(gain)
 
         def _rx_actual_freq_probe(self):
             self.flowgraph_started.wait()

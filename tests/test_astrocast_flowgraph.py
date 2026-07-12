@@ -278,10 +278,12 @@ def test_replay_frame_bus_defaults_to_throwaway_endpoint():
         "tcp://127.0.0.1:52001"
 
 
-def test_iq_recorder_stamps_first_sample_time():
+def test_iq_recorder_stamps_sample_zero_from_uhd_rx_time():
     flowgraph = _flowgraph_module()
     source = inspect.getsource(flowgraph._IqRecorder)
-    # Meta datetime is rewritten at the first buffer's arrival; the
-    # construction instant is preserved as maveric:constructed_utc.
+    # Construction time is retained only as fallback/provenance. Sample zero
+    # is derived from the fractional UHD rx_time tag and its sample offset.
     assert "maveric:constructed_utc" in source
-    assert "_first_sample_pending" in source
+    assert "_rx_time_seconds" in source
+    assert "zero_seconds = seconds - sample_start / self._samp_rate" in source
+    assert 'timespec="microseconds"' in source
