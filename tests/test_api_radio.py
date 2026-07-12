@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -42,6 +43,22 @@ class RadioActionErrorContractTests(unittest.TestCase):
         self.assertEqual(r.status_code, 409)
         body = r.json()
         self.assertIn("disabled", body["error"].lower())
+
+    def test_restart_terminal_cleanup_failure_returns_500(self) -> None:
+        self.runtime.platform_cfg["radio"]["enabled"] = True
+        failed = {
+            "enabled": True,
+            "state": "stopped",
+            "running": False,
+            "error": "previous radio process did not finish terminal cleanup",
+        }
+        with mock.patch.object(self.runtime.radio, "restart", return_value=failed):
+            r = self.client.post(
+                "/api/radio/restart",
+                headers={"x-gss-token": self.token},
+            )
+        self.assertEqual(r.status_code, 500)
+        self.assertIn("terminal cleanup", r.json()["error"])
 
 
 class RadioReadAuthTests(unittest.TestCase):

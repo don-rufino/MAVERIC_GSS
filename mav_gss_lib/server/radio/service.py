@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 DEFAULT_RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
 DEFAULT_LOG_LINES = 1000
 DEFAULT_STOP_TIMEOUT_S = 30.0
+TERMINAL_FINALIZE_TIMEOUT_S = 10.0
 _FREQ_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(ghz|mhz|khz|hz)?\s*$", re.IGNORECASE)
 
 
@@ -136,6 +137,12 @@ class RadioService:
         self._exit_callbacks: list[Callable[[], None]] = []
         self._stream_health: dict[str, Any] | None = None
         self._run_log_path: Path | None = None
+        # Set only after the current run's waiter has drained stdout,
+        # published its terminal state, and completed exit callbacks. Public
+        # start/stop/restart actions are serialized by _action_lock and wait
+        # on this barrier, so a replacement process cannot be installed while
+        # the previous run can still disengage tracking or publish stale data.
+        self._terminal_done: threading.Event | None = None
 
     def add_exit_callback(self, cb: Callable[[], None]) -> None:
         with self._state_lock:
@@ -407,7 +414,27 @@ class RadioService:
         except Exception:
             logging.exception("radio lifecycle log failed")
 
+    def _wait_for_terminal(self, done: threading.Event | None) -> bool:
+        if done is None or done.is_set():
+            return True
+        if done.wait(timeout=TERMINAL_FINALIZE_TIMEOUT_S):
+            return True
+        self._set_error("previous radio process did not finish terminal cleanup")
+        return False
+
     def _start_locked(self) -> dict[str, Any]:
+        # A process may already have exited and cleared self.proc while its
+        # terminal broadcasts/callbacks are still running. Do not let a new
+        # run enter that gap: the old tracking.disengage callback would then
+        # act on the replacement process.
+        with self._state_lock:
+            previous_proc = self.proc
+            previous_done = self._terminal_done
+        if previous_proc is not None and previous_proc.poll() is None:
+            return self.status()
+        if not self._wait_for_terminal(previous_done):
+            return self.status()
+
         if not self.enabled():
             self._set_error("radio integration disabled")
             status = self.status()
@@ -463,6 +490,7 @@ class RadioService:
             self._write_radio_event("start_failed", status=status, detail=self.last_error)
             return status
 
+        terminal_done = threading.Event()
         with self._state_lock:
             self.proc = proc
             self.started_at = time.time()
@@ -472,6 +500,7 @@ class RadioService:
             self._stopping = False
             self._command_snapshot = list(cmd)
             self._stream_health = None
+            self._terminal_done = terminal_done
             self._resize_log_if_needed()
             self._log.clear()
 
@@ -485,7 +514,7 @@ class RadioService:
         )
         self._wait_thread = threading.Thread(
             target=self._waiter,
-            args=(proc, run_log, self._reader_thread),
+            args=(proc, run_log, self._reader_thread, terminal_done),
             daemon=True,
             name="radio-wait",
         )
@@ -539,96 +568,108 @@ class RadioService:
 
     def _waiter(self, proc: subprocess.Popen[str],
                 run_log: "_RunLog | None" = None,
-                reader_thread: threading.Thread | None = None) -> None:
-        code = proc.wait()
-        # Let this run's reader drain the pipe tail before the exit trailer
-        # closes the file, so the last stdout lines are never lost.
-        if reader_thread is not None:
-            reader_thread.join(timeout=5.0)
-        if run_log is not None:
-            run_log.close(f"process exited code={code}")
-        should_log = False
-        was_stopping = False
-        with self._state_lock:
-            if self.proc is proc:
-                runtime_s = max(0.0, time.time() - self.started_at) if self.started_at else 0.0
-                self.last_runtime_s = runtime_s
-                self.last_exit_code = code
-                self.proc = None
-                self.started_at = None
-                was_stopping = self._stopping
-                self.last_stop_expected = was_stopping
-                self._stopping = False
-                if code not in (0, None) and not was_stopping and not self.last_error:
-                    self.last_error = f"radio process exited with code {code}"
-                should_log = True
-        if not should_log:
-            # Superseded by a newer run (restart): end this one silently.
-            # Broadcasting or firing exit callbacks here would report a
-            # phantom exit and — worse — disengage Doppler tracking under
-            # the replacement radio (state.py wires tracking.disengage).
-            return
-        status = self.status()
-        action = "stop" if was_stopping else ("exit" if code in (0, None) else "crash")
-        self._write_radio_event(action, status=status, expected=was_stopping)
-        self._schedule_broadcast({"type": "exit", "code": code, "status": status})
-        with self._state_lock:
-            callbacks = list(self._exit_callbacks)
-        for cb in callbacks:
-            try:
-                cb()
-            except Exception:
-                logging.exception("radio exit callback failed")
+                reader_thread: threading.Thread | None = None,
+                terminal_done: threading.Event | None = None) -> None:
+        try:
+            code = proc.wait()
+            # Let this run's reader drain the pipe tail before the exit trailer
+            # closes the file, so the last stdout lines are never lost. Do not
+            # time this join out: _stop_locked has its own bounded wait on the
+            # terminal event and will abort a restart rather than allowing a
+            # stale reader to overlap the replacement run.
+            if reader_thread is not None:
+                reader_thread.join()
+            if run_log is not None:
+                run_log.close(f"process exited code={code}")
+            should_log = False
+            was_stopping = False
+            with self._state_lock:
+                if self.proc is proc:
+                    runtime_s = max(0.0, time.time() - self.started_at) if self.started_at else 0.0
+                    self.last_runtime_s = runtime_s
+                    self.last_exit_code = code
+                    self.proc = None
+                    self.started_at = None
+                    was_stopping = self._stopping
+                    self.last_stop_expected = was_stopping
+                    self._stopping = False
+                    if code not in (0, None) and not was_stopping and not self.last_error:
+                        self.last_error = f"radio process exited with code {code}"
+                    should_log = True
+            if not should_log:
+                # Superseded by a run installed outside the serialized public
+                # actions (primarily a defensive/test path). Keep this exit
+                # silent and touch only its own run log.
+                return
+            status = self.status()
+            action = "stop" if was_stopping else ("exit" if code in (0, None) else "crash")
+            self._write_radio_event(action, status=status, expected=was_stopping)
+            self._schedule_broadcast({"type": "exit", "code": code, "status": status})
+            with self._state_lock:
+                callbacks = list(self._exit_callbacks)
+            for cb in callbacks:
+                try:
+                    cb()
+                except Exception:
+                    logging.exception("radio exit callback failed")
+        finally:
+            # This is deliberately last: start/restart waits for callbacks as
+            # well as process reaping, preventing the old run from changing
+            # tracking state underneath its replacement.
+            if terminal_done is not None:
+                terminal_done.set()
 
     def _stop_locked(self) -> dict[str, Any]:
         already_stopped = False
         with self._state_lock:
             proc = self.proc
+            terminal_done = self._terminal_done
             if proc is None or proc.poll() is not None:
                 self._stopping = False
                 already_stopped = True
             else:
                 self._stopping = True
         if already_stopped:
+            self._wait_for_terminal(terminal_done)
             return self.status()
 
         status = self.status()
         self._write_radio_event("stop_requested", status=status, detail="SIGTERM", expected=True)
         self._schedule_broadcast({"type": "status", "status": status})
         code: int | None = None
-        should_log_stop = False
         try:
             proc.send_signal(signal.SIGTERM)
             code = proc.wait(timeout=self.stop_timeout_s())
         except subprocess.TimeoutExpired:
             self._append_log("Radio process did not exit after SIGTERM; sending SIGKILL")
-            proc.kill()
             try:
-                code = proc.wait(timeout=self.stop_timeout_s())
-            except subprocess.TimeoutExpired:
-                self._set_error("radio process did not exit after SIGKILL")
+                proc.kill()
+            except OSError as exc:
+                self._set_error(f"radio SIGKILL failed: {exc}")
                 self._write_radio_event(
                     "stop_failed",
-                    detail="radio process did not exit after SIGKILL",
+                    detail=str(exc),
                     expected=True,
                 )
+            else:
+                try:
+                    code = proc.wait(timeout=self.stop_timeout_s())
+                except subprocess.TimeoutExpired:
+                    self._set_error("radio process did not exit after SIGKILL")
+                    self._write_radio_event(
+                        "stop_failed",
+                        detail="radio process did not exit after SIGKILL",
+                        expected=True,
+                    )
         except OSError as exc:
             self._set_error(f"radio stop failed: {exc}")
             self._write_radio_event("stop_failed", detail=str(exc), expected=True)
-        if code is not None:
-            with self._state_lock:
-                if self.proc is proc:
-                    self.last_runtime_s = max(0.0, time.time() - self.started_at) if self.started_at else 0.0
-                    self.last_exit_code = code
-                    self.proc = None
-                    self.started_at = None
-                    self.last_stop_expected = True
-                    self._stopping = False
-                    should_log_stop = True
-        status = self.status()
-        if should_log_stop:
-            self._write_radio_event("stop", status=status, expected=True)
-        return status
+        # The waiter is the single owner of terminal state, audit output, and
+        # exit callbacks. Wait even when signal/kill raced with a natural
+        # exit and raised OSError; if the child is genuinely still alive the
+        # bounded terminal wait fails closed and restart will not proceed.
+        self._wait_for_terminal(terminal_done)
+        return self.status()
 
     def start(self) -> dict[str, Any]:
         with self._action_lock:
@@ -640,7 +681,11 @@ class RadioService:
 
     def restart(self) -> dict[str, Any]:
         with self._action_lock:
-            self._stop_locked()
+            stopped = self._stop_locked()
+            with self._state_lock:
+                terminal_done = self._terminal_done
+            if terminal_done is not None and not terminal_done.is_set():
+                return stopped
             return self._start_locked()
 
     def shutdown(self) -> None:

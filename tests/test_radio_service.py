@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -31,6 +32,29 @@ def _fake_runtime(radio_cfg=None):
     )
 
 
+class _SignalProcess:
+    """Small controllable Popen stand-in for lifecycle race tests."""
+
+    def __init__(self, pid: int = 1234) -> None:
+        self.pid = pid
+        self.stdout = None
+        self._exited = threading.Event()
+
+    def poll(self):
+        return 0 if self._exited.is_set() else None
+
+    def wait(self, timeout=None):
+        if not self._exited.wait(timeout):
+            raise subprocess.TimeoutExpired("fake-radio", timeout)
+        return 0
+
+    def send_signal(self, _signal) -> None:
+        self._exited.set()
+
+    def kill(self) -> None:
+        self._exited.set()
+
+
 class RadioServiceExitCallbackTests(unittest.TestCase):
     def test_exit_callbacks_fire_on_process_exit(self) -> None:
         svc = RadioService(_fake_runtime())
@@ -56,6 +80,118 @@ class RadioServiceExitCallbackTests(unittest.TestCase):
         svc.proc = fake_proc
         svc.started_at = 0.0
         svc._waiter(fake_proc)  # must not raise
+
+    def test_explicit_stop_waits_for_terminal_callback(self) -> None:
+        svc = RadioService(_fake_runtime())
+        proc = _SignalProcess()
+        terminal_done = threading.Event()
+        fired: list[str] = []
+        svc.add_exit_callback(lambda: fired.append("disengage"))
+        svc.proc = proc
+        svc.started_at = time.time()
+        svc._terminal_done = terminal_done
+        waiter = threading.Thread(
+            target=svc._waiter,
+            args=(proc, None, None, terminal_done),
+        )
+        svc._wait_thread = waiter
+        waiter.start()
+
+        status = svc.stop()
+        waiter.join(timeout=2)
+
+        self.assertFalse(waiter.is_alive())
+        self.assertTrue(terminal_done.is_set())
+        self.assertEqual(fired, ["disengage"])
+        self.assertIsNone(svc.proc)
+        self.assertEqual(status["state"], "stopped")
+
+    def test_stop_signal_exit_race_still_waits_for_callback(self) -> None:
+        class _ExitDuringSignal(_SignalProcess):
+            def send_signal(self, _signal) -> None:
+                self._exited.set()
+                raise ProcessLookupError("already exited")
+
+        svc = RadioService(_fake_runtime())
+        proc = _ExitDuringSignal()
+        terminal_done = threading.Event()
+        fired: list[str] = []
+        svc.add_exit_callback(lambda: fired.append("disengage"))
+        svc.proc = proc
+        svc.started_at = time.time()
+        svc._terminal_done = terminal_done
+        waiter = threading.Thread(
+            target=svc._waiter,
+            args=(proc, None, None, terminal_done),
+        )
+        waiter.start()
+
+        status = svc.stop()
+        waiter.join(timeout=2)
+
+        self.assertTrue(terminal_done.is_set())
+        self.assertEqual(fired, ["disengage"])
+        self.assertIsNone(svc.proc)
+        self.assertEqual(status["state"], "stopped")
+
+    def test_replacement_waits_until_old_callback_finishes(self) -> None:
+        svc = RadioService(_fake_runtime())
+        old_proc = SimpleNamespace(poll=lambda: 0, wait=lambda: 0, pid=1)
+        new_proc = _SignalProcess(pid=2)
+        old_done = threading.Event()
+        callback_entered = threading.Event()
+        callback_release = threading.Event()
+
+        def slow_disengage() -> None:
+            callback_entered.set()
+            callback_release.wait(timeout=2)
+
+        svc.add_exit_callback(slow_disengage)
+        svc.proc = old_proc
+        svc.started_at = time.time()
+        svc._terminal_done = old_done
+        old_waiter = threading.Thread(
+            target=svc._waiter,
+            args=(old_proc, None, None, old_done),
+        )
+        old_waiter.start()
+        self.assertTrue(callback_entered.wait(timeout=2))
+        self.assertFalse(old_done.is_set())
+
+        inert_log = SimpleNamespace(path=None, write=lambda _line: None,
+                                    close=lambda _note: None)
+        start_result: list[dict] = []
+        start_waiting = threading.Event()
+        real_wait_for_terminal = svc._wait_for_terminal
+
+        def observed_wait(done) -> bool:
+            start_waiting.set()
+            return real_wait_for_terminal(done)
+
+        with mock.patch("subprocess.Popen", return_value=new_proc) as popen, \
+             mock.patch.object(svc, "_open_run_log", return_value=inert_log), \
+             mock.patch.object(svc, "_wait_for_terminal",
+                               side_effect=observed_wait):
+            starter = threading.Thread(
+                target=lambda: start_result.append(svc.start()),
+            )
+            starter.start()
+            self.assertTrue(start_waiting.wait(timeout=2))
+            self.assertFalse(popen.called)
+            self.assertIsNone(svc.proc)
+
+            callback_release.set()
+            starter.join(timeout=2)
+
+        old_waiter.join(timeout=2)
+        self.assertFalse(starter.is_alive())
+        self.assertTrue(old_done.is_set())
+        self.assertTrue(popen.called)
+        self.assertIs(svc.proc, new_proc)
+        self.assertEqual(start_result[0]["state"], "running")
+
+        # Release the replacement's daemon waiter and leave the service clean.
+        svc.stop()
 
 
 class RadioServiceConfigTests(unittest.TestCase):
