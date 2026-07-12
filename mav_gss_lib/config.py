@@ -99,7 +99,7 @@ _DEFAULTS = {
         # as GSS_IQ_RECORD (destination GSS_IQ_DIR = <log_dir>/iq) at start.
         "iq_record": False,
         # Diagnostic raw 1 Msps pre-decimation capture (GSS_IQ_RAW_RECORD,
-        # ~8 MB/s, hard 1 GB cap in the flowgraph). For impulse/QRM analysis
+        # ~8 MB/s, hard 50 GB cap in the flowgraph). For impulse/QRM analysis
         # the post-FIR recording cannot support.
         "iq_raw_record": False,
         # Boot gain for the flowgraph RX chain (GSS_RX_GAIN). The GUI slider

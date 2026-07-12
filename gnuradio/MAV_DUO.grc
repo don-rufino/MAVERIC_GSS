@@ -504,8 +504,8 @@ blocks:
       Taps the pre-decimation USRP stream while GSS_IQ_RAW_RECORD=1
       (platform.radio.iq_raw_record) so impulse/QRM structure survives for
       offline blanker work — the post-FIR recording has already filtered
-      and spread it. ~8 MB/s with a hard 1 GB cap (~2 min): a diagnostic
-      slice, not a pass recorder.
+      and spread it. ~8 MB/s with a hard 50 GB cap (~104 min) so a
+      forgotten toggle still cannot fill the disk.
       """
 
       import json
@@ -521,7 +521,7 @@ blocks:
           """Record raw pre-FIR IQ to SigMF when GSS_IQ_RAW_RECORD=1."""
 
           SAMP_RATE = 1_000_000.0  # keep in sync with samp_rate
-          MAX_BYTES = 1_000_000_000  # ~2 min of 1 Msps complex64
+          MAX_BYTES = 50_000_000_000  # ~104 min of 1 Msps complex64
 
           def __init__(self):
               gr.sync_block.__init__(self, name="iq_raw_recorder",
@@ -620,7 +620,7 @@ blocks:
     affinity: ''
     alias: ''
     comment: 'Diagnostic raw capture: pre-FIR 1 Msps stream to SigMF while
-      GSS_IQ_RAW_RECORD=1 (1 GB cap). Mirrors the second _IqRecorder instance
+      GSS_IQ_RAW_RECORD=1 (50 GB cap). Mirrors the second _IqRecorder instance
       in MAV_DUO.py.'
     maxoutbuf: '0'
     minoutbuf: '0'

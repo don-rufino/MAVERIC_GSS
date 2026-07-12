@@ -279,7 +279,7 @@ class _IqRecorder(gr.sync_block):
     Two instances run live: the pass recorder on the decimated 200 ksps
     stream (GSS_IQ_RECORD, `platform.radio.iq_record`, 8 GB cap) and the
     diagnostic raw recorder on the pre-decimation 1 Msps stream
-    (GSS_IQ_RAW_RECORD, `platform.radio.iq_raw_record`, 1 GB cap ~ 2 min).
+    (GSS_IQ_RAW_RECORD, `platform.radio.iq_raw_record`, 50 GB cap ~ 104 min).
     Appends the complex64 stream to <prefix>_<mission>_<start>.sigmf-data
     under GSS_IQ_DIR and writes the SigMF metadata up front — including
     capture provenance (mission, RX gain, LO offset, build SHA, decoder
@@ -651,7 +651,7 @@ def _build_core(tb, wavfile, iqfile, zmq_addr, doppler_addr):
         tb.connect((tb.rx_lpf, 0), (tb.iq_recorder, 0))
         tb.iq_raw_recorder = _IqRecorder(
             samp_rate=float(SAMP_RATE), prefix='iqraw',
-            gate_env='GSS_IQ_RAW_RECORD', max_bytes=1_000_000_000,
+            gate_env='GSS_IQ_RAW_RECORD', max_bytes=50_000_000_000,
             extra_meta={'maveric:radio_script': 'MAV_ASTROCAST',
                         'maveric:tap': 'pre_fir_1msps'})
         tb.connect((tb.uhd_usrp_source_0, 0), (tb.iq_raw_recorder, 0))
