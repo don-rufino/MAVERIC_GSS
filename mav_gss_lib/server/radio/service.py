@@ -86,6 +86,9 @@ class RadioService:
         self._command_snapshot: list[str] = []
         self._exit_callbacks: list[Callable[[], None]] = []
         self._stream_health: dict[str, Any] | None = None
+        self._run_log = None
+        self._run_log_path: Path | None = None
+        self._run_log_lock = threading.Lock()
 
     def add_exit_callback(self, cb: Callable[[], None]) -> None:
         with self._state_lock:
@@ -251,6 +254,7 @@ class RadioService:
             "last_runtime_s": float(last_runtime_s),
             "stop_timeout_s": self.stop_timeout_s(),
             "stream_health": dict(self._stream_health) if self._stream_health else None,
+            "log_file": str(self._run_log_path) if self._run_log_path else None,
         }
 
     def log_snapshot(self) -> list[str]:
@@ -264,7 +268,71 @@ class RadioService:
         with self._state_lock:
             self._resize_log_if_needed()
             self._log.append(stamped)
+        self._write_run_log(stamped)
         self._schedule_broadcast({"type": "log", "line": stamped})
+
+    # -- persistent per-run stdout log ------------------------------------
+    # Everything the Radio page shows also lands in
+    # <log_dir>/radio/radio_<mission>_<start>.log (same artifact convention
+    # as waterfalls/ and iq/), so flowgraph stdout — decoder database
+    # selection, STREAM_HEALTH, UHD chatter, recorder prints — survives
+    # restarts and is greppable per pass. File logging must never take the
+    # radio down: every failure path disables it and carries on.
+
+    def _open_run_log(self, cmd: list[str]) -> None:
+        with self.runtime.cfg_lock:
+            platform_cfg = self.runtime.platform_cfg
+            general = platform_cfg.get("general") if isinstance(platform_cfg.get("general"), dict) else {}
+            log_dir_raw = str(general.get("log_dir", "logs"))
+        mission = str(self.runtime.mission_id or "radio")
+        try:
+            radio_dir = resolve_project_path(log_dir_raw) / "radio"
+            radio_dir.mkdir(parents=True, exist_ok=True)
+            start = time.gmtime()
+            name = f"radio_{mission}_{time.strftime('%Y%m%dT%H%M%SZ', start)}.log"
+            path = radio_dir / name
+            handle = open(path, "a", encoding="utf-8")
+            handle.write("# MAVERIC GSS radio stdout log\n")
+            handle.write(f"# started: {time.strftime('%Y-%m-%dT%H:%M:%SZ', start)}"
+                         f"  mission: {mission}\n")
+            handle.write(f"# command: {' '.join(cmd)}\n")
+            handle.flush()
+            with self._run_log_lock:
+                self._run_log = handle
+                self._run_log_path = path
+        except Exception as exc:
+            logging.warning("radio run log unavailable (%s); continuing without", exc)
+            with self._run_log_lock:
+                self._run_log = None
+                self._run_log_path = None
+
+    def _write_run_log(self, stamped: str) -> None:
+        with self._run_log_lock:
+            handle = self._run_log
+            if handle is None:
+                return
+            try:
+                handle.write(stamped + "\n")
+                handle.flush()
+            except Exception as exc:
+                logging.warning("radio run log write failed (%s); disabling", exc)
+                try:
+                    handle.close()
+                except Exception:
+                    pass
+                self._run_log = None
+
+    def _close_run_log(self, note: str) -> None:
+        with self._run_log_lock:
+            handle = self._run_log
+            self._run_log = None
+            if handle is None:
+                return
+            try:
+                handle.write(f"# {note}\n")
+                handle.close()
+            except Exception:
+                pass
 
     async def broadcast(self, msg: dict[str, Any] | str) -> None:
         text = json.dumps(msg) if isinstance(msg, dict) else msg
@@ -381,6 +449,8 @@ class RadioService:
             self._resize_log_if_needed()
             self._log.clear()
 
+        self._open_run_log(list(cmd))
+
         self._reader_thread = threading.Thread(
             target=self._reader,
             args=(proc,),
@@ -433,6 +503,7 @@ class RadioService:
 
     def _waiter(self, proc: subprocess.Popen[str]) -> None:
         code = proc.wait()
+        self._close_run_log(f"process exited code={code}")
         should_log = False
         was_stopping = False
         with self._state_lock:

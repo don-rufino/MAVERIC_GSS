@@ -191,7 +191,10 @@ export function RadioPage() {
               )}
             />
             <div className="flex flex-col gap-1.5 px-3 py-2">
-              <DataCell label="Script" value={basename(status.script) || '--'} titleOverride={status.script || ''} />
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <DataCell label="Script" value={basename(status.script) || '--'} titleOverride={status.script || ''} />
+                <DataCell label="Stdout Log" value={status.log_file ? basename(status.log_file) : '--'} titleOverride={status.log_file || ''} />
+              </div>
               <div className="grid grid-cols-3 gap-x-4 gap-y-1">
                 <DataCell label="PID" value={status.pid === null ? '--' : String(status.pid)} />
                 <DataCell

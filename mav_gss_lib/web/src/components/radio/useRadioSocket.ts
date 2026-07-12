@@ -28,6 +28,7 @@ export interface RadioStatus {
   stop_timeout_s: number
   log_lines: number
   stream_health?: StreamHealth | null
+  log_file?: string | null
 }
 
 export const DEFAULT_STATUS: RadioStatus = {

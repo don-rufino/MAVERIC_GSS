@@ -165,6 +165,41 @@ class RadioServiceConfigTests(unittest.TestCase):
         rt_bad = _fake_runtime({"enabled": True, "rx_gain": "high"})
         self.assertNotIn("GSS_RX_GAIN", RadioService(rt_bad)._frequency_env())
 
+    def test_run_log_persists_radio_stdout(self):
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            rt = _fake_runtime()
+            rt.platform_cfg["general"] = {"log_dir": tmp}
+            svc = RadioService(rt)
+            self.assertIsNone(svc.status()["log_file"])
+            svc._open_run_log(["python3", "gnuradio/MAV_DUO.py"])
+            svc._append_log("MAV_DUO decoder database: MAVERIC_DECODER.yml (default)")
+            svc._append_log('STREAM_HEALTH {"rms_dbfs": -44.0}')
+            svc._close_run_log("process exited code=0")
+            log_file = svc.status()["log_file"]
+            self.assertIsNotNone(log_file)
+            self.assertEqual(os.path.basename(os.path.dirname(log_file)), "radio")
+            self.assertTrue(os.path.basename(log_file).startswith("radio_maveric_"))
+            text = Path(log_file).read_text(encoding="utf-8")
+            self.assertIn("# command: python3 gnuradio/MAV_DUO.py", text)
+            self.assertIn("MAVERIC_DECODER.yml (default)", text)
+            self.assertIn("STREAM_HEALTH", text)
+            self.assertIn("# process exited code=0", text)
+            # closing twice / writing after close must be harmless
+            svc._close_run_log("again")
+            svc._append_log("post-close line never raises")
+
+    def test_run_log_failure_disables_quietly(self):
+        import tempfile as _tempfile
+        with _tempfile.NamedTemporaryFile() as blocker:
+            rt = _fake_runtime()
+            # log_dir points at a FILE -> mkdir of <file>/radio must fail
+            rt.platform_cfg["general"] = {"log_dir": blocker.name}
+            svc = RadioService(rt)
+            svc._open_run_log(["python3", "x.py"])  # must not raise
+            svc._append_log("still fine without a run log")
+            self.assertIsNone(svc.status()["log_file"])
+
     def test_stream_health_lines_surface_in_status(self):
         svc = RadioService(_fake_runtime())
         self.assertIsNone(svc.status()["stream_health"])
