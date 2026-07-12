@@ -369,43 +369,6 @@ blocks:
     coordinate: [584, 500.0]
     rotation: 0
     state: enabled
-- name: epy_block_cpm
-  id: epy_block
-  parameters:
-    _source_code: |
-      """Thin GRC wrapper for the production coherent-CPM sink/arbiter."""
-
-      from cpm_live import CpmDetectorSink
-
-
-      class blk(CpmDetectorSink):
-          def __init__(self, decoder_yml='', samp_rate=200000.0):
-              super().__init__(
-                  decoder_yml=decoder_yml,
-                  samp_rate=samp_rate,
-              )
-
-
-      # GRC discovers the first GNU Radio block class in this module. Keep the
-      # imported implementation out of that namespace so it selects `blk`.
-      del CpmDetectorSink
-    affinity: ''
-    alias: ''
-    comment: 'Post-FIR coherent CPM detector with cross-decoder PDU arbitration.'
-    decoder_yml: decoder_yml
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    samp_rate: int(samp_rate/rx_decim)
-  states:
-    _io_cache: ('coherent_cpm', 'blk', [('decoder_yml', "''"), ('samp_rate', '200000.0')],
-      [('0', 'complex', 1), ('production', 'message', 1)], [('out', 'message', 1)],
-      '', ['decoder_yml', 'samp_rate'])
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [792, 572.0]
-    rotation: 0
-    state: enabled
 - name: epy_block_iq
   id: epy_block
   parameters:
@@ -2674,16 +2637,14 @@ connections:
 - [blocks_wavfile_source_0, '0', blocks_float_to_complex_0, '0']
 - [blocks_wavfile_source_0, '1', blocks_float_to_complex_0, '1']
 - [digital_gfsk_mod_0, '0', blocks_multiply_const_vxx_0, '0']
-- [epy_block_cpm, out, satellites_hexdump_sink_0, in]
-- [epy_block_cpm, out, zeromq_pub_msg_sink_0, in]
-- [fir_filter_xxx_1, '0', epy_block_cpm, '0']
 - [fir_filter_xxx_1, '0', epy_block_iq, '0']
 - [fir_filter_xxx_1, '0', epy_block_waterfall, '0']
 - [fir_filter_xxx_1, '0', qtgui_freq_sink_x_1, '0']
 - [fir_filter_xxx_1, '0', qtgui_waterfall_sink_x_0, '0']
 - [fir_filter_xxx_1, '0', satellites_satellite_decoder_0, '0']
 - [pdu_pdu_to_tagged_stream_0, '0', digital_gfsk_mod_0, '0']
-- [satellites_satellite_decoder_0, out, epy_block_cpm, production]
+- [satellites_satellite_decoder_0, out, satellites_hexdump_sink_0, in]
+- [satellites_satellite_decoder_0, out, zeromq_pub_msg_sink_0, in]
 - [uhd_usrp_source_0, '0', epy_block_iq_raw, '0']
 - [uhd_usrp_source_0, '0', epy_block_stream_health, '0']
 - [uhd_usrp_source_0, '0', fir_filter_xxx_1, '0']

@@ -43,7 +43,6 @@ import json
 import struct
 import traceback
 import numpy as np
-from cpm_live import CpmDetectorSink
 from decoder_profiles import decoder_options, resolve_mav_duo_decoder
 
 
@@ -1154,10 +1153,6 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.pdu_pdu_to_tagged_stream_0 = pdu.pdu_to_tagged_stream(gr.types.byte_t, 'packet_len')
         self.fir_filter_xxx_1 = filter.fir_filter_ccf(rx_decim, firdes.low_pass(2.0, samp_rate, 80e3, 15e3))
         self.fir_filter_xxx_1.declare_sample_delay(0)
-        self.cpm_detector = CpmDetectorSink(
-            decoder_yml=decoder_yml,
-            samp_rate=int(samp_rate/rx_decim),
-        )
         self.waterfall_logger = _WaterfallLogger()
         self.iq_recorder = _IqRecorder(
             samp_rate=(int(samp_rate/rx_decim)),
@@ -1184,9 +1179,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         ##################################################
         # Connections
         ##################################################
-        self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.cpm_detector, 'production'))
-        self.msg_connect((self.cpm_detector, 'out'), (self.satellites_hexdump_sink_0, 'in'))
-        self.msg_connect((self.cpm_detector, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
+        self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.satellites_hexdump_sink_0, 'in'))
+        self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.ptt_gate, 'pdu_in'))
         self.msg_connect((self.ptt_gate, 'pdu_out'), (self.pdu_pdu_to_tagged_stream_0, 'pdus'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.satellites_hexdump_sink_0_0, 'in'))
@@ -1201,7 +1195,6 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.connect((self.fir_filter_xxx_1, 0), (self.iq_recorder, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_freq_sink_x_1, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_waterfall_sink_x_0, 0))
-        self.connect((self.fir_filter_xxx_1, 0), (self.cpm_detector, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.satellites_satellite_decoder_0, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.waterfall_logger, 0))
         self.connect((self.pdu_pdu_to_tagged_stream_0, 0), (self.digital_gfsk_mod_0, 0))

@@ -302,6 +302,34 @@ class FlowgraphParamGuards(unittest.TestCase):
         self.assertIn("'_DECODER.yml'", selector)
         self.assertNotIn("isfile", selector)
 
+    def test_decoder_outputs_route_directly_to_operator_sinks(self):
+        py = (GNURADIO / "MAV_DUO.py").read_text(encoding="utf-8")
+        routes = re.findall(
+            r"self\.msg_connect\(\(self\.satellites_satellite_decoder_0, "
+            r"'out'\), \(self\.([a-z0-9_]+), 'in'\)\)",
+            py,
+        )
+        self.assertCountEqual(
+            routes,
+            ["satellites_hexdump_sink_0", "zeromq_pub_msg_sink_0"],
+        )
+
+        grc = yaml.safe_load((GNURADIO / "MAV_DUO.grc").read_text(
+            encoding="utf-8"
+        ))
+        routes = [
+            connection
+            for connection in grc["connections"]
+            if connection[0] == "satellites_satellite_decoder_0"
+            and connection[1] == "out"
+        ]
+        self.assertCountEqual(routes, [
+            ["satellites_satellite_decoder_0", "out",
+             "satellites_hexdump_sink_0", "in"],
+            ["satellites_satellite_decoder_0", "out",
+             "zeromq_pub_msg_sink_0", "in"],
+        ])
+
     def test_stream_instrumentation_mirrored_in_py_and_grc(self):
         # Pre-FIR health probe + raw 1 Msps recorder + env RX gain must stay
         # present in BOTH hand-edited files (the .grc is never regenerated).

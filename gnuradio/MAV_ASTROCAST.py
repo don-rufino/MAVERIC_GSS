@@ -654,8 +654,8 @@ def _attach_matched_filter_bank(tb, source):
     tones, magnitude-difference soft symbols, Gardner recovery, and the
     FX.25 deframers directly — no discriminator. The rectangular tone
     templates are matched to a constant-frequency symbol, not to the
-    exact BT=0.5 Gaussian pulse, so this is near-matched for h=2 rather
-    than an exact CPM matched filter. NRZ-I decoding is
+    exact BT=0.5 Gaussian pulse, so this is a near-matched rather than a
+    waveform-exact detector. NRZ-I decoding is
     polarity-invariant; the legacy-NRZ deframer gets both polarities.
     Returns the deframers whose 'out' ports carry decoded PDUs (the
     caller fans them into the PDU deduplicator, which collapses the

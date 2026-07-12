@@ -27,9 +27,8 @@ CLI (full curves, local tool use):
     python3 tests/fer_harness.py --path astrocast --ebn0 8:16:2 --trials 16
 
 The coarse regression gate lives in tests/test_fer_baseline.py
-(MAVERIC_FER=1). Detector prototypes (blanker, coherent CPM) are judged
-by FER-curve separation on this harness at matched seeds — not by
-single-shot lowest-CNR decodes.
+(MAVERIC_FER=1). Receiver prototypes are judged by FER-curve separation
+on this harness at matched seeds — not by single-shot lowest-CNR decodes.
 """
 
 from __future__ import annotations
@@ -114,9 +113,9 @@ class ChannelSet:
     lead_gaps: list[int]      # samples; randomizes timing phase per trial
     noise_seed: int
     # Opt-in impairments (all-zero by default so the pinned regression-gate
-    # baselines stay untouched). A coherent detector must be benchmarked
-    # WITH random carrier phase and sample-clock error, or it gets a free
-    # phase/clock reference the real chain never has.
+    # baselines stay untouched). Receiver alternatives must include random
+    # carrier phase and sample-clock error or they get references the real
+    # chain never has.
     phases_rad: list[float] | None = None
     clock_ppm: list[float] | None = None
 

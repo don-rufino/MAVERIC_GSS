@@ -23,8 +23,8 @@ Baselines measured 2026-07-11 on this machine (EOF-correct harness):
         consistent with discriminator gain scaling ~h^2 net of the wider
         Carson bandwidth.
 
-Detector prototypes (impulse blanker, coherent CPM) are judged by
-FER-curve separation on fer_harness at matched seeds, not by this gate.
+Receiver prototypes are judged by FER-curve separation on fer_harness at
+matched seeds, not by this gate.
 """
 
 from __future__ import annotations
