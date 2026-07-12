@@ -173,9 +173,11 @@ class RadioService:
         env["GSS_WATERFALL_DIR"] = str(resolve_project_path(log_dir_raw) / "waterfalls")
         # Mission-specific gr-satellites SatYAML (seeded by the mission's
         # build(ctx), like radio.script); MAV_DUO falls back to
-        # MAVERIC_DECODER.yml when unset.
+        # MAVERIC_DECODER.yml when unset. Repo-root-relative or absolute,
+        # like every other config path — absolutized here because the child
+        # runs from gnuradio/, where a relative value would resolve wrongly.
         if isinstance(decoder_yml, str) and decoder_yml.strip():
-            env["GSS_DECODER_YML"] = decoder_yml.strip()
+            env["GSS_DECODER_YML"] = str(resolve_project_path(decoder_yml.strip()))
         if iq_record:
             env["GSS_IQ_RECORD"] = "1"
         # Destination rides along unconditionally so the config toggle is the

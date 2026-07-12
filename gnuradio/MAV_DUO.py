@@ -472,7 +472,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.rx_actual_freq_label = rx_actual_freq_label = rx_actual_freq
         self.rx_gain = rx_gain = 40
         self.rf_gain = rf_gain = 50
-        self.modindex = modindex = 0.5
+        self.modindex = modindex = 1/1.5
         self.baud = baud = 9600
 
         ##################################################

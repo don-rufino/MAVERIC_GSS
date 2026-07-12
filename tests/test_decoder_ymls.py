@@ -37,7 +37,8 @@ def test_roads_decoder_pins_measured_h05_deviations():
     m5_4k8 = _branch(doc, 4800, "AX100 ASM+Golay")
     m5_9k6 = _branch(doc, 9600, "AX100 ASM+Golay")
     # 4k8 dev 1200 measured from the first decoded ROADS 2 frame (h = 0.5);
-    # 9k6 dev 2400 predicted from the same AX100 modindex-0 default.
+    # 9k6 dev 2400 carries that measured h across bauds (modindex is one
+    # radio-wide param; the AX100 auto default would be 2/3 — ROADS sets 0.5).
     assert [tx["deviation"] for tx in m5_4k8] == [1200]
     assert [tx["deviation"] for tx in m5_9k6] == [2400]
 
@@ -51,15 +52,17 @@ def test_sharjahsat_decoder_is_single_official_branch():
     assert tx["deviation"] == 3000  # official gr-satellites Sharjahsat-1.yml
 
 
-def test_maveric_decoder_keeps_dual_hypothesis_9k6():
+def test_maveric_decoder_keeps_dual_hypothesis_branches():
     doc = _load("MAVERIC_DECODER.yml")
     m5_9k6 = _branch(doc, 9600, "AX100 ASM+Golay")
     m5_4k8 = _branch(doc, 4800, "AX100 ASM+Golay")
-    # Flight param dump shows modindex 0.0 = AX100 default (h = 0.5,
-    # measured on ROADS 2): dev-2400 branch must run alongside the legacy
-    # dev-3200 branch until MAVERIC's first frame settles it.
+    # Flight param dump shows modindex 0.0 = AUTOMATIC (h = 2/3 for
+    # 1300-60000 baud per the manual): dev 3200 / 1600 are the primary
+    # hypotheses, with h=0.5 secondaries (2400 / 1200) alongside until
+    # MAVERIC's first frame settles it. 4k8 dev 1600 is also the official
+    # value for the fallback birds Luojia-1 / AISTECHSAT-2.
     assert sorted(tx["deviation"] for tx in m5_9k6) == [2400, 3200]
-    assert [tx["deviation"] for tx in m5_4k8] == [1200]
+    assert sorted(tx["deviation"] for tx in m5_4k8) == [1200, 1600]
     # CATSAT's 2k4 branch (official dev 750) still rides the fallback file.
     m5_2k4 = _branch(doc, 2400, "AX100 ASM+Golay")
     assert [tx["deviation"] for tx in m5_2k4] == [750]

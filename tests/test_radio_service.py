@@ -119,9 +119,15 @@ class RadioServiceConfigTests(unittest.TestCase):
         self.assertEqual(env["GSS_TX_LO_OFFSET_HZ"], "-222000.0")
 
     def test_frequency_env_carries_explicit_decoder_yml(self):
-        rt = _fake_runtime({"enabled": True, "decoder_yml": "ROADS_DECODER.yml"})
+        # Config value is repo-root-relative; the env must arrive absolute
+        # because the flowgraph child runs with cwd=gnuradio/, where a
+        # relative path would resolve to gnuradio/gnuradio/....
+        rt = _fake_runtime({"enabled": True, "decoder_yml": "gnuradio/ROADS_DECODER.yml"})
         svc = RadioService(rt)
-        self.assertEqual(svc._frequency_env()["GSS_DECODER_YML"], "ROADS_DECODER.yml")
+        injected = Path(svc._frequency_env()["GSS_DECODER_YML"])
+        self.assertTrue(injected.is_absolute())
+        self.assertEqual(injected.parts[-2:], ("gnuradio", "ROADS_DECODER.yml"))
+        self.assertTrue(injected.is_file())
 
     def test_frequency_env_omits_decoder_yml_by_default(self):
         # Without an explicit override the flowgraph's own

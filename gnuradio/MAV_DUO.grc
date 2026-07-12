@@ -136,8 +136,8 @@ blocks:
 - name: modindex
   id: variable
   parameters:
-    comment: "Uplink h matched to the flight AX100's RX: its param list shows\nmodindex 0.0 = firmware default h=0.5 (measured on ROADS 2's AX100).\nNo bench unit remains, so the param list is authoritative."
-    value: '0.5'
+    comment: "AX100 auto default: the flight param list shows modindex 0.0 =\nAUTOMATIC, and the manual's auto table picks h = 1/1.5 for 1300-60000\nbaud. This exact value was hardware-verified against the flight unit\nin the Mode 5 uplink bench tests. ROADS 2's measured h=0.5 is that\nbird's own config, not the AX100 default."
+    value: 1/1.5
   states:
     bus_sink: false
     bus_source: false

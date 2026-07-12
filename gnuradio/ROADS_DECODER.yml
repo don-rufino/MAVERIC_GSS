@@ -11,9 +11,10 @@
 #      (2026-07-11) by data-aided fit against the golden frame's wire bits;
 #      the dev-1200 Carson filter holds +0.5-1 dB more decode margin than
 #      the old dev-1600 assumption on the recorded burst.
-#    9k6 dev 2400 (h = 0.5) — predicted from the AX100 modindex-0 radio
-#      default that the 4k8 measurement confirmed; SatNOGS lists 9k6 as the
-#      active UHF mode for 64535.
+#    9k6 dev 2400 (h = 0.5) — carries the measured h across bauds: modindex
+#      is one radio-wide param, and ROADS evidently sets 0.5 explicitly
+#      (the AX100 auto default at these bauds would be 2/3). SatNOGS lists
+#      9k6 as the active UHF mode for 64535.
 
 name: ROADS
 norad: 64535

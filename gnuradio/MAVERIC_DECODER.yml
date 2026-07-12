@@ -18,12 +18,15 @@
 #  gr-satellites runs all entries in parallel; only the matching
 #  framing/baud produces valid decoded frames.
 #
-#  Deviation provenance (2026-07-11): MAVERIC's flight AX100 param dump
-#  shows modindex 0.0 = radio default, and a data-aided fit of the first
-#  decoded ROADS 2 frame measured that default as h = 0.5 (4k8 -> dev
-#  1200, corrected below from the old 1/3-baud guess of 1600). MAVERIC's
-#  9k6 therefore predicts dev 2400; a dev-2400 branch runs alongside the
-#  legacy dev-3200 one until MAVERIC's first frame lets us measure it.
+#  Deviation provenance (2026-07-11, corrected same day after audit):
+#  MAVERIC's flight AX100 param dump shows modindex 0.0 = AUTOMATIC —
+#  the manual's auto table picks h = 1/1.5 for 1300–60000 baud, so 9k6
+#  predicts dev 3200 (primary hypothesis; the same h was hardware-
+#  verified against the flight unit in the Mode 5 uplink bench tests).
+#  Secondary h=0.5 branches (9k6 dev 2400, 4k8 dev 1200) ride alongside
+#  because some AX100 birds do fly h=0.5 (measured on ROADS 2's radio;
+#  Suomi 100 official). 4k8 dev 1600 is the auto default and the
+#  official value for the fallback birds Luojia-1 / AISTECHSAT-2.
 #  (The dump's 437.250 MHz was a pre-flight setting — since changed to
 #  437.575; mode 5, csp_rs/crc/rand all true, preamble 50 x 0xAA.)
 
@@ -56,7 +59,15 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 4800
-    deviation: 1200            # measured h=0.5 AX100 default (ROADS 2 fit)
+    deviation: 1600            # AX100 auto-modindex default (h = 2/3);
+    framing: AX100 ASM+Golay   # official for Luojia-1 / AISTECHSAT-2
+    data:
+      - *tlm
+  4k8 FSK AX100 ASM+Golay downlink (h=0.5):
+    frequency: 437.575e+6      # Hz
+    modulation: FSK
+    baudrate: 4800
+    deviation: 1200            # h=0.5 hypothesis (measured on ROADS 2's radio)
     framing: AX100 ASM+Golay
     data:
       - *tlm
@@ -64,7 +75,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 9600
-    deviation: 3200
+    deviation: 3200            # AX100 auto-modindex default (h = 2/3) — primary
     framing: AX100 ASM+Golay
     data:
       - *tlm
@@ -72,8 +83,8 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 9600
-    deviation: 2400            # predicted from modindex-0 default; ~0.5 dB
-    framing: AX100 ASM+Golay   # tighter Carson if MAVERIC flies h=0.5
+    deviation: 2400            # secondary: some AX100s fly h=0.5 (ROADS 2
+    framing: AX100 ASM+Golay   # measured); ~0.5 dB tighter Carson if MAVERIC does
     data:
       - *tlm
   19k2 FSK AX100 ASM+Golay downlink:
