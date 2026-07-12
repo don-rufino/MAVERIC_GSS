@@ -78,8 +78,10 @@ describe('ConfigModal', () => {
     expect(screen.getByText('TX ZMQ address')).toBeTruthy()
     expect(screen.getByText('TX delay')).toBeTruthy()
     expect(screen.getByText('TX → RX blackout')).toBeTruthy()
+    expect(screen.getByText('RX gain')).toBeTruthy()
     expect(screen.getByText('IQ recording')).toBeTruthy()
-    expect(screen.getAllByRole('switch').length).toBe(1)
+    expect(screen.getByText('Raw 1 Msps capture')).toBeTruthy()
+    expect(screen.getAllByRole('switch').length).toBe(2)
   })
 
   it('Tracking pane keeps TLE + auto-fetch settings and renders a switch', async () => {

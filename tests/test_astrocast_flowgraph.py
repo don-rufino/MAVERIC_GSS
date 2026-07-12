@@ -228,3 +228,35 @@ def test_decoder_yaml_is_native_astrocast_1k2_subset():
     assert ours["transmitters"] == {
         name: native["transmitters"][name] for name in beacon_names
     }
+
+
+def test_stream_instrumentation_in_live_path():
+    flowgraph = _flowgraph_module()
+    core_source = inspect.getsource(flowgraph._build_core)
+    # Health probe + raw diagnostic recorder tap the raw USRP stream, before
+    # the front FIR — replay modes carry neither (no USRP, no overflows).
+    assert "(tb.uhd_usrp_source_0, 0), (tb.stream_health, 0)" in core_source
+    assert "(tb.uhd_usrp_source_0, 0), (tb.iq_raw_recorder, 0)" in core_source
+    assert "GSS_IQ_RAW_RECORD" in core_source
+    assert "maveric:rx_gain_db" in inspect.getsource(flowgraph._IqRecorder)
+    assert flowgraph.RX_GAIN == 40.0  # env-driven boot value, default 40
+
+
+def test_stream_health_report_matches_radio_service_contract():
+    import json as _json
+
+    flowgraph = _flowgraph_module()
+    mon = flowgraph._StreamHealthMonitor(samp_rate=1e6)
+    mon._sumsq = (0.5 ** 2) * 1000
+    mon._samples = 1000
+    mon._peak = 0.9
+    mon._clip = 3
+    mon._overflows = 2
+    line = mon._render_report(10.0)
+    assert line.startswith("STREAM_HEALTH ")
+    payload = _json.loads(line[len("STREAM_HEALTH "):])
+    assert payload["rms_dbfs"] == -6.0
+    assert payload["peak_dbfs"] == -0.9
+    assert payload["clip_count"] == 3
+    assert payload["overflows_total"] == 2
+    assert payload["span_s"] == 10.0

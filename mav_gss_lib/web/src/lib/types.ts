@@ -346,6 +346,8 @@ export interface PlatformConfig {
     args?: string[]
     log_lines?: number
     iq_record?: boolean
+    iq_raw_record?: boolean
+    rx_gain?: number
   }
   tracking?: PlatformTrackingConfig
   general: {

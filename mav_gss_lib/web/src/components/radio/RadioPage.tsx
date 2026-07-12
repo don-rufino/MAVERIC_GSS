@@ -205,6 +205,28 @@ export function RadioPage() {
                 />
                 <DataCell label="Exit Code" value={status.exit_code === null ? '--' : String(status.exit_code)} tone={status.state === 'crashed' ? colors.danger : undefined} />
               </div>
+              {status.running && status.stream_health && (
+                <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+                  <DataCell
+                    label="RF Level"
+                    value={`${status.stream_health.rms_dbfs.toFixed(1)} dBFS`}
+                    titleOverride={`pre-FIR rms over the last ${status.stream_health.span_s}s; peak ${status.stream_health.peak_dbfs.toFixed(1)} dBFS`}
+                    tone={status.stream_health.peak_dbfs > -6 ? colors.warning : undefined}
+                  />
+                  <DataCell
+                    label="Clip"
+                    value={String(status.stream_health.clip_count)}
+                    titleOverride="near-full-scale samples in the last report window"
+                    tone={status.stream_health.clip_count > 0 ? colors.danger : colors.textMuted}
+                  />
+                  <DataCell
+                    label="Overflows"
+                    value={String(status.stream_health.overflows_total)}
+                    titleOverride="UHD stream discontinuities since radio start (dropped samples)"
+                    tone={status.stream_health.overflows_total > 0 ? colors.danger : colors.textMuted}
+                  />
+                </div>
+              )}
               {status.error && (
                 <div
                   className="rounded-md border px-2 py-1.5 text-[11px]"

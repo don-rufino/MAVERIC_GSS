@@ -145,6 +145,40 @@ class RadioServiceConfigTests(unittest.TestCase):
         self.assertEqual(os.path.basename(iq_dir), "iq")
         self.assertEqual(os.path.basename(os.path.dirname(iq_dir)), "logs")
 
+    def test_frequency_env_gates_raw_iq_and_silences_uhd_fastpath(self):
+        svc = RadioService(_fake_runtime({"enabled": True, "iq_raw_record": True}))
+        env = svc._frequency_env()
+        self.assertEqual(env["GSS_IQ_RAW_RECORD"], "1")
+        # Overflows are counted flowgraph-side (rx_time tags); the raw O/U
+        # fastpath chars would only garble the line-based log stream.
+        self.assertEqual(env["UHD_LOG_FASTPATH_DISABLE"], "1")
+        off = RadioService(_fake_runtime())._frequency_env()
+        self.assertNotIn("GSS_IQ_RAW_RECORD", off)
+
+    def test_frequency_env_carries_rx_gain_and_build_sha(self):
+        rt = _fake_runtime({"enabled": True, "rx_gain": 70})
+        rt.platform_cfg["general"] = {"build_sha": "abc1234"}
+        env = RadioService(rt)._frequency_env()
+        self.assertEqual(env["GSS_RX_GAIN"], "70.0")
+        self.assertEqual(env["GSS_BUILD_SHA"], "abc1234")
+        # Non-numeric gain never reaches the flowgraph.
+        rt_bad = _fake_runtime({"enabled": True, "rx_gain": "high"})
+        self.assertNotIn("GSS_RX_GAIN", RadioService(rt_bad)._frequency_env())
+
+    def test_stream_health_lines_surface_in_status(self):
+        svc = RadioService(_fake_runtime())
+        self.assertIsNone(svc.status()["stream_health"])
+        svc._ingest_stream_health(
+            'STREAM_HEALTH {"rms_dbfs": -44.1, "peak_dbfs": -22.3, '
+            '"clip_count": 0, "overflows_total": 2, "span_s": 10.0}')
+        health = svc.status()["stream_health"]
+        self.assertEqual(health["rms_dbfs"], -44.1)
+        self.assertEqual(health["overflows_total"], 2)
+        self.assertGreater(health["ts_ms"], 0)
+        # Malformed payloads never clobber the last good report.
+        svc._ingest_stream_health("STREAM_HEALTH {not json")
+        self.assertEqual(svc.status()["stream_health"]["rms_dbfs"], -44.1)
+
     def test_frequency_env_omits_iq_gate_when_disabled(self):
         svc = RadioService(_fake_runtime())
         env = svc._frequency_env()

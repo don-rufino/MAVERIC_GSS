@@ -2,6 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { authFetch } from '@/lib/auth'
 import { createSocket } from '@/lib/ws'
 
+export interface StreamHealth {
+  rms_dbfs: number
+  peak_dbfs: number
+  clip_count: number
+  overflows_total: number
+  span_s: number
+  ts_ms: number
+}
+
 export interface RadioStatus {
   enabled: boolean
   autostart: boolean
@@ -18,6 +27,7 @@ export interface RadioStatus {
   command: string[]
   stop_timeout_s: number
   log_lines: number
+  stream_health?: StreamHealth | null
 }
 
 export const DEFAULT_STATUS: RadioStatus = {

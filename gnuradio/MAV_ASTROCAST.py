@@ -66,7 +66,7 @@ DEFAULT_RX_FREQ_HZ = 437.150e6
 DEFAULT_RX_LO_OFFSET_HZ = 250e3
 SAMP_RATE = 1_000_000
 RX_DECIM = 5
-RX_GAIN = 40
+RX_GAIN = float(os.environ.get("GSS_RX_GAIN", 40))
 ACQUISITION_RATE = SAMP_RATE // RX_DECIM
 # These firdes parameters reproduce MAV_DUO's RX FIR, which anti-aliases the
 # /5 decimation (passband to ~72.5 kHz, stopband before the 100 kHz output
@@ -269,28 +269,33 @@ class _WaterfallLogger(gr.sync_block):
 
 
 class _IqRecorder(gr.sync_block):
-    """Env-gated raw IQ recorder for the decimated RX stream.
+    """Env-gated raw IQ recorder for an RX stream tap.
 
-    Enabled when RadioService injects GSS_IQ_RECORD=1 (operator toggle
-    `platform.radio.iq_record`). Appends the complex64 stream to
-    iq_<mission>_<start>.sigmf-data under GSS_IQ_DIR and writes the matching
-    SigMF metadata up front, so even a hard crash leaves a replayable pair
-    (any cf32 prefix is valid). MAX_BYTES caps a forgotten toggle before it
-    can fill the disk. Every failure path prints and disables the block —
-    IQ capture must never take down the radio. Same recorder as MAV_DUO's;
-    only the mission fallback differs.
+    Two instances run live: the pass recorder on the decimated 200 ksps
+    stream (GSS_IQ_RECORD, `platform.radio.iq_record`, 8 GB cap) and the
+    diagnostic raw recorder on the pre-decimation 1 Msps stream
+    (GSS_IQ_RAW_RECORD, `platform.radio.iq_raw_record`, 1 GB cap ~ 2 min).
+    Appends the complex64 stream to <prefix>_<mission>_<start>.sigmf-data
+    under GSS_IQ_DIR and writes the SigMF metadata up front — including
+    capture provenance (mission, RX gain, LO offset, build SHA, decoder
+    database, tap point) — so even a hard crash leaves a replayable pair.
+    Every failure path prints and disables the block — IQ capture must
+    never take down the radio. Same recorder as MAV_DUO's; only the
+    mission fallback differs.
     """
 
     MAX_BYTES = 8_000_000_000  # ~83 min of 200 ksps complex64
 
-    def __init__(self, samp_rate=200_000.0):
+    def __init__(self, samp_rate=200_000.0, prefix="iq",
+                 gate_env="GSS_IQ_RECORD", max_bytes=None, extra_meta=None):
         gr.sync_block.__init__(self, name="iq_recorder",
                                in_sig=[np.complex64], out_sig=None)
         self._file = None
         self._data_path = ""
         self._meta_path = ""
         self._written = 0
-        gate = os.environ.get("GSS_IQ_RECORD", "").strip().lower()
+        self._max_bytes = int(max_bytes or self.MAX_BYTES)
+        gate = os.environ.get(gate_env, "").strip().lower()
         if gate in ("", "0", "false", "no", "off"):
             return
         try:
@@ -299,7 +304,8 @@ class _IqRecorder(gr.sync_block):
             os.makedirs(out_dir, exist_ok=True)
             mission = os.environ.get("GSS_MISSION") or "astrocast"
             start = time.gmtime()
-            stem = "iq_%s_%s" % (mission, time.strftime("%Y%m%dT%H%M%SZ", start))
+            stem = "%s_%s_%s" % (prefix, mission,
+                                 time.strftime("%Y%m%dT%H%M%SZ", start))
             self._data_path = os.path.join(out_dir, stem + ".sigmf-data")
             self._meta_path = os.path.join(out_dir, stem + ".sigmf-meta")
             raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
@@ -317,11 +323,21 @@ class _IqRecorder(gr.sync_block):
                 "captures": [capture],
                 "annotations": [],
             }
+            provenance = {
+                "maveric:mission": mission,
+                "maveric:rx_gain_db": os.environ.get("GSS_RX_GAIN", ""),
+                "maveric:rx_lo_offset_hz": os.environ.get("GSS_RX_LO_OFFSET_HZ", ""),
+                "maveric:build_sha": os.environ.get("GSS_BUILD_SHA", ""),
+            }
+            provenance.update(extra_meta or {})
+            for key, value in provenance.items():
+                if value not in ("", None):
+                    meta["global"][key] = value
             with open(self._meta_path, "w") as meta_file:
                 json.dump(meta, meta_file, indent=2)
             self._file = open(self._data_path, "ab")
             print(f"iq_recorder: recording {self._data_path} "
-                  f"(cap {self.MAX_BYTES / 1e9:.0f} GB)", flush=True)
+                  f"(cap {self._max_bytes / 1e9:.1f} GB)", flush=True)
         except Exception:
             traceback.print_exc()
             print("iq_recorder: init failed; IQ capture disabled", flush=True)
@@ -342,7 +358,7 @@ class _IqRecorder(gr.sync_block):
         try:
             self._file.write(input_items[0].tobytes())
             self._written += n_in * 8
-            if self._written >= self.MAX_BYTES:
+            if self._written >= self._max_bytes:
                 self._close_quietly()
                 print(f"iq_recorder: size cap reached; saved {self._data_path} "
                       f"({self._written} bytes)", flush=True)
@@ -366,6 +382,77 @@ class _IqRecorder(gr.sync_block):
         except Exception:
             traceback.print_exc()
         return True
+
+
+class _StreamHealthMonitor(gr.sync_block):
+    """Pre-FIR stream health probe (same block as MAV_DUO's).
+
+    Reports rms/peak levels (dBFS re the B210's +/-1.0 full scale),
+    near-full-scale counts, and overflow events — rx_time stream tags
+    after the first, attached by gr-uhd at every stream discontinuity —
+    as structured `STREAM_HEALTH {json}` lines that RadioService parses
+    into /api/radio/status.
+    """
+
+    def __init__(self, samp_rate=1_000_000.0, report_every_s=10.0,
+                 clip_level=0.99):
+        import pmt
+
+        gr.sync_block.__init__(self, name="stream_health",
+                               in_sig=[np.complex64], out_sig=None)
+        self._fs = float(samp_rate)
+        self._every = float(report_every_s)
+        self._clip_level = float(clip_level)
+        self._rx_time_key = pmt.intern("rx_time")
+        self._sumsq = 0.0
+        self._peak = 0.0
+        self._clip = 0
+        self._samples = 0
+        self._overflows = 0
+        self._stream_started = False
+        self._last_report = time.monotonic()
+
+    def _render_report(self, span_s):
+        rms = (self._sumsq / self._samples) ** 0.5 if self._samples else 0.0
+
+        def dbfs(value):
+            return round(float(20.0 * np.log10(max(value, 1e-12))), 1)
+
+        return "STREAM_HEALTH " + json.dumps({
+            "rms_dbfs": dbfs(rms),
+            "peak_dbfs": dbfs(self._peak),
+            "clip_count": int(self._clip),
+            "overflows_total": int(self._overflows),
+            "span_s": round(span_s, 1),
+        })
+
+    def work(self, input_items, output_items):
+        x = input_items[0]
+        n = len(x)
+        if n:
+            mag2 = (x.real.astype(np.float64) ** 2
+                    + x.imag.astype(np.float64) ** 2)
+            self._sumsq += float(mag2.sum())
+            self._peak = max(self._peak, float(np.sqrt(mag2.max())))
+            self._clip += int(np.count_nonzero(np.maximum(
+                np.abs(x.real), np.abs(x.imag)) >= self._clip_level))
+            self._samples += n
+            nread = self.nitems_read(0)
+            for _tag in self.get_tags_in_range(0, nread, nread + n,
+                                               self._rx_time_key):
+                if self._stream_started:
+                    self._overflows += 1
+                else:
+                    self._stream_started = True
+        now = time.monotonic()
+        if now - self._last_report >= self._every and self._samples:
+            print(self._render_report(now - self._last_report), flush=True)
+            self._sumsq = 0.0
+            self._peak = 0.0
+            self._clip = 0
+            self._samples = 0
+            self._last_report = now
+        return n
 
 
 def _attach_matched_filter_bank(tb, source):
@@ -551,8 +638,20 @@ def _build_core(tb, wavfile, iqfile, zmq_addr, doppler_addr):
         _attach_decode_banks(tb, tb.rx_lpf)
         tb.waterfall_logger = _WaterfallLogger()
         tb.connect((tb.rx_lpf, 0), (tb.waterfall_logger, 0))
-        tb.iq_recorder = _IqRecorder(samp_rate=float(ACQUISITION_RATE))
+        tb.iq_recorder = _IqRecorder(
+            samp_rate=float(ACQUISITION_RATE),
+            extra_meta={'maveric:decoder_yml': os.path.basename(DECODER_YML),
+                        'maveric:radio_script': 'MAV_ASTROCAST',
+                        'maveric:tap': 'post_fir_200k'})
         tb.connect((tb.rx_lpf, 0), (tb.iq_recorder, 0))
+        tb.iq_raw_recorder = _IqRecorder(
+            samp_rate=float(SAMP_RATE), prefix='iqraw',
+            gate_env='GSS_IQ_RAW_RECORD', max_bytes=1_000_000_000,
+            extra_meta={'maveric:radio_script': 'MAV_ASTROCAST',
+                        'maveric:tap': 'pre_fir_1msps'})
+        tb.connect((tb.uhd_usrp_source_0, 0), (tb.iq_raw_recorder, 0))
+        tb.stream_health = _StreamHealthMonitor(samp_rate=float(SAMP_RATE))
+        tb.connect((tb.uhd_usrp_source_0, 0), (tb.stream_health, 0))
         tb.msg_connect(
             (tb.zeromq_sub_msg_source_rxcmd, 'out'),
             (tb.uhd_usrp_source_0, 'command'))

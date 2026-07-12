@@ -85,6 +85,7 @@ class RadioService:
         self.last_runtime_s: float = 0.0
         self._command_snapshot: list[str] = []
         self._exit_callbacks: list[Callable[[], None]] = []
+        self._stream_health: dict[str, Any] | None = None
 
     def add_exit_callback(self, cb: Callable[[], None]) -> None:
         with self._state_lock:
@@ -157,7 +158,10 @@ class RadioService:
             log_dir_raw = str(general.get("log_dir", "logs"))
             radio_cfg = platform_cfg.get("radio") if isinstance(platform_cfg.get("radio"), dict) else {}
             iq_record = bool(radio_cfg.get("iq_record", False))
+            iq_raw_record = bool(radio_cfg.get("iq_raw_record", False))
+            rx_gain = radio_cfg.get("rx_gain")
             decoder_yml = radio_cfg.get("decoder_yml")
+            build_sha = str(general.get("build_sha") or "")
         env: dict[str, str] = {}
         if rx_hz is not None:
             env["GSS_RX_FREQ_HZ"] = str(rx_hz)
@@ -180,9 +184,21 @@ class RadioService:
             env["GSS_DECODER_YML"] = str(resolve_project_path(decoder_yml.strip()))
         if iq_record:
             env["GSS_IQ_RECORD"] = "1"
+        if iq_raw_record:
+            env["GSS_IQ_RAW_RECORD"] = "1"
         # Destination rides along unconditionally so the config toggle is the
         # only on/off difference the flowgraph ever sees.
         env["GSS_IQ_DIR"] = str(resolve_project_path(log_dir_raw) / "iq")
+        # Boot RX gain (GUI slider still overrides live) — also stamped into
+        # SigMF capture provenance by the flowgraph recorders.
+        if isinstance(rx_gain, (int, float)):
+            env["GSS_RX_GAIN"] = str(float(rx_gain))
+        if build_sha:
+            env["GSS_BUILD_SHA"] = build_sha
+        # Overflows are counted flowgraph-side via rx_time stream tags and
+        # reported in STREAM_HEALTH lines; UHD's raw O/U fastpath characters
+        # arrive without line boundaries and only garble the log stream.
+        env["UHD_LOG_FASTPATH_DISABLE"] = "1"
         # Mission id rides into the flowgraph so waterfall captures carry the
         # active mission in their filenames.
         mission_id = str(self.runtime.mission_id or "")
@@ -234,6 +250,7 @@ class RadioService:
             "log_lines": self.log_capacity(),
             "last_runtime_s": float(last_runtime_s),
             "stop_timeout_s": self.stop_timeout_s(),
+            "stream_health": dict(self._stream_health) if self._stream_health else None,
         }
 
     def log_snapshot(self) -> list[str]:
@@ -360,6 +377,7 @@ class RadioService:
             self.last_stop_expected = False
             self._stopping = False
             self._command_snapshot = list(cmd)
+            self._stream_health = None
             self._resize_log_if_needed()
             self._log.clear()
 
@@ -388,7 +406,9 @@ class RadioService:
             return
         try:
             for line in stream:
-                self._append_log(line.rstrip("\n"))
+                line = line.rstrip("\n")
+                self._ingest_stream_health(line)
+                self._append_log(line)
         except Exception as exc:
             logging.warning("radio stdout reader failed: %s", exc)
         finally:
@@ -396,6 +416,20 @@ class RadioService:
                 stream.close()
             except Exception:
                 pass
+
+    def _ingest_stream_health(self, line: str) -> None:
+        """Parse the flowgraph's structured pre-FIR health reports
+        (`STREAM_HEALTH {json}`) into the status surface."""
+        marker = line.find("STREAM_HEALTH ")
+        if marker < 0:
+            return
+        try:
+            payload = json.loads(line[marker + len("STREAM_HEALTH "):])
+        except (ValueError, TypeError):
+            return
+        if isinstance(payload, dict):
+            payload["ts_ms"] = int(time.time() * 1000)
+            self._stream_health = payload
 
     def _waiter(self, proc: subprocess.Popen[str]) -> None:
         code = proc.wait()

@@ -226,6 +226,38 @@ class FlowgraphParamGuards(unittest.TestCase):
         (block,) = [b for b in grc["blocks"] if b["name"] == "modindex"]
         self.assertEqual(block["parameters"]["value"], "1/1.5")
 
+    def test_stream_instrumentation_mirrored_in_py_and_grc(self):
+        # Pre-FIR health probe + raw 1 Msps recorder + env RX gain must stay
+        # present in BOTH hand-edited files (the .grc is never regenerated).
+        py = (GNURADIO / "MAV_DUO.py").read_text(encoding="utf-8")
+        self.assertIn("class _StreamHealthMonitor", py)
+        self.assertIn("STREAM_HEALTH", py)
+        self.assertIn(
+            "self.connect((self.uhd_usrp_source_0, 0), (self.stream_health, 0))", py)
+        self.assertIn(
+            "self.connect((self.uhd_usrp_source_0, 0), (self.iq_raw_recorder, 0))", py)
+        self.assertIn("GSS_IQ_RAW_RECORD", py)
+        self.assertIn("maveric:rx_gain_db", py)
+        self.assertRegex(py, re.compile(
+            r"^\s*self\.rx_gain = rx_gain = "
+            r"float\(__import__\('os'\)\.environ\.get\('GSS_RX_GAIN', 40\)\)$", re.M))
+
+        grc = yaml.safe_load((GNURADIO / "MAV_DUO.grc").read_text(encoding="utf-8"))
+        blocks = {b["name"]: b for b in grc["blocks"]}
+        for name in ("epy_block_iq", "epy_block_iq_raw", "epy_block_stream_health"):
+            source = blocks[name]["parameters"]["_source_code"]
+            compile(source, name, "exec")  # every epy mirror stays valid python
+        self.assertIn("GSS_IQ_RAW_RECORD",
+                      blocks["epy_block_iq_raw"]["parameters"]["_source_code"])
+        self.assertIn("STREAM_HEALTH",
+                      blocks["epy_block_stream_health"]["parameters"]["_source_code"])
+        self.assertIn("maveric:rx_gain_db",
+                      blocks["epy_block_iq"]["parameters"]["_source_code"])
+        self.assertIn("GSS_RX_GAIN", blocks["rx_gain"]["parameters"]["value"])
+        conns = {tuple(c) for c in grc["connections"]}
+        self.assertIn(("uhd_usrp_source_0", "0", "epy_block_iq_raw", "0"), conns)
+        self.assertIn(("uhd_usrp_source_0", "0", "epy_block_stream_health", "0"), conns)
+
 
 if __name__ == "__main__":
     unittest.main()
