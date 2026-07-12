@@ -1,28 +1,30 @@
 """ROADS housekeeping beacon decoder.
 
-Ports UND's published "IARU Telemetry Decoding Format" (aero.und.edu,
-fetched 2026-07-11) onto the ascii_tokens walker. The document lays out
-the full logical HK table: a 5-byte header (protocol_version, beacon
-type, beacon version, satid) followed by 42 elements. Each element is a
-GomSpace parameter-table sample — checksum u16 + unix timestamp u32 +
-source node u16 + value — which is why the doc's per-field "size" column
-reads 8 + the value width. All integers are big-endian (GomSpace
-network-order convention; the doc states none).
+Decodes the on-air ROADS full-table housekeeping beacon (type 0x66),
+reverse-engineered from the first frame received 2026-07-11 (ROADS 2,
+CSP CRC-32C verified; that frame is the golden fixture in
+tests/test_missions_ax100_rx.py). UND's published "IARU Telemetry
+Decoding Format" (aero.und.edu, fetched 2026-07-11) describes the field
+set but accounts an 8-byte checksum/timestamp/source wrapper per
+element; on the wire the wrapper amortizes per sample GROUP, so the
+whole 42-field table rides one 156-byte AX100 Mode 5 frame:
 
-The full table is 444 bytes, which cannot ride a single AX100 Mode 5
-frame: the data field is one RS(255,223) codeword, so the inner CSP
-packet caps at 223 bytes. On air the table must therefore arrive as
-smaller typed beacons. Absent a published type map, the decoder matches a
-frame by exact length against every contiguous run of whole subsystem
-blocks that fits the cap (plus the full table, for offline reassembled
-use). A 68-byte block run is length-ambiguous between the identically
-shaped uhf and vhf blocks and is assumed uhf with a warning. Each block's
-first element re-emits its sample timestamp as a token; the "x32" radio
-reboot causes emit as lossless hex.
+    5-byte header: protocol_version=1, beacon type=0x66, version, satid u16
+    6 wrapped groups, each ">HIH" (table checksum, unix timestamp,
+    source node) followed by that group's big-endian values:
+        obc main 15B | obc deploy 4B | gnss 12B | eps 32B | uhf 18B | vhf 18B
+    CSP CRC-32C (big-endian, over everything before it) when the CSP
+    header carries flags bit 0 — as observed on air.
 
-Token order MUST match the per-run container entry lists in mission.yml
-(generated from this table, guarded by
-test_roads_yml_containers_match_runs).
+The radio groups are 18 bytes, not the document's 20: the tail resolves
+as boot_count u16 + boot_cause u32 (the u32-count split yields absurd
+counts, and this split gave both radios the same 0x100 cause on the
+observed frame). Sample timestamps re-emit once per domain — the obc
+deploy group shares obc's — and the radio reboot causes emit as
+lossless hex.
+
+Token order MUST match the beacon_hk container entry list in
+mission.yml (guarded by test_roads_yml_containers_match_field_table).
 """
 
 from __future__ import annotations
@@ -31,104 +33,100 @@ import struct
 from datetime import datetime, timezone
 
 from mav_gss_lib.missions.ax100_rx import HkDecode
+from mav_gss_lib.platform.framing.crc import crc32c
 
 
-_HEADER = struct.Struct(">BBBH")          # protocol_version, type, version, satid
-_ELEMENT_HEADER = struct.Struct(">HIH")   # table checksum, unix timestamp, source node
+_HEADER = struct.Struct(">BBBH")        # protocol_version, type, version, satid
+_GROUP_HEADER = struct.Struct(">HIH")   # table checksum, unix timestamp, source node
 
 PROTOCOL_VERSION = 1
+FULL_HK_BEACON_TYPE = 0x66
+CSP_FLAG_CRC32 = 0x01
 
-# (domain, parameter key, value format, render) in wire order.
-_FIELDS = (
-    ("obc", "ram_image", "B", "int"),
-    ("obc", "temp_mcu", "h", "int"),
-    ("obc", "temp_ram", "h", "int"),
-    ("obc", "resetcause", "I", "int"),
-    ("obc", "obc_bootcause", "I", "int"),
-    ("obc", "bootcount", "H", "int"),
-    ("obc", "depl_isis_a", "B", "int"),
-    ("obc", "depl_a_isis_a", "B", "int"),
-    ("obc", "depl_isis_b", "B", "int"),
-    ("obc", "depl_a_isis_b", "B", "int"),
-    ("gnss", "error_word", "I", "int"),
-    ("gnss", "nr_stats", "I", "int"),
-    ("gnss", "rxstat", "I", "int"),
-    ("eps", "vboost1", "H", "int"),
-    ("eps", "vboost2", "H", "int"),
-    ("eps", "vboost3", "H", "int"),
-    ("eps", "vbatt", "H", "int"),
-    ("eps", "curout1", "H", "int"),
-    ("eps", "curout2", "H", "int"),
-    ("eps", "curout3", "H", "int"),
-    ("eps", "curout4", "H", "int"),
-    ("eps", "curout5", "H", "int"),
-    ("eps", "curout6", "H", "int"),
-    ("eps", "curin1", "H", "int"),
-    ("eps", "curin2", "H", "int"),
-    ("eps", "curin3", "H", "int"),
-    ("eps", "cursun", "H", "int"),
-    ("eps", "cursys", "H", "int"),
-    ("eps", "battmode", "B", "int"),
-    ("eps", "eps_bootcause", "B", "int"),
-    ("uhf", "uhf_temp_brd", "H", "int"),
-    ("uhf", "uhf_temp_pa", "H", "int"),
-    ("uhf", "uhf_tx_count", "I", "int"),
-    ("uhf", "uhf_rx_count", "I", "int"),
-    ("uhf", "uhf_boot_count", "I", "int"),
-    ("uhf", "uhf_boot_cause", "I", "hex"),
-    ("vhf", "vhf_temp_brd", "H", "int"),
-    ("vhf", "vhf_temp_pa", "H", "int"),
-    ("vhf", "vhf_tx_count", "I", "int"),
-    ("vhf", "vhf_rx_count", "I", "int"),
-    ("vhf", "vhf_boot_count", "I", "int"),
-    ("vhf", "vhf_boot_cause", "I", "hex"),
+# (domain, ((parameter key, value format, render), ...)) per wrapped sample
+# group, in wire order. obc arrives as two groups: main sample + deploy flags.
+_GROUPS = (
+    ("obc", (
+        ("ram_image", "B", "int"),
+        ("temp_mcu", "h", "int"),
+        ("temp_ram", "h", "int"),
+        ("resetcause", "I", "int"),
+        ("obc_bootcause", "I", "int"),
+        ("bootcount", "H", "int"),
+    )),
+    ("obc", (
+        ("depl_isis_a", "B", "int"),
+        ("depl_a_isis_a", "B", "int"),
+        ("depl_isis_b", "B", "int"),
+        ("depl_a_isis_b", "B", "int"),
+    )),
+    ("gnss", (
+        ("error_word", "I", "int"),
+        ("nr_stats", "I", "int"),
+        ("rxstat", "I", "int"),
+    )),
+    ("eps", (
+        ("vboost1", "H", "int"),
+        ("vboost2", "H", "int"),
+        ("vboost3", "H", "int"),
+        ("vbatt", "H", "int"),
+        ("curout1", "H", "int"),
+        ("curout2", "H", "int"),
+        ("curout3", "H", "int"),
+        ("curout4", "H", "int"),
+        ("curout5", "H", "int"),
+        ("curout6", "H", "int"),
+        ("curin1", "H", "int"),
+        ("curin2", "H", "int"),
+        ("curin3", "H", "int"),
+        ("cursun", "H", "int"),
+        ("cursys", "H", "int"),
+        ("battmode", "B", "int"),
+        ("eps_bootcause", "B", "int"),
+    )),
+    ("uhf", (
+        ("uhf_temp_brd", "H", "int"),
+        ("uhf_temp_pa", "H", "int"),
+        ("uhf_tx_count", "I", "int"),
+        ("uhf_rx_count", "I", "int"),
+        ("uhf_boot_count", "H", "int"),
+        ("uhf_boot_cause", "I", "hex"),
+    )),
+    ("vhf", (
+        ("vhf_temp_brd", "H", "int"),
+        ("vhf_temp_pa", "H", "int"),
+        ("vhf_tx_count", "I", "int"),
+        ("vhf_rx_count", "I", "int"),
+        ("vhf_boot_count", "H", "int"),
+        ("vhf_boot_cause", "I", "hex"),
+    )),
 )
 
-_BLOCK_ORDER = ("obc", "gnss", "eps", "uhf", "vhf")
-_BLOCK_FIELDS = {
-    block: tuple(f for f in _FIELDS if f[0] == block) for block in _BLOCK_ORDER
-}
-
 MODE5_INNER_CAP = 223   # one RS(255,223) codeword — max inner CSP packet
+_CRC_SIZE = 4
 
 
-def _fields_size(fields) -> int:
-    return sum(_ELEMENT_HEADER.size + struct.calcsize(">" + fmt)
-               for _, _, fmt, _ in fields)
+def _group_values_size(fields) -> int:
+    return sum(struct.calcsize(">" + fmt) for _, fmt, _ in fields)
 
 
-def _run_fields(run: tuple[str, ...]):
-    return tuple(f for block in run for f in _BLOCK_FIELDS[block])
+BEACON_SIZE = _HEADER.size + sum(
+    _GROUP_HEADER.size + _group_values_size(fields) for _, fields in _GROUPS
+)                                                                     # 152
+TOKEN_COUNT = (sum(len(fields) for _, fields in _GROUPS)
+               + len({domain for domain, _ in _GROUPS}))              # 47
 
 
-def run_kind(run: tuple[str, ...]) -> str:
-    return "hk" if run == _BLOCK_ORDER else "hk_" + "_".join(run)
-
-
-def run_size(run: tuple[str, ...]) -> int:
-    return _HEADER.size + _fields_size(_run_fields(run))
-
-
-def run_token_count(run: tuple[str, ...]) -> int:
-    return len(_run_fields(run)) + len(run)
-
-
-def _contiguous_runs():
-    runs = [_BLOCK_ORDER]   # full table first: exact 444 wins over any slice
-    for start in range(len(_BLOCK_ORDER)):
-        for stop in range(start + 1, len(_BLOCK_ORDER) + 1):
-            run = _BLOCK_ORDER[start:stop]
-            if run != _BLOCK_ORDER and run_size(run) <= MODE5_INNER_CAP:
-                runs.append(run)
-    return tuple(runs)
-
-
-# Full table plus every contiguous block run that fits one Mode 5 frame.
-# uhf precedes vhf, so a length-ambiguous 68-byte block resolves to uhf.
-SUPPORTED_RUNS = _contiguous_runs()
-
-BEACON_SIZE = run_size(_BLOCK_ORDER)                 # 444
-TOKEN_COUNT = run_token_count(_BLOCK_ORDER)          # 47
+def token_names() -> tuple[str, ...]:
+    """Container entry names in emission order (domain ts, then values)."""
+    names: list[str] = []
+    domain = None
+    for group_domain, fields in _GROUPS:
+        if group_domain != domain:
+            domain = group_domain
+            names.append(f"{group_domain}_ts")
+        names.extend(key for key, _fmt, _render in fields)
+    return tuple(names)
 
 
 def _iso(unix_s: int) -> str:
@@ -136,53 +134,52 @@ def _iso(unix_s: int) -> str:
 
 
 def decode_beacon(csp_header: dict, payload: bytes) -> HkDecode | None:
-    """Decode a ROADS beacon payload (bytes after the CSP header).
+    """Decode a ROADS type-0x66 beacon payload (bytes after the CSP header).
 
-    Returns None when the payload length matches no supported block run
-    or the protocol version is wrong — the shared PacketOps then logs the
-    frame raw as opaque telemetry.
+    Returns None when the frame is not a full-table HK beacon (wrong
+    protocol / type / length) or its CSP CRC-32C fails — the shared
+    PacketOps then logs the frame raw as opaque telemetry.
     """
-    if len(payload) < _HEADER.size:
+    body = payload
+    if csp_header.get("flags", 0) & CSP_FLAG_CRC32:
+        if len(body) <= _CRC_SIZE:
+            return None
+        received = int.from_bytes(body[-_CRC_SIZE:], "big")
+        body = body[:-_CRC_SIZE]
+        if crc32c(body) != received:
+            return None
+    if len(body) != BEACON_SIZE:
         return None
-    protocol_version, beacon_type, beacon_version, satid = _HEADER.unpack_from(payload, 0)
-    if protocol_version != PROTOCOL_VERSION:
+    protocol_version, beacon_type, beacon_version, satid = _HEADER.unpack_from(body, 0)
+    if protocol_version != PROTOCOL_VERSION or beacon_type != FULL_HK_BEACON_TYPE:
         return None
-    run = next((r for r in SUPPORTED_RUNS if run_size(r) == len(payload)), None)
-    if run is None:
-        return None
-
-    warnings: list[str] = []
-    if run == ("uhf",):
-        warnings.append("68-byte block is length-ambiguous (uhf/vhf) — assumed uhf")
 
     tokens: list[str] = []
     values: dict[str, int] = {}
     offset = _HEADER.size
     domain = None
-    for field_domain, key, fmt, render in _run_fields(run):
-        _checksum, sample_ts, _source = _ELEMENT_HEADER.unpack_from(payload, offset)
-        offset += _ELEMENT_HEADER.size
-        if field_domain != domain:
-            domain = field_domain
+    for group_domain, fields in _GROUPS:
+        _checksum, sample_ts, _source = _GROUP_HEADER.unpack_from(body, offset)
+        offset += _GROUP_HEADER.size
+        if group_domain != domain:
+            domain = group_domain
             tokens.append(_iso(sample_ts))
-        (value,) = struct.unpack_from(">" + fmt, payload, offset)
-        offset += struct.calcsize(">" + fmt)
-        tokens.append(f"0x{value:08x}" if render == "hex" else str(value))
-        values[key] = value
+        for key, fmt, render in fields:
+            (value,) = struct.unpack_from(">" + fmt, body, offset)
+            offset += struct.calcsize(">" + fmt)
+            tokens.append(f"0x{value:08x}" if render == "hex" else str(value))
+            values[key] = value
 
     facts = {
-        "kind": run_kind(run),
-        "blocks": "+".join(run),
+        "kind": "hk",
         "satid": satid,
         "beacon_type": beacon_type,
         "beacon_version": beacon_version,
+        "vbat_mv": values["vbatt"],
+        "batt_mode": values["battmode"],
     }
-    if "vbatt" in values:
-        facts["vbat_mv"] = values["vbatt"]
-        facts["batt_mode"] = values["battmode"]
     return HkDecode(
-        container_kind=run_kind(run),
+        container_kind="hk",
         tokens=" ".join(tokens).encode("ascii"),
         facts=facts,
-        warnings=tuple(warnings),
     )

@@ -44,6 +44,54 @@ import traceback
 import numpy as np
 
 
+def _decoder_yml():
+    """Per-mission decoder database for the shared flowgraph.
+
+    Explicit GSS_DECODER_YML wins; otherwise <GSS_MISSION>_DECODER.yml is
+    used when that file ships next to this script (e.g. roads ->
+    ROADS_DECODER.yml, carrying its measured deviations), falling back to
+    the MAVERIC database for every mission without one. Missions need no
+    config: RadioService already injects GSS_MISSION.
+    """
+    explicit = os.environ.get("GSS_DECODER_YML")
+    if explicit:
+        print(f"MAV_DUO decoder database: {explicit} (GSS_DECODER_YML)", flush=True)
+        return explicit
+    mission = (os.environ.get("GSS_MISSION") or "maveric").upper()
+    candidate = f"{mission}_DECODER.yml"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidate_path = os.path.join(script_dir, candidate)
+    if os.path.isfile(candidate_path):
+        print(f"MAV_DUO decoder database: {candidate} (mission {mission.lower()})", flush=True)
+        return candidate_path
+    print("MAV_DUO decoder database: MAVERIC_DECODER.yml (default)", flush=True)
+    return "MAVERIC_DECODER.yml"
+
+
+def _decoder_options(decoder_yml):
+    """gr-satellites options matched to the selected database.
+
+    --syncword_threshold 6 (default 4): at threshold BER a real frame can
+    lose 5-6 of the 32 ASM bits; the extra ~2.6 false correlations/s/branch
+    die in the Golay length check + RS(255,223), and the GSS flags any
+    survivor via its CRC checks. The flag only parses when a deframer that
+    defines it (AX100 / FX.25) is in the file — passing it with a pure
+    AX.25 database (e.g. SHARJAHSAT_DECODER.yml) aborts argparse at
+    flowgraph start.
+    """
+    try:
+        with open(decoder_yml) as fh:
+            text = fh.read()
+    except OSError:
+        text = ""
+    for line in text.splitlines():
+        payload = line.split('#')[0]
+        if payload.strip().startswith('framing:') and (
+                'AX100' in payload or 'FX.25' in payload):
+            return "--syncword_threshold 6"
+    return ""
+
+
 def snipfcn_layout_stretch_snippet(self):
     self.top_grid_layout.setRowStretch(0, 0)
     self.top_grid_layout.setRowStretch(1, 0)
@@ -410,6 +458,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.rx_actual_freq = rx_actual_freq = 0
         self.zmq_port_tx = zmq_port_tx = "52002"
         self.zmq_port_rx = zmq_port_rx = "52001"
+        self.decoder_yml = decoder_yml = _decoder_yml()
+        self.decoder_options = decoder_options = _decoder_options(decoder_yml)
         self.tx_lo_offset = tx_lo_offset = float(__import__('os').environ.get('GSS_TX_LO_OFFSET_HZ', -400e3))
         self.tx_freq = tx_freq = float(__import__('os').environ.get('GSS_TX_FREQ_HZ', 437.575e6))
         self.tx_amp = tx_amp = 0.7
@@ -422,7 +472,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.rx_actual_freq_label = rx_actual_freq_label = rx_actual_freq
         self.rx_gain = rx_gain = 40
         self.rf_gain = rf_gain = 50
-        self.modindex = modindex = 1/1.5
+        self.modindex = modindex = 0.5
         self.baud = baud = 9600
 
         ##################################################
@@ -560,11 +610,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         _tx_actual_freq_thread = threading.Thread(target=_tx_actual_freq_probe)
         _tx_actual_freq_thread.daemon = True
         _tx_actual_freq_thread.start()
-        # --syncword_threshold 6 (default 4): at threshold BER a real frame
-        # can lose 5-6 of the 32 ASM bits; Golay length check + RS(255,223)
-        # + CSP CRC-32C gate the extra false correlations. AX100 branches
-        # only — the AX.25/HDLC branches have no syncword correlator.
-        self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = 'MAVERIC_DECODER.yml', samp_rate = (int(samp_rate/rx_decim)), grc_block = True, iq = True, options = "--syncword_threshold 6")
+        self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = decoder_yml, samp_rate = (int(samp_rate/rx_decim)), grc_block = True, iq = True, options = decoder_options)
         self.satellites_hexdump_sink_0_0 = satellites.components.datasinks.hexdump_sink(options="")
         self.satellites_hexdump_sink_0 = satellites.components.datasinks.hexdump_sink(options="")
         self._rx_actual_freq_label_tool_bar = Qt.QToolBar(self)
@@ -797,6 +843,18 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_zmq_port_tx(self, zmq_port_tx):
         self.zmq_port_tx = zmq_port_tx
+
+    def get_decoder_yml(self):
+        return self.decoder_yml
+
+    def set_decoder_yml(self, decoder_yml):
+        self.decoder_yml = decoder_yml
+
+    def get_decoder_options(self):
+        return self.decoder_options
+
+    def set_decoder_options(self, decoder_options):
+        self.decoder_options = decoder_options
 
     def get_zmq_port_rx(self):
         return self.zmq_port_rx

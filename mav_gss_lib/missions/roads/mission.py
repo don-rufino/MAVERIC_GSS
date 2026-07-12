@@ -1,9 +1,10 @@
 """ROADS pair mission assembly (University of North Dakota, 2025-135).
 
-RX-only AX100 Mode 5 family mission: 4k8/9k6 FSK, CSP downlink. Beacons
-decode per UND's published "IARU Telemetry Decoding Format" (telemetry.py)
-into 47 parameters across obc/gnss/eps/uhf/vhf domains; other frames log
-raw with CSP header facts. One mission covers both spacecraft; the seeded
+RX-only AX100 Mode 5 family mission: 4k8/9k6 FSK, CSP downlink. Type-0x66
+full-table housekeeping beacons (the on-air format, reverse-engineered
+from the first received frame; telemetry.py) decode into 47 parameters
+across obc/gnss/eps/uhf/vhf domains; other frames log raw with CSP header
+facts. One mission covers both spacecraft; the seeded
 default is ROADS 1. Both share one downlink frequency, so working ROADS 2
 is a tracking-only change (TLE identifier + re-engage Doppler — the radio
 needs no retune):

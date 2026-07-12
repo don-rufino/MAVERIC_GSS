@@ -1,0 +1,32 @@
+# =============================================================================
+#  SharjahSat-1 Satellite Definition for gr-satellites
+# =============================================================================
+#
+#  Selected by MAV_DUO automatically when GSS_MISSION=sharjahsat
+#  (per-mission <MISSION>_DECODER.yml convention; GSS_DECODER_YML
+#  overrides explicitly).
+#
+#  SharjahSat-1 (NORAD 55104) carries an ISISpace TXS transceiver, not an
+#  AX100: one downlink mode, 9k6 GFSK AX.25 G3RUH at 437.325 MHz.
+#  Deviation 3000 Hz per the official gr-satellites Sharjahsat-1.yml
+#  (h = 0.625); the 2026-07-10 first-light frame decoded via a dev-3200
+#  branch, so the 200 Hz difference is immaterial to decode — this file
+#  simply pins the official value and drops the nine MAVERIC branches
+#  that never apply to this bird. ESER housekeeping (tm_id 'P') and image
+#  packets (tm_id 'A') both ride this one branch.
+
+name: Sharjahsat-1
+norad: 55104
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  9k6 FSK AX.25 G3RUH downlink:
+    frequency: 437.325e+6
+    modulation: FSK
+    baudrate: 9600
+    deviation: 3000
+    framing: AX.25 G3RUH
+    data:
+      - *tlm

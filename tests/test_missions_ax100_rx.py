@@ -432,36 +432,44 @@ def test_catsat_yml_containers_match_field_table():
 
 
 def _roads_beacon(values: dict | None = None, *, protocol_version=1,
-                  satid=4242, ts=1_783_800_000, blocks=None) -> bytes:
+                  beacon_type=None, satid=4242, ts=1_783_800_000,
+                  crc=True) -> bytes:
     from mav_gss_lib.missions.roads import telemetry as rt
+    from mav_gss_lib.platform.framing.crc import crc32c
 
     values = values or {}
-    body = struct.pack(">BBBH", protocol_version, 0, 1, satid)
-    fields = rt._FIELDS if blocks is None else tuple(
-        f for f in rt._FIELDS if f[0] in blocks)
-    for _domain, key, fmt, _render in fields:
+    if beacon_type is None:
+        beacon_type = rt.FULL_HK_BEACON_TYPE
+    body = struct.pack(">BBBH", protocol_version, beacon_type, 1, satid)
+    for _domain, fields in rt._GROUPS:
         body += struct.pack(">HIH", 0, ts, 1)
-        body += struct.pack(">" + fmt, values.get(key, 7))
+        for key, fmt, _render in fields:
+            body += struct.pack(">" + fmt, values.get(key, 7))
+    if crc:
+        body += crc32c(body).to_bytes(4, "big")
     return body
 
 
-def test_roads_beacon_size_matches_und_format():
+# The first frame ever received from the pair — ROADS 2 (satid 2),
+# 2026-07-11 21:36:02Z, 4k8 FSK AX100 ASM+Golay, station d23ll-barnhart.
+# CSP header carries flags=1; the trailing CRC-32C verifies.
+ROADS2_FIRST_FRAME = bytes.fromhex(
+    "83e78001016601000276ee6a52b7420001000058005b000000040000000400f7"
+    "df906a52b74200010f000f00407b6a52b7420001000000000000000000000000"
+    "c76e6a52b74200013de22ee33d173e190009000400470000004d0046001b0088"
+    "005900be010d0301f2076a52b7420003005a005500003f65000019b000a10000"
+    "0100f2076a52b742001500550053000000060000000003c0000001005e347927"
+)
+
+
+def test_roads_beacon_size_matches_on_air_format():
     from mav_gss_lib.missions.roads import telemetry as rt
 
-    assert rt.BEACON_SIZE == 444
+    assert rt.BEACON_SIZE == 152
     assert rt.TOKEN_COUNT == 47
-    assert len(_roads_beacon()) == rt.BEACON_SIZE
-
-
-def test_roads_on_air_runs_fit_one_mode5_frame():
-    """Every supported slice except the full table fits RS(255,223)."""
-    from mav_gss_lib.missions.roads import telemetry as rt
-
-    for run in rt.SUPPORTED_RUNS:
-        if run != ("obc", "gnss", "eps", "uhf", "vhf"):
-            assert rt.run_size(run) <= rt.MODE5_INNER_CAP, run
-    # the documented full table is deliberately NOT transmittable in one frame
-    assert rt.BEACON_SIZE > rt.MODE5_INNER_CAP
+    # the full table + CSP CRC-32C rides one RS(255,223) Mode 5 frame
+    assert rt.BEACON_SIZE + 4 <= rt.MODE5_INNER_CAP
+    assert len(_roads_beacon()) == rt.BEACON_SIZE + 4
 
 
 def test_roads_beacon_end_to_end_parameters(tmp_path):
@@ -469,7 +477,7 @@ def test_roads_beacon_end_to_end_parameters(tmp_path):
         {"logs": {"dir": str(tmp_path)}}, "roads", {},
     )
     assert runtime.walker is not None
-    frame = _csp_header(src=1, dest=10) + _roads_beacon({
+    frame = _csp_header(src=1, dest=10, flags=1) + _roads_beacon({
         "vbatt": 8123,
         "temp_mcu": -12,
         "bootcount": 57,
@@ -491,71 +499,80 @@ def test_roads_beacon_end_to_end_parameters(tmp_path):
     facts = result.packet.mission["facts"]
     assert facts["header"]["type"] == "BCN"
     assert facts["beacon"]["satid"] == 4242
+    assert facts["beacon"]["beacon_type"] == 0x66
     assert facts["beacon"]["vbat_mv"] == 8123
     assert result.packet.flags.is_unknown is False
 
 
-def test_roads_eps_slice_end_to_end(tmp_path):
-    """A 173-byte eps-only beacon — the realistic on-air shape."""
-    from mav_gss_lib.missions.roads import telemetry as rt
-
+def test_roads_first_frame_golden(tmp_path):
+    """The first frame ever decoded from the pair, end-to-end."""
     runtime = PlatformRuntime.from_split(
         {"logs": {"dir": str(tmp_path)}}, "roads", {},
     )
-    beacon = _roads_beacon({"vbatt": 8123, "cursys": 415, "battmode": 3},
-                           blocks=("eps",))
-    assert len(beacon) == rt.run_size(("eps",)) == 173
-    result = runtime.process_rx(M5_META, _csp_header() + beacon)
-    values = {u.name: u for u in result.packet.parameters}
-    assert result.container_id == "beacon_eps"
-    assert len(values) == 18
-    assert values["eps.vbatt"].value == 8123
-    assert values["eps.cursys"].value == 415
+    result = runtime.process_rx(M5_META, ROADS2_FIRST_FRAME)
+    values = {u.name: u.value for u in result.packet.parameters}
+    assert result.container_id == "beacon_hk"
+    assert len(values) == 47
+    assert values["obc.obc_ts"] == "2026-07-11T21:36:02+00:00"
+    assert values["obc.temp_mcu"] == 88
+    assert values["obc.temp_ram"] == 91
+    assert values["obc.bootcount"] == 247
+    assert values["obc.depl_isis_a"] == 15
+    assert values["obc.depl_a_isis_a"] == 0
+    assert values["gnss.error_word"] == 0
+    assert values["eps.vbatt"] == 15897
+    assert values["eps.battmode"] == 3
+    assert values["eps.cursys"] == 269
+    assert values["uhf.uhf_tx_count"] == 16229
+    assert values["uhf.uhf_rx_count"] == 6576
+    assert values["uhf.uhf_boot_count"] == 161
+    assert values["uhf.uhf_boot_cause"] == "0x00000100"
+    assert values["vhf.vhf_tx_count"] == 6
+    assert values["vhf.vhf_rx_count"] == 0
     facts = result.packet.mission["facts"]
-    assert facts["beacon"]["kind"] == "hk_eps"
-    assert facts["beacon"]["blocks"] == "eps"
-    assert facts["beacon"]["vbat_mv"] == 8123
+    assert facts["header"]["type"] == "BCN"
+    assert facts["beacon"]["satid"] == 2
+    assert facts["beacon"]["vbat_mv"] == 15897
+    assert result.packet.flags.is_unknown is False
 
 
-def test_roads_obc_gnss_slice_end_to_end(tmp_path):
-    runtime = PlatformRuntime.from_split(
-        {"logs": {"dir": str(tmp_path)}}, "roads", {},
-    )
-    beacon = _roads_beacon({"bootcount": 57}, blocks=("obc", "gnss"))
-    result = runtime.process_rx(M5_META, _csp_header() + beacon)
-    values = {u.name: u for u in result.packet.parameters}
-    assert result.container_id == "beacon_obc_gnss"
-    assert len(values) == 15
-    assert values["obc.bootcount"].value == 57
-    assert "vbat_mv" not in result.packet.mission["facts"]["beacon"]
-
-
-def test_roads_uhf_slice_assumes_uhf_with_warning():
+def test_roads_crc_mismatch_is_opaque():
     from mav_gss_lib.missions.roads.telemetry import decode_beacon
 
-    hk = decode_beacon({}, _roads_beacon(blocks=("uhf",)))
+    frame = bytearray(_roads_beacon())
+    frame[20] ^= 0xFF
+    assert decode_beacon({"flags": 1}, bytes(frame)) is None
+
+
+def test_roads_no_crc_flag_decodes_bare_body():
+    from mav_gss_lib.missions.roads.telemetry import decode_beacon
+
+    hk = decode_beacon({"flags": 0}, _roads_beacon(crc=False))
     assert hk is not None
-    assert hk.container_kind == "hk_uhf"
-    assert any("ambiguous" in w for w in hk.warnings)
+    assert hk.container_kind == "hk"
 
 
 def test_roads_wrong_protocol_version_is_opaque():
     from mav_gss_lib.missions.roads.telemetry import decode_beacon
 
-    assert decode_beacon({}, _roads_beacon(protocol_version=2)) is None
+    assert decode_beacon({"flags": 1}, _roads_beacon(protocol_version=2)) is None
+
+
+def test_roads_unknown_beacon_type_is_opaque():
+    from mav_gss_lib.missions.roads.telemetry import decode_beacon
+
+    assert decode_beacon({"flags": 1}, _roads_beacon(beacon_type=0x10)) is None
 
 
 def test_roads_unsupported_length_is_opaque():
     from mav_gss_lib.missions.roads.telemetry import decode_beacon
 
-    assert decode_beacon({}, _roads_beacon()[:-5]) is None
-    assert decode_beacon({}, _roads_beacon() + b"\xaa\xbb") is None
-    # a 308-byte obc+gnss+eps slice cannot fit one Mode 5 frame
-    assert decode_beacon({}, _roads_beacon(blocks=("obc", "gnss", "eps"))) is None
+    assert decode_beacon({"flags": 1}, _roads_beacon()[:-5]) is None
+    assert decode_beacon({"flags": 1}, _roads_beacon() + b"\xaa\xbb") is None
 
 
-def test_roads_yml_containers_match_runs():
-    """Every run container's entry count equals the decoder token count."""
+def test_roads_yml_containers_match_field_table():
+    """beacon_hk is the only container; its entries mirror the group table."""
     import yaml as _yaml
 
     from mav_gss_lib.missions.roads import telemetry as rt
@@ -563,12 +580,10 @@ def test_roads_yml_containers_match_runs():
     yml = Path(__file__).resolve().parent.parent / "mav_gss_lib" / "missions" / "roads" / "mission.yml"
     doc = _yaml.safe_load(yml.read_text(encoding="utf-8"))
     containers = doc["sequence_containers"]
-    assert len(containers) == len(rt.SUPPORTED_RUNS)
-    by_kind = {c["restriction_criteria"]["packet"]["kind"]: c
-               for c in containers.values()}
-    for run in rt.SUPPORTED_RUNS:
-        container = by_kind[rt.run_kind(run)]
-        assert len(container["entry_list"]) == rt.run_token_count(run), run
+    assert list(containers) == ["beacon_hk"]
+    hk = containers["beacon_hk"]
+    assert hk["restriction_criteria"]["packet"]["kind"] == "hk"
+    assert tuple(e["name"] for e in hk["entry_list"]) == rt.token_names()
 
 
 # ---------------------------------------------------------------- aistechsat2

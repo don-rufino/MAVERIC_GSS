@@ -118,6 +118,17 @@ class RadioServiceConfigTests(unittest.TestCase):
         self.assertEqual(env["GSS_RX_LO_OFFSET_HZ"], "111000.0")
         self.assertEqual(env["GSS_TX_LO_OFFSET_HZ"], "-222000.0")
 
+    def test_frequency_env_carries_explicit_decoder_yml(self):
+        rt = _fake_runtime({"enabled": True, "decoder_yml": "ROADS_DECODER.yml"})
+        svc = RadioService(rt)
+        self.assertEqual(svc._frequency_env()["GSS_DECODER_YML"], "ROADS_DECODER.yml")
+
+    def test_frequency_env_omits_decoder_yml_by_default(self):
+        # Without an explicit override the flowgraph's own
+        # <GSS_MISSION>_DECODER.yml convention picks the database.
+        svc = RadioService(_fake_runtime())
+        self.assertNotIn("GSS_DECODER_YML", svc._frequency_env())
+
     def test_frequency_env_gates_iq_recording(self):
         rt = _fake_runtime({"enabled": True, "iq_record": True})
         svc = RadioService(rt)

@@ -2,21 +2,24 @@
 #
 # University of North Dakota pair (2025-135), two spacecraft sharing one
 # AX100 Mode 5 (ASM+Golay) 4k8/9k6 FSK CSP downlink on 435.400 MHz.
-# Beacon format follows UND's published "IARU Telemetry Decoding Format"
-# (aero.und.edu, fetched 2026-07-11): a 5-byte header (protocol_version,
-# type, version, satid) then 42 GomSpace-style elements, each an 8-byte
-# checksum/timestamp/source wrapper plus a big-endian value. The full
-# 444-byte table exceeds the AX100 Mode 5 RS(255,223) inner cap, so on
-# air it arrives as smaller typed beacons; the containers below cover
-# every contiguous run of whole subsystem blocks that fits one frame
-# (plus the full table for offline reassembled use), generated from the
-# telemetry.py field table. Each block's first element timestamp leads
-# its block, and the x32 radio reboot causes are lossless hex.
+# Beacon format is the on-air type-0x66 full-table housekeeping frame
+# reverse-engineered from the first received frame (ROADS 2, 2026-07-11,
+# CSP CRC-32C verified — the golden fixture in
+# tests/test_missions_ax100_rx.py): a 5-byte header (protocol_version,
+# type, version, satid) then six wrapped sample groups (checksum /
+# timestamp / source + big-endian values: obc main, obc deploy, gnss,
+# eps, uhf, vhf), trailed by a CSP CRC-32C. The whole 42-field table
+# rides one 156-byte frame — UND's published document accounts a wrapper
+# per element (444 bytes), but the wire amortizes it per group. The
+# beacon_hk entry list mirrors telemetry.py's group table (guarded by
+# test_roads_yml_containers_match_field_table): one timestamp token per
+# domain, then that domain's values; radio reboot causes are lossless
+# hex. Frames of any other beacon type log raw with CSP header facts.
 schema_version: 1
 id: roads
 name: "ROADS"
 header:
-  version: "1.1.0"
+  version: "1.2.0"
   date: "2026-07-11"
   description: "ROADS pair RX-only declarative mission database"
 
@@ -167,161 +170,6 @@ sequence_containers:
       - { name: vhf_rx_count }
       - { name: vhf_boot_count }
       - { name: vhf_boot_cause }
-  beacon_obc:
-    domain: obc
-    layout: ascii_tokens
-    restriction_criteria:
-      packet:
-        kind: hk_obc
-    entry_list:
-      - { name: obc_ts }
-      - { name: ram_image }
-      - { name: temp_mcu }
-      - { name: temp_ram }
-      - { name: resetcause }
-      - { name: obc_bootcause }
-      - { name: bootcount }
-      - { name: depl_isis_a }
-      - { name: depl_a_isis_a }
-      - { name: depl_isis_b }
-      - { name: depl_a_isis_b }
-  beacon_obc_gnss:
-    domain: obc
-    layout: ascii_tokens
-    restriction_criteria:
-      packet:
-        kind: hk_obc_gnss
-    entry_list:
-      - { name: obc_ts }
-      - { name: ram_image }
-      - { name: temp_mcu }
-      - { name: temp_ram }
-      - { name: resetcause }
-      - { name: obc_bootcause }
-      - { name: bootcount }
-      - { name: depl_isis_a }
-      - { name: depl_a_isis_a }
-      - { name: depl_isis_b }
-      - { name: depl_a_isis_b }
-      - { name: gnss_ts }
-      - { name: error_word }
-      - { name: nr_stats }
-      - { name: rxstat }
-  beacon_gnss:
-    domain: gnss
-    layout: ascii_tokens
-    restriction_criteria:
-      packet:
-        kind: hk_gnss
-    entry_list:
-      - { name: gnss_ts }
-      - { name: error_word }
-      - { name: nr_stats }
-      - { name: rxstat }
-  beacon_gnss_eps:
-    domain: gnss
-    layout: ascii_tokens
-    restriction_criteria:
-      packet:
-        kind: hk_gnss_eps
-    entry_list:
-      - { name: gnss_ts }
-      - { name: error_word }
-      - { name: nr_stats }
-      - { name: rxstat }
-      - { name: eps_ts }
-      - { name: vboost1 }
-      - { name: vboost2 }
-      - { name: vboost3 }
-      - { name: vbatt }
-      - { name: curout1 }
-      - { name: curout2 }
-      - { name: curout3 }
-      - { name: curout4 }
-      - { name: curout5 }
-      - { name: curout6 }
-      - { name: curin1 }
-      - { name: curin2 }
-      - { name: curin3 }
-      - { name: cursun }
-      - { name: cursys }
-      - { name: battmode }
-      - { name: eps_bootcause }
-  beacon_eps:
-    domain: eps
-    layout: ascii_tokens
-    restriction_criteria:
-      packet:
-        kind: hk_eps
-    entry_list:
-      - { name: eps_ts }
-      - { name: vboost1 }
-      - { name: vboost2 }
-      - { name: vboost3 }
-      - { name: vbatt }
-      - { name: curout1 }
-      - { name: curout2 }
-      - { name: curout3 }
-      - { name: curout4 }
-      - { name: curout5 }
-      - { name: curout6 }
-      - { name: curin1 }
-      - { name: curin2 }
-      - { name: curin3 }
-      - { name: cursun }
-      - { name: cursys }
-      - { name: battmode }
-      - { name: eps_bootcause }
-  beacon_uhf:
-    domain: uhf
-    layout: ascii_tokens
-    restriction_criteria:
-      packet:
-        kind: hk_uhf
-    entry_list:
-      - { name: uhf_ts }
-      - { name: uhf_temp_brd }
-      - { name: uhf_temp_pa }
-      - { name: uhf_tx_count }
-      - { name: uhf_rx_count }
-      - { name: uhf_boot_count }
-      - { name: uhf_boot_cause }
-  beacon_uhf_vhf:
-    domain: uhf
-    layout: ascii_tokens
-    restriction_criteria:
-      packet:
-        kind: hk_uhf_vhf
-    entry_list:
-      - { name: uhf_ts }
-      - { name: uhf_temp_brd }
-      - { name: uhf_temp_pa }
-      - { name: uhf_tx_count }
-      - { name: uhf_rx_count }
-      - { name: uhf_boot_count }
-      - { name: uhf_boot_cause }
-      - { name: vhf_ts }
-      - { name: vhf_temp_brd }
-      - { name: vhf_temp_pa }
-      - { name: vhf_tx_count }
-      - { name: vhf_rx_count }
-      - { name: vhf_boot_count }
-      - { name: vhf_boot_cause }
-  beacon_vhf:
-    domain: vhf
-    layout: ascii_tokens
-    restriction_criteria:
-      packet:
-        kind: hk_vhf
-    entry_list:
-      - { name: vhf_ts }
-      - { name: vhf_temp_brd }
-      - { name: vhf_temp_pa }
-      - { name: vhf_tx_count }
-      - { name: vhf_rx_count }
-      - { name: vhf_boot_count }
-      - { name: vhf_boot_cause }
-
 ui:
   rx_columns:
     - { id: type,  label: type, width: 52, path: header.type, badge: true,

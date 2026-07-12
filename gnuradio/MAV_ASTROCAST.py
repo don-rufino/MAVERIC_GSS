@@ -363,12 +363,15 @@ class _IqRecorder(gr.sync_block):
 
 
 def _attach_matched_filter_bank(tb, source):
-    """Dual-tone noncoherent matched-filter decode bank on `source`.
+    """Dual-tone noncoherent correlator decode bank on `source`.
 
     One chain per MATCHED_FILTER_BRANCH_CENTERS_HZ entry: a pair of
     one-symbol integrate-and-dump correlators parked on the two beacon
     tones, magnitude-difference soft symbols, Gardner recovery, and the
-    FX.25 deframers directly — no discriminator. NRZ-I decoding is
+    FX.25 deframers directly — no discriminator. The rectangular tone
+    templates are matched to a constant-frequency symbol, not to the
+    exact BT=0.5 Gaussian pulse, so this is near-matched for h=2 rather
+    than an exact CPM matched filter. NRZ-I decoding is
     polarity-invariant; the legacy-NRZ deframer gets both polarities.
     Returns the deframers whose 'out' ports carry decoded PDUs (the
     caller fans them into the PDU deduplicator, which collapses the

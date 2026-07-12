@@ -33,6 +33,34 @@ options:
     state: enabled
 
 blocks:
+- name: decoder_options
+  id: variable
+  parameters:
+    comment: "gr-satellites options matched to the database: --syncword_threshold\nonly parses when an AX100/FX.25 deframer is in the file (a pure AX.25\ndatabase would abort argparse). Mirrors _decoder_options() in MAV_DUO.py."
+    value: ('--syncword_threshold 6' * any(l.split('#')[0].strip().startswith('framing:')
+      and ('AX100' in l.split('#')[0] or 'FX.25' in l.split('#')[0]) for l in (open(decoder_yml).read()
+      if __import__('os').path.isfile(decoder_yml) else '').splitlines()))
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 412.0]
+    rotation: 0
+    state: enabled
+- name: decoder_yml
+  id: variable
+  parameters:
+    comment: "Per-mission decoder database: GSS_DECODER_YML override, else\n<GSS_MISSION>_DECODER.yml when it exists (e.g. ROADS_DECODER.yml),\nelse the MAVERIC database. Mirrors _decoder_yml() in MAV_DUO.py."
+    value: (__import__('os').environ.get('GSS_DECODER_YML') or (__import__('os').environ.get('GSS_MISSION',
+      'maveric').upper() + '_DECODER.yml' if __import__('os').path.isfile(__import__('os').environ.get('GSS_MISSION',
+      'maveric').upper() + '_DECODER.yml') else 'MAVERIC_DECODER.yml'))
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 348.0]
+    rotation: 0
+    state: enabled
 - name: rx_decim
   id: variable
   parameters:
@@ -108,8 +136,8 @@ blocks:
 - name: modindex
   id: variable
   parameters:
-    comment: AX100 Default
-    value: 1/1.5
+    comment: "Uplink h matched to the flight AX100's RX: its param list shows\nmodindex 0.0 = firmware default h=0.5 (measured on ROADS 2's AX100).\nNo bench unit remains, so the param list is authoritative."
+    value: '0.5'
   states:
     bus_sink: false
     bus_source: false
@@ -993,13 +1021,13 @@ blocks:
     alias: ''
     comment: ''
     definition: file
-    file: MAVERIC_DECODER.yml
+    file: decoder_yml
     iq: 'True'
     maxoutbuf: '0'
     minoutbuf: '0'
     name: ''
     norad: '0'
-    options: '"--syncword_threshold 6"'
+    options: decoder_options
     samp_rate: int(samp_rate/rx_decim)
   states:
     bus_sink: false

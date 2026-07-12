@@ -17,6 +17,15 @@
 #  AX100 baud rates: 0.1–38.4 kbps (GFSK modulation)
 #  gr-satellites runs all entries in parallel; only the matching
 #  framing/baud produces valid decoded frames.
+#
+#  Deviation provenance (2026-07-11): MAVERIC's flight AX100 param dump
+#  shows modindex 0.0 = radio default, and a data-aided fit of the first
+#  decoded ROADS 2 frame measured that default as h = 0.5 (4k8 -> dev
+#  1200, corrected below from the old 1/3-baud guess of 1600). MAVERIC's
+#  9k6 therefore predicts dev 2400; a dev-2400 branch runs alongside the
+#  legacy dev-3200 one until MAVERIC's first frame lets us measure it.
+#  (The dump's 437.250 MHz was a pre-flight setting — since changed to
+#  437.575; mode 5, csp_rs/crc/rand all true, preamble 50 x 0xAA.)
 
 name: MAVERIC
 norad: 0              # No NORAD catalog number assigned (pre-launch)
@@ -47,7 +56,7 @@ transmitters:
     frequency: 437.575e+6      # Hz
     modulation: FSK
     baudrate: 4800
-    deviation: 1600
+    deviation: 1200            # measured h=0.5 AX100 default (ROADS 2 fit)
     framing: AX100 ASM+Golay
     data:
       - *tlm
@@ -57,6 +66,14 @@ transmitters:
     baudrate: 9600
     deviation: 3200
     framing: AX100 ASM+Golay
+    data:
+      - *tlm
+  9k6 FSK AX100 ASM+Golay downlink (h=0.5):
+    frequency: 437.575e+6      # Hz
+    modulation: FSK
+    baudrate: 9600
+    deviation: 2400            # predicted from modindex-0 default; ~0.5 dB
+    framing: AX100 ASM+Golay   # tighter Carson if MAVERIC flies h=0.5
     data:
       - *tlm
   19k2 FSK AX100 ASM+Golay downlink:

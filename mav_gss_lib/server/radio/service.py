@@ -157,6 +157,7 @@ class RadioService:
             log_dir_raw = str(general.get("log_dir", "logs"))
             radio_cfg = platform_cfg.get("radio") if isinstance(platform_cfg.get("radio"), dict) else {}
             iq_record = bool(radio_cfg.get("iq_record", False))
+            decoder_yml = radio_cfg.get("decoder_yml")
         env: dict[str, str] = {}
         if rx_hz is not None:
             env["GSS_RX_FREQ_HZ"] = str(rx_hz)
@@ -170,6 +171,11 @@ class RadioService:
         # Absolute on purpose: the radio child runs with cwd=gnuradio/, so a
         # relative log_dir would land waterfall PNGs inside the flowgraph dir.
         env["GSS_WATERFALL_DIR"] = str(resolve_project_path(log_dir_raw) / "waterfalls")
+        # Mission-specific gr-satellites SatYAML (seeded by the mission's
+        # build(ctx), like radio.script); MAV_DUO falls back to
+        # MAVERIC_DECODER.yml when unset.
+        if isinstance(decoder_yml, str) and decoder_yml.strip():
+            env["GSS_DECODER_YML"] = decoder_yml.strip()
         if iq_record:
             env["GSS_IQ_RECORD"] = "1"
         # Destination rides along unconditionally so the config toggle is the
