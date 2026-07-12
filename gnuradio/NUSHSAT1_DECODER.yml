@@ -1,0 +1,36 @@
+# NUSHSat-1 locating profile. Current gr-satellites pins the operational 1k2
+# beacon to 575 Hz deviation; SatNOGS also marks 2k4 active but does not publish
+# its deviation, so the 2k4 branch keeps the two AX100 modindex hypotheses.
+# https://github.com/daniestevez/gr-satellites/blob/main/python/satyaml/NUSHSAT-1.yml
+
+name: NUSHSAT-1
+norad: 63211
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  1k2 FSK AX100 ASM+Golay beacon:
+    frequency: 436.200e+6
+    modulation: FSK
+    baudrate: 1200
+    deviation: 575
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm
+  2k4 FSK AX100 ASM+Golay downlink (auto h=2/3):
+    frequency: 436.200e+6
+    modulation: FSK
+    baudrate: 2400
+    deviation: 800
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm
+  2k4 FSK AX100 ASM+Golay downlink (h=0.5):
+    frequency: 436.200e+6
+    modulation: FSK
+    baudrate: 2400
+    deviation: 600
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm

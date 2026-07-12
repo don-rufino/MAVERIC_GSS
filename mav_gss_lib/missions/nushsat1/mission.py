@@ -1,7 +1,8 @@
 """NUSHSat-1 mission assembly (NUS High School Singapore, NORAD 63211).
 
-RX-only AX100 Mode 5 family mission on 436.200 MHz at 2k4 and 4k8 FSK
-(the bird also beacons at 1k2, below the decoder's branch set).
+RX-only AX100 Mode 5 family mission on 436.200 MHz. The production profile
+targets the operational 1k2 beacon at its published 575 Hz deviation and the
+also-active 2k4 mode with both plausible AX100 modulation-index hypotheses.
 gr-satellites classifies its telemetry as bare CSP — no public payload
 format — so frames log raw with CSP header facts.
 """

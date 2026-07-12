@@ -2,8 +2,9 @@
 #
 # NUS High School of Math and Science (Singapore) 3U educational CubeSat
 # (NORAD 63211, 436.200 MHz, launched 2025). AX100 Mode 5 (ASM+Golay) CSP
-# downlink at 1k2 / 2k4 / 4k8 FSK; the MAVERIC decoder carries the 2k4 and
-# 4k8 branches. gr-satellites classifies the telemetry as bare CSP — no
+# operational 1k2 Mode-5 beacon at 575 Hz deviation. The also-active 2k4 mode
+# is covered by two modulation-index hypotheses; dormant 4k8 is excluded. gr-satellites
+# classifies the telemetry as bare CSP — no
 # public payload format — so frames are logged raw with CSP header facts.
 schema_version: 1
 id: nushsat1
