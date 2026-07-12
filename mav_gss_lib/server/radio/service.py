@@ -41,6 +41,55 @@ DEFAULT_STOP_TIMEOUT_S = 30.0
 _FREQ_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(ghz|mhz|khz|hz)?\s*$", re.IGNORECASE)
 
 
+def _stamp_log_line(line: str) -> str:
+    ts = datetime.now().strftime("%H:%M:%S")
+    return f"{ts} {line}" if line else ts
+
+
+class _RunLog:
+    """One radio run's persistent stdout log file.
+
+    Owned by that run's reader/waiter threads, so a superseded process can
+    only ever close ITS OWN file — never the replacement run's (the restart
+    race this class exists to prevent). Failure-safe: any I/O error disables
+    the instance and the radio keeps running.
+    """
+
+    def __init__(self, path: Path | None, handle) -> None:
+        self.path = path
+        self._handle = handle
+        self._lock = threading.Lock()
+
+    def write(self, stamped: str) -> None:
+        with self._lock:
+            if self._handle is None:
+                return
+            try:
+                self._handle.write(stamped + "\n")
+                self._handle.flush()
+            except Exception as exc:
+                logging.warning("radio run log write failed (%s); disabling", exc)
+                self._close_quietly()
+
+    def close(self, note: str) -> None:
+        with self._lock:
+            if self._handle is None:
+                return
+            try:
+                self._handle.write(f"# {note}\n")
+            except Exception:
+                pass
+            self._close_quietly()
+
+    def _close_quietly(self) -> None:
+        try:
+            if self._handle is not None:
+                self._handle.close()
+        except Exception:
+            pass
+        self._handle = None
+
+
 def _parse_frequency_hz(value: Any, fallback: float | None = None) -> float | None:
     if isinstance(value, (int, float)):
         return float(value) if value > 0 else fallback
@@ -86,9 +135,7 @@ class RadioService:
         self._command_snapshot: list[str] = []
         self._exit_callbacks: list[Callable[[], None]] = []
         self._stream_health: dict[str, Any] | None = None
-        self._run_log = None
         self._run_log_path: Path | None = None
-        self._run_log_lock = threading.Lock()
 
     def add_exit_callback(self, cb: Callable[[], None]) -> None:
         with self._state_lock:
@@ -263,12 +310,12 @@ class RadioService:
             return list(self._log)
 
     def _append_log(self, line: str) -> None:
-        ts = datetime.now().strftime("%H:%M:%S")
-        stamped = f"{ts} {line}" if line else ts
+        self._publish_log_line(_stamp_log_line(line))
+
+    def _publish_log_line(self, stamped: str) -> None:
         with self._state_lock:
             self._resize_log_if_needed()
             self._log.append(stamped)
-        self._write_run_log(stamped)
         self._schedule_broadcast({"type": "log", "line": stamped})
 
     # -- persistent per-run stdout log ------------------------------------
@@ -276,10 +323,13 @@ class RadioService:
     # <log_dir>/radio/radio_<mission>_<start>.log (same artifact convention
     # as waterfalls/ and iq/), so flowgraph stdout — decoder database
     # selection, STREAM_HEALTH, UHD chatter, recorder prints — survives
-    # restarts and is greppable per pass. File logging must never take the
-    # radio down: every failure path disables it and carries on.
+    # restarts and is greppable per pass. Each run's reader/waiter threads
+    # own their _RunLog instance, so a superseded process can only ever
+    # close ITS OWN file — never the replacement run's. File logging must
+    # never take the radio down: every failure path disables it and
+    # carries on.
 
-    def _open_run_log(self, cmd: list[str]) -> None:
+    def _open_run_log(self, cmd: list[str]) -> "_RunLog":
         with self.runtime.cfg_lock:
             platform_cfg = self.runtime.platform_cfg
             general = platform_cfg.get("general") if isinstance(platform_cfg.get("general"), dict) else {}
@@ -289,50 +339,26 @@ class RadioService:
             radio_dir = resolve_project_path(log_dir_raw) / "radio"
             radio_dir.mkdir(parents=True, exist_ok=True)
             start = time.gmtime()
-            name = f"radio_{mission}_{time.strftime('%Y%m%dT%H%M%SZ', start)}.log"
-            path = radio_dir / name
+            stem = f"radio_{mission}_{time.strftime('%Y%m%dT%H%M%SZ', start)}"
+            path = radio_dir / f"{stem}.log"
+            # A restart within the same second must not append into the old
+            # run's file — each run gets its own.
+            counter = 1
+            while path.exists():
+                counter += 1
+                path = radio_dir / f"{stem}_{counter}.log"
             handle = open(path, "a", encoding="utf-8")
             handle.write("# MAVERIC GSS radio stdout log\n")
             handle.write(f"# started: {time.strftime('%Y-%m-%dT%H:%M:%SZ', start)}"
                          f"  mission: {mission}\n")
             handle.write(f"# command: {' '.join(cmd)}\n")
             handle.flush()
-            with self._run_log_lock:
-                self._run_log = handle
-                self._run_log_path = path
+            self._run_log_path = path
+            return _RunLog(path, handle)
         except Exception as exc:
             logging.warning("radio run log unavailable (%s); continuing without", exc)
-            with self._run_log_lock:
-                self._run_log = None
-                self._run_log_path = None
-
-    def _write_run_log(self, stamped: str) -> None:
-        with self._run_log_lock:
-            handle = self._run_log
-            if handle is None:
-                return
-            try:
-                handle.write(stamped + "\n")
-                handle.flush()
-            except Exception as exc:
-                logging.warning("radio run log write failed (%s); disabling", exc)
-                try:
-                    handle.close()
-                except Exception:
-                    pass
-                self._run_log = None
-
-    def _close_run_log(self, note: str) -> None:
-        with self._run_log_lock:
-            handle = self._run_log
-            self._run_log = None
-            if handle is None:
-                return
-            try:
-                handle.write(f"# {note}\n")
-                handle.close()
-            except Exception:
-                pass
+            self._run_log_path = None
+            return _RunLog(None, None)
 
     async def broadcast(self, msg: dict[str, Any] | str) -> None:
         text = json.dumps(msg) if isinstance(msg, dict) else msg
@@ -449,17 +475,17 @@ class RadioService:
             self._resize_log_if_needed()
             self._log.clear()
 
-        self._open_run_log(list(cmd))
+        run_log = self._open_run_log(list(cmd))
 
         self._reader_thread = threading.Thread(
             target=self._reader,
-            args=(proc,),
+            args=(proc, run_log),
             daemon=True,
             name="radio-log",
         )
         self._wait_thread = threading.Thread(
             target=self._waiter,
-            args=(proc,),
+            args=(proc, run_log, self._reader_thread),
             daemon=True,
             name="radio-wait",
         )
@@ -470,15 +496,21 @@ class RadioService:
         self._schedule_broadcast({"type": "status", "status": status})
         return status
 
-    def _reader(self, proc: subprocess.Popen[str]) -> None:
+    def _reader(self, proc: subprocess.Popen[str],
+                run_log: "_RunLog | None" = None) -> None:
         stream = proc.stdout
         if stream is None:
             return
         try:
             for line in stream:
-                line = line.rstrip("\n")
-                self._ingest_stream_health(line)
-                self._append_log(line)
+                stamped = _stamp_log_line(line.rstrip("\n"))
+                if run_log is not None:
+                    run_log.write(stamped)
+                # A superseded run keeps draining into its own file but must
+                # stay out of the live surfaces (UI stream, health status).
+                if self.proc is proc:
+                    self._ingest_stream_health(stamped)
+                    self._publish_log_line(stamped)
         except Exception as exc:
             logging.warning("radio stdout reader failed: %s", exc)
         finally:
@@ -500,10 +532,21 @@ class RadioService:
         if isinstance(payload, dict):
             payload["ts_ms"] = int(time.time() * 1000)
             self._stream_health = payload
+            # Live delivery: the frontend polls only while the websocket is
+            # down, so each health report must push a status update itself
+            # (the transition-only broadcasts would leave it stale).
+            self._schedule_broadcast({"type": "status", "status": self.status()})
 
-    def _waiter(self, proc: subprocess.Popen[str]) -> None:
+    def _waiter(self, proc: subprocess.Popen[str],
+                run_log: "_RunLog | None" = None,
+                reader_thread: threading.Thread | None = None) -> None:
         code = proc.wait()
-        self._close_run_log(f"process exited code={code}")
+        # Let this run's reader drain the pipe tail before the exit trailer
+        # closes the file, so the last stdout lines are never lost.
+        if reader_thread is not None:
+            reader_thread.join(timeout=5.0)
+        if run_log is not None:
+            run_log.close(f"process exited code={code}")
         should_log = False
         was_stopping = False
         with self._state_lock:
@@ -519,10 +562,15 @@ class RadioService:
                 if code not in (0, None) and not was_stopping and not self.last_error:
                     self.last_error = f"radio process exited with code {code}"
                 should_log = True
+        if not should_log:
+            # Superseded by a newer run (restart): end this one silently.
+            # Broadcasting or firing exit callbacks here would report a
+            # phantom exit and — worse — disengage Doppler tracking under
+            # the replacement radio (state.py wires tracking.disengage).
+            return
         status = self.status()
-        if should_log:
-            action = "stop" if was_stopping else ("exit" if code in (0, None) else "crash")
-            self._write_radio_event(action, status=status, expected=was_stopping)
+        action = "stop" if was_stopping else ("exit" if code in (0, None) else "crash")
+        self._write_radio_event(action, status=status, expected=was_stopping)
         self._schedule_broadcast({"type": "exit", "code": code, "status": status})
         with self._state_lock:
             callbacks = list(self._exit_callbacks)

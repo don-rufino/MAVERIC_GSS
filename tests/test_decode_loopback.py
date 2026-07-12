@@ -274,6 +274,12 @@ class FlowgraphParamGuards(unittest.TestCase):
                       blocks["epy_block_stream_health"]["parameters"]["_source_code"])
         self.assertIn("maveric:rx_gain_db",
                       blocks["epy_block_iq"]["parameters"]["_source_code"])
+        # First-sample capture timestamps (construction time kept as
+        # maveric:constructed_utc) must stay in every recorder copy.
+        self.assertIn("maveric:constructed_utc", py)
+        for name in ("epy_block_iq", "epy_block_iq_raw"):
+            self.assertIn("maveric:constructed_utc",
+                          blocks[name]["parameters"]["_source_code"])
         self.assertIn("GSS_RX_GAIN", blocks["rx_gain"]["parameters"]["value"])
         conns = {tuple(c) for c in grc["connections"]}
         self.assertIn(("uhd_usrp_source_0", "0", "epy_block_iq_raw", "0"), conns)

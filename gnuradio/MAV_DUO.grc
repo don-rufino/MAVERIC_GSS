@@ -391,6 +391,8 @@ blocks:
               self._data_path = ""
               self._meta_path = ""
               self._written = 0
+              self._meta = None
+              self._first_sample_pending = False
               gate = os.environ.get("GSS_IQ_RECORD", "").strip().lower()
               if gate in ("", "0", "false", "no", "off"):
                   return
@@ -433,6 +435,8 @@ blocks:
                   with open(self._meta_path, "w") as meta_file:
                       json.dump(meta, meta_file, indent=2)
                   self._file = open(self._data_path, "ab")
+                  self._meta = meta
+                  self._first_sample_pending = True
                   print(f"iq_recorder: recording {self._data_path} "
                         f"(cap {self.MAX_BYTES / 1e9:.0f} GB)", flush=True)
               except Exception:
@@ -452,6 +456,17 @@ blocks:
               n_in = len(input_items[0])
               if self._file is None:
                   return n_in
+              if self._first_sample_pending and n_in:
+                  self._first_sample_pending = False
+                  try:
+                      self._meta["global"]["maveric:constructed_utc"] = (
+                          self._meta["captures"][0]["core:datetime"])
+                      self._meta["captures"][0]["core:datetime"] = time.strftime(
+                          "%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                      with open(self._meta_path, "w") as meta_file:
+                          json.dump(self._meta, meta_file, indent=2)
+                  except Exception:
+                      pass  # provisional construction-time meta stays valid
               try:
                   self._file.write(input_items[0].tobytes())
                   self._written += n_in * 8
@@ -530,6 +545,8 @@ blocks:
               self._data_path = ""
               self._meta_path = ""
               self._written = 0
+              self._meta = None
+              self._first_sample_pending = False
               gate = os.environ.get("GSS_IQ_RAW_RECORD", "").strip().lower()
               if gate in ("", "0", "false", "no", "off"):
                   return
@@ -571,6 +588,8 @@ blocks:
                   with open(self._meta_path, "w") as meta_file:
                       json.dump(meta, meta_file, indent=2)
                   self._file = open(self._data_path, "ab")
+                  self._meta = meta
+                  self._first_sample_pending = True
                   print(f"iq_raw_recorder: recording {self._data_path} "
                         f"(cap {self.MAX_BYTES / 1e9:.1f} GB)", flush=True)
               except Exception:
@@ -590,6 +609,17 @@ blocks:
               n_in = len(input_items[0])
               if self._file is None:
                   return n_in
+              if self._first_sample_pending and n_in:
+                  self._first_sample_pending = False
+                  try:
+                      self._meta["global"]["maveric:constructed_utc"] = (
+                          self._meta["captures"][0]["core:datetime"])
+                      self._meta["captures"][0]["core:datetime"] = time.strftime(
+                          "%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                      with open(self._meta_path, "w") as meta_file:
+                          json.dump(self._meta, meta_file, indent=2)
+                  except Exception:
+                      pass  # provisional construction-time meta stays valid
               try:
                   self._file.write(input_items[0].tobytes())
                   self._written += n_in * 8

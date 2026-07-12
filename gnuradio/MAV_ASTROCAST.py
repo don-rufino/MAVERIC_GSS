@@ -300,6 +300,8 @@ class _IqRecorder(gr.sync_block):
         self._meta_path = ""
         self._written = 0
         self._max_bytes = int(max_bytes or self.MAX_BYTES)
+        self._meta = None
+        self._first_sample_pending = False
         gate = os.environ.get(gate_env, "").strip().lower()
         if gate in ("", "0", "false", "no", "off"):
             return
@@ -341,6 +343,8 @@ class _IqRecorder(gr.sync_block):
             with open(self._meta_path, "w") as meta_file:
                 json.dump(meta, meta_file, indent=2)
             self._file = open(self._data_path, "ab")
+            self._meta = meta
+            self._first_sample_pending = True
             print(f"iq_recorder: recording {self._data_path} "
                   f"(cap {self._max_bytes / 1e9:.1f} GB)", flush=True)
         except Exception:
@@ -360,6 +364,20 @@ class _IqRecorder(gr.sync_block):
         n_in = len(input_items[0])
         if self._file is None:
             return n_in
+        if self._first_sample_pending and n_in:
+            # The provisional meta carries construction time; the first
+            # buffer's arrival is the honest capture start (construction
+            # precedes streaming by seconds of USRP init).
+            self._first_sample_pending = False
+            try:
+                self._meta["global"]["maveric:constructed_utc"] = (
+                    self._meta["captures"][0]["core:datetime"])
+                self._meta["captures"][0]["core:datetime"] = time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                with open(self._meta_path, "w") as meta_file:
+                    json.dump(self._meta, meta_file, indent=2)
+            except Exception:
+                pass  # the provisional construction-time meta stays valid
         try:
             self._file.write(input_items[0].tobytes())
             self._written += n_in * 8

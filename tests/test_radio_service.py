@@ -172,10 +172,10 @@ class RadioServiceConfigTests(unittest.TestCase):
             rt.platform_cfg["general"] = {"log_dir": tmp}
             svc = RadioService(rt)
             self.assertIsNone(svc.status()["log_file"])
-            svc._open_run_log(["python3", "gnuradio/MAV_DUO.py"])
-            svc._append_log("MAV_DUO decoder database: MAVERIC_DECODER.yml (default)")
-            svc._append_log('STREAM_HEALTH {"rms_dbfs": -44.0}')
-            svc._close_run_log("process exited code=0")
+            run_log = svc._open_run_log(["python3", "gnuradio/MAV_DUO.py"])
+            run_log.write("10:00:00 MAV_DUO decoder database: MAVERIC_DECODER.yml (default)")
+            run_log.write('10:00:10 STREAM_HEALTH {"rms_dbfs": -44.0}')
+            run_log.close("process exited code=0")
             log_file = svc.status()["log_file"]
             self.assertIsNotNone(log_file)
             self.assertEqual(os.path.basename(os.path.dirname(log_file)), "radio")
@@ -186,8 +186,8 @@ class RadioServiceConfigTests(unittest.TestCase):
             self.assertIn("STREAM_HEALTH", text)
             self.assertIn("# process exited code=0", text)
             # closing twice / writing after close must be harmless
-            svc._close_run_log("again")
-            svc._append_log("post-close line never raises")
+            run_log.close("again")
+            run_log.write("post-close line never raises")
 
     def test_run_log_failure_disables_quietly(self):
         import tempfile as _tempfile
@@ -196,9 +196,47 @@ class RadioServiceConfigTests(unittest.TestCase):
             # log_dir points at a FILE -> mkdir of <file>/radio must fail
             rt.platform_cfg["general"] = {"log_dir": blocker.name}
             svc = RadioService(rt)
-            svc._open_run_log(["python3", "x.py"])  # must not raise
-            svc._append_log("still fine without a run log")
+            run_log = svc._open_run_log(["python3", "x.py"])  # must not raise
+            run_log.write("still fine without a run log")
+            run_log.close("noop")
+            self.assertIsNone(run_log.path)
             self.assertIsNone(svc.status()["log_file"])
+
+    def test_superseded_run_cannot_touch_new_log_or_fire_callbacks(self):
+        # The restart race: the OLD process's waiter must never close the
+        # NEW run's log, and must not fire exit callbacks (state.py wires
+        # tracking.disengage there — a phantom exit would kill Doppler
+        # under the replacement radio).
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            rt = _fake_runtime()
+            rt.platform_cfg["general"] = {"log_dir": tmp}
+            svc = RadioService(rt)
+            fired: list[str] = []
+            svc.add_exit_callback(lambda: fired.append("disengage"))
+
+            old_log = svc._open_run_log(["old-run"])
+            new_log = svc._open_run_log(["new-run"])
+            self.assertNotEqual(str(old_log.path), str(new_log.path))
+            self.assertEqual(svc.status()["log_file"], str(new_log.path))
+
+            old_proc = SimpleNamespace(poll=lambda: 0, wait=lambda: 0)
+            new_proc = SimpleNamespace(poll=lambda: None, wait=lambda: 0)
+            svc.proc = new_proc  # the replacement run is current
+
+            svc._waiter(old_proc, old_log)  # superseded exit
+            self.assertEqual(fired, [])  # no phantom disengage
+            new_log.write("10:00:01 still writable after old run closed")
+            new_text = Path(new_log.path).read_text(encoding="utf-8")
+            self.assertIn("still writable", new_text)
+            self.assertNotIn("process exited", new_text)
+            old_text = Path(old_log.path).read_text(encoding="utf-8")
+            self.assertIn("# process exited code=0", old_text)
+
+            # the CURRENT run exiting still fires callbacks exactly once
+            svc.started_at = 0.0
+            svc._waiter(new_proc, new_log)
+            self.assertEqual(fired, ["disengage"])
 
     def test_stream_health_lines_surface_in_status(self):
         svc = RadioService(_fake_runtime())
