@@ -1,16 +1,28 @@
 """PUT /api/config applies native split updates through the spec boundaries."""
+import asyncio
 import copy
 import os
 import sys
 import tempfile
 import threading
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from mav_gss_lib.platform import MissionConfigSpec  # noqa: E402
 from mav_gss_lib.platform.config import (  # noqa: E402
     apply_platform_config_update as _apply_platform_update,
+)
+from mav_gss_lib.platform.tx.verifiers import (  # noqa: E402
+    CheckWindow,
+    CommandInstance,
+    VerifierOutcome,
+    VerifierRegistry,
+    VerifierSet,
+    VerifierSpec,
+    write_instances,
 )
 
 
@@ -30,12 +42,17 @@ class TestApplyPlatformUpdate(unittest.TestCase):
     def test_merges_tx_rx_sections(self):
         platform_cfg = {"tx": {"zmq_addr": "tcp://old", "delay_ms": 500}, "rx": {"zmq_addr": "tcp://old-rx"}}
         _apply_platform_update(platform_cfg, {
-            "tx": {"zmq_addr": "tcp://new", "frequency": "437.6 MHz"},
+            "tx": {
+                "zmq_addr": "tcp://new",
+                "frequency": "437.6 MHz",
+                "verifiers_enabled": False,
+            },
             "rx": {"frequency": "437.7 MHz", "tx_blackout_ms": 750},
         })
         self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://new")
         self.assertEqual(platform_cfg["tx"]["delay_ms"], 500)
         self.assertEqual(platform_cfg["tx"]["frequency"], "437.6 MHz")
+        self.assertIs(platform_cfg["tx"]["verifiers_enabled"], False)
         self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://old-rx")
         self.assertEqual(platform_cfg["rx"]["frequency"], "437.7 MHz")
         self.assertEqual(platform_cfg["rx"]["tx_blackout_ms"], 750)
@@ -70,6 +87,11 @@ class _FakeService:
         self.status = ("ok",)
         self.log = None
         self.send_lock = threading.Lock()
+        self.messages = []
+    async def broadcast(self, message):
+        self.messages.append(message)
+    async def broadcast_verification_reset(self):
+        await self.broadcast({"type": "verification_restore", "instances": []})
     def restart_pub(self, *_a, **_k): pass
     def restart_receiver(self): pass
 
@@ -90,7 +112,12 @@ class _FakeRuntime:
         self.session_token = "test-token"
         self.tx = _FakeService()
         self.rx = _FakeService()
+        self.platform = SimpleNamespace(verifiers=VerifierRegistry())
         self.mission = _FakeMission(spec)
+
+    @property
+    def log_dir(self):
+        return self.platform_cfg.get("general", {}).get("log_dir", "logs")
 
 
 class TestConfigEndpointRoundTrip(unittest.TestCase):
@@ -160,7 +187,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
 
             update = {
                 "platform": {
-                    "tx": {"delay_ms": 600},
+                    "tx": {"delay_ms": 600, "verifiers_enabled": False},
                     # These must be dropped by apply_platform_config_update:
                     "stations": {"h1": "LEAK"},
                     "general": {
@@ -199,6 +226,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
             self.assertEqual(persisted["platform"]["rx"]["frequency"], "437.7 MHz")
             self.assertEqual(persisted["platform"]["tx"]["frequency"], "437.6 MHz")
             self.assertEqual(persisted["platform"]["tx"]["delay_ms"], 600)
+            self.assertIs(persisted["platform"]["tx"]["verifiers_enabled"], False)
             self.assertEqual(persisted["mission"]["config"]["csp"]["priority"], 3)
             self.assertEqual(persisted["mission"]["config"]["csp"]["destination"], 8)
             self.assertEqual(persisted["mission"]["config"]["csp"]["source"], 7)
@@ -225,6 +253,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
             self.assertEqual(runtime.mission_cfg["csp"]["source"], 7)
             self.assertEqual(runtime.mission_cfg["mission_name"], "MAVERIC")
             self.assertNotIn("99", runtime.mission_cfg["nodes"])
+            self.assertIs(runtime.platform_cfg["tx"]["verifiers_enabled"], False)
             # Platform version still sourced from platform defaults (not clobbered).
             self.assertEqual(runtime.platform_cfg["general"]["version"], "5.0.0")
 
@@ -240,6 +269,134 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
         client = TestClient(app)
         resp = client.put("/api/config", json={"platform": {"tx": {"delay_ms": 600}}})
         self.assertEqual(resp.status_code, 403)
+
+    def test_put_disabling_verifiers_clears_runtime_disk_and_clients(self):
+        from unittest.mock import patch
+        from fastapi.testclient import TestClient
+        import mav_gss_lib.config as _cfg_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = _FakeRuntime(
+                platform_cfg={
+                    "general": {"log_dir": tmp},
+                    "tx": {
+                        "zmq_addr": "tcp://127.0.0.1:52002",
+                        "verifiers_enabled": True,
+                    },
+                    "rx": {"zmq_addr": "tcp://127.0.0.1:52001"},
+                },
+                mission_id="maveric",
+                mission_cfg={},
+                spec=self._mavericish_spec(),
+            )
+            verifier_set = VerifierSet(verifiers=(
+                VerifierSpec(
+                    "uppm_ack", "received", CheckWindow(0, 30_000),
+                    "UPPM", "info",
+                ),
+            ))
+            instance = CommandInstance(
+                instance_id="open-instance",
+                correlation_key=("com_ping", "LPPM"),
+                t0_ms=1_000_000,
+                cmd_event_id="cmd-event",
+                verifier_set=verifier_set,
+                outcomes={"uppm_ack": VerifierOutcome.pending()},
+                stage="released",
+            )
+            runtime.platform.verifiers.register(instance)
+            pending_path = os.path.join(tmp, ".pending_instances.jsonl")
+            write_instances(pending_path, [instance])
+
+            app = self._build_app(runtime)
+            client = TestClient(app)
+            with patch.object(
+                _cfg_mod, "_DEFAULT_GSS_PATH", os.path.join(tmp, "gss.yml"),
+            ):
+                resp = client.put(
+                    "/api/config",
+                    json={"platform": {"tx": {"verifiers_enabled": False}}},
+                    headers={"x-gss-token": "test-token"},
+                )
+
+            self.assertEqual(resp.status_code, 200, resp.text)
+            self.assertEqual(runtime.platform.verifiers.open_instances(), [])
+            self.assertEqual(Path(pending_path).read_text(), "")
+            self.assertEqual(runtime.tx.messages, [{
+                "type": "verification_restore",
+                "instances": [],
+            }])
+
+    def test_put_disabling_during_active_send_releases_real_waiter(self):
+        from unittest.mock import patch
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+        from mav_gss_lib.server.api.config import router
+        from mav_gss_lib.server.state import create_runtime
+
+        async def _run(tmp: str):
+            runtime = create_runtime()
+            runtime.config_save_disabled = True
+            runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
+            runtime.platform_cfg.setdefault("tx", {})["verifiers_enabled"] = True
+            runtime.tx.sending["active"] = True
+
+            verifier_set = VerifierSet(verifiers=(
+                VerifierSpec(
+                    "uppm_ack", "received", CheckWindow(0, 30_000),
+                    "UPPM", "info",
+                ),
+            ))
+            runtime.platform.verifiers.register(CommandInstance(
+                instance_id="active-wait",
+                correlation_key=("com_ping", "LPPM"),
+                t0_ms=1_000_000,
+                cmd_event_id="active-event",
+                verifier_set=verifier_set,
+                outcomes={"uppm_ack": VerifierOutcome.pending()},
+                stage="released",
+            ))
+
+            app = FastAPI()
+            app.state.runtime = runtime
+            app.include_router(router)
+            entered_wait = asyncio.Event()
+            original_abort_wait = runtime.tx.abort.wait
+
+            async def _signal_wait():
+                entered_wait.set()
+                await original_abort_wait()
+
+            with patch.object(runtime.tx.abort, "wait", side_effect=_signal_wait):
+                wait_task = asyncio.create_task(
+                    runtime.tx._send_coord._wait_for_pending_verifications_clear(
+                        poll_ms=10,
+                        max_wait_ms=5_000,
+                    )
+                )
+                await asyncio.wait_for(entered_wait.wait(), timeout=0.5)
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://test",
+                ) as client:
+                    response = await client.put(
+                        "/api/config",
+                        json={"platform": {"tx": {"verifiers_enabled": False}}},
+                        headers={"x-gss-token": runtime.session_token},
+                    )
+                wait_result = await asyncio.wait_for(wait_task, timeout=0.5)
+
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertFalse(wait_result)
+            self.assertTrue(runtime.tx.sending["active"])
+            self.assertFalse(runtime.tx_verifiers_enabled)
+            self.assertEqual(runtime.platform.verifiers.open_instances(), [])
+            self.assertEqual(
+                (Path(tmp) / ".pending_instances.jsonl").read_text(), "",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            asyncio.run(_run(tmp))
 
 
 if __name__ == "__main__":

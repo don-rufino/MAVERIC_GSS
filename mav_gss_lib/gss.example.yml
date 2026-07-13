@@ -14,6 +14,10 @@ platform:
   tx:
     zmq_addr: tcp://127.0.0.1:52002
     delay_ms: 500
+    # Experimental satellite-hunting only; keep true for normal operations.
+    # Set false to cancel response-window verification and permit repeated
+    # commands. TX delay and the active-send queue lock still apply.
+    verifiers_enabled: true
     # Uplink/base TX frequency. Doppler live tuning uses
     # platform.tracking.frequencies.tx_hz.
     frequency: 437.575 MHz

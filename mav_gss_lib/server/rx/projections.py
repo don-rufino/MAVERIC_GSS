@@ -110,6 +110,8 @@ def _expected_period_ms(runtime: Any, container_id: str) -> int:
 
 def _apply_verifier_matches(deps: RxProjectionDeps, pkt: Any, now_ms: int, event_id: str) -> list[Any]:
     runtime = deps.runtime
+    if not runtime.tx_verifiers_enabled:
+        return []
     try:
         transitions = runtime.mission.packets.match_verifiers(
             pkt,

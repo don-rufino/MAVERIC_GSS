@@ -19,9 +19,25 @@ class TestConfigRoundTrip(unittest.TestCase):
             missing = os.path.join(td, "does-not-exist.yml")
             platform_cfg, mission_id, mission_cfg = cfg_mod.load_split_config(missing)
             self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://127.0.0.1:52002")
+            self.assertIs(platform_cfg["tx"]["verifiers_enabled"], True)
             self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://127.0.0.1:52001")
             self.assertEqual(mission_id, "maveric")
             self.assertEqual(mission_cfg, {})
+
+    def test_verifiers_enabled_false_round_trips(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "gss.yml")
+            initial = {
+                "platform": {"tx": {"verifiers_enabled": False}},
+                "mission": {"id": "maveric", "config": {}},
+            }
+            cfg_mod.save_operator_config(initial, path)
+
+            platform_cfg, mission_id, mission_cfg = cfg_mod.load_split_config(path)
+            self.assertIs(platform_cfg["tx"]["verifiers_enabled"], False)
+
+            native = cfg_mod.split_to_persistable(platform_cfg, mission_id, mission_cfg)
+            self.assertIs(native["platform"]["tx"]["verifiers_enabled"], False)
 
     def test_user_value_overrides_default(self):
         with tempfile.TemporaryDirectory() as td:

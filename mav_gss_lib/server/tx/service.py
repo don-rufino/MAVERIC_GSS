@@ -113,6 +113,8 @@ class TxService:
             return AdmitResult.REJECTED_SEND_ACTIVE, {}
         if item.get("type") != "mission_cmd":
             return AdmitResult.ACCEPTED, {}
+        if not self.runtime.tx_verifiers_enabled:
+            return AdmitResult.ACCEPTED, {}
         key = tuple(item.get("correlation_key") or ())
         open_inst = self.runtime.platform.verifiers.lookup_open(key)
         if open_inst is not None:
@@ -155,17 +157,25 @@ class TxService:
              "verifier_set": {"verifiers": [{...}]}
            }}
         """
+        if not self.runtime.tx_verifiers_enabled:
+            return
         from mav_gss_lib.platform.tx.verifiers import serialize_instance
         obj = json.loads(serialize_instance(instance))
         await self.broadcast({"type": "verification_update", "instance": obj})
 
+    async def broadcast_verification_reset(self) -> None:
+        """Clear verifier state in every connected TX client."""
+        await self.broadcast({"type": "verification_restore", "instances": []})
+
     async def send_verification_restore(self, websocket) -> None:
         """One-shot snapshot to a freshly connected /ws/tx client."""
         from mav_gss_lib.platform.tx.verifiers import serialize_instance
-        instances = [
-            json.loads(serialize_instance(i))
-            for i in self.runtime.platform.verifiers.open_instances()
-        ]
+        instances = []
+        if self.runtime.tx_verifiers_enabled:
+            instances = [
+                json.loads(serialize_instance(i))
+                for i in self.runtime.platform.verifiers.open_instances()
+            ]
         await websocket.send_text(json.dumps({
             "type": "verification_restore",
             "instances": instances,

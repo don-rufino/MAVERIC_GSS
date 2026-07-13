@@ -80,6 +80,7 @@ _DEFAULTS = {
     "tx": {
         "zmq_addr":  DEFAULT_TX_ZMQ_ADDR,
         "delay_ms":  500,
+        "verifiers_enabled": True,
     },
     "rx": {
         "zmq_addr": DEFAULT_RX_ZMQ_ADDR,

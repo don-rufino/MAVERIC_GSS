@@ -184,11 +184,42 @@ class VerifierRegistry:
         self._lock = threading.Lock()
         self._by_id: dict[str, CommandInstance] = {}
         self._dirty: set[str] = set()
+        # Monotonic cancellation epoch.  A TX command snapshots this before
+        # publishing and may register its verifier instance only while the
+        # epoch is unchanged.  Clearing the registry therefore prevents a
+        # command that straddles an operator disable/re-enable transition
+        # from resurrecting verifier state after the cancellation boundary.
+        self._generation = 0
 
     def register(self, instance: CommandInstance) -> None:
         with self._lock:
             self._by_id[instance.instance_id] = instance
             self._dirty.add(instance.instance_id)
+
+    def generation(self) -> int:
+        """Return the current cancellation epoch."""
+        with self._lock:
+            return self._generation
+
+    def register_if_generation(
+        self, instance: CommandInstance, *, generation: int,
+    ) -> bool:
+        """Register *instance* only if no cancellation occurred since snapshot."""
+        with self._lock:
+            if generation != self._generation:
+                return False
+            self._by_id[instance.instance_id] = instance
+            self._dirty.add(instance.instance_id)
+            return True
+
+    def clear_open(self) -> list[CommandInstance]:
+        """Cancel and remove every open instance, advancing the policy epoch."""
+        with self._lock:
+            removed = list(self._by_id.values())
+            self._by_id.clear()
+            self._dirty.clear()
+            self._generation += 1
+            return removed
 
     def apply(self, instance_id: str, verifier_id: str, outcome: VerifierOutcome) -> None:
         with self._lock:

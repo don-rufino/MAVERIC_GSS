@@ -15,11 +15,15 @@ from mav_gss_lib.platform.tx.verifiers import (
 )
 
 
-def _runtime_with(registry, active=False):
+def _runtime_with(registry, active=False, verifiers_enabled=True):
     r = MagicMock()
-    r.platform_cfg = {"tx": {"delay_ms": 100}, "general": {"log_dir": "/tmp"}}
+    r.platform_cfg = {
+        "tx": {"delay_ms": 100, "verifiers_enabled": verifiers_enabled},
+        "general": {"log_dir": "/tmp"},
+    }
     r.mission_cfg = {}
     r.tx_delay_ms = 100
+    r.tx_verifiers_enabled = verifiers_enabled
     r.tx_blackout_ms = 0
     r.platform.verifiers = registry
     tx = TxService(r)
@@ -81,12 +85,28 @@ class AdmitResults(unittest.TestCase):
         result, info = tx.admit(_item())
         self.assertEqual(result, AdmitResult.REJECTED_SEND_ACTIVE)
 
+    def test_disabled_verifiers_do_not_bypass_active_send_lock(self):
+        reg = VerifierRegistry()
+        tx = _runtime_with(reg, active=True, verifiers_enabled=False)
+        result, info = tx.admit(_item())
+        self.assertEqual(result, AdmitResult.REJECTED_SEND_ACTIVE)
+
     def test_open_window_blocks_same_cmd_id_and_dest(self):
         reg = VerifierRegistry()
         reg.register(_open_instance_for())
         tx = _runtime_with(reg, active=False)
         result, info = tx.admit(_item())
         self.assertEqual(result, AdmitResult.REJECTED_WINDOW_OPEN)
+
+    def test_disabled_verifiers_allow_repeated_same_key_with_window_open(self):
+        reg = VerifierRegistry()
+        reg.register(_open_instance_for("com_ping", dest="LPPM"))
+        tx = _runtime_with(reg, active=False, verifiers_enabled=False)
+
+        for _ in range(3):
+            result, info = tx.admit(_item(cmd_id="com_ping", dest="LPPM"))
+            self.assertEqual(result, AdmitResult.ACCEPTED)
+            self.assertEqual(info, {})
 
     def test_same_cmd_id_different_dest_allowed(self):
         reg = VerifierRegistry()

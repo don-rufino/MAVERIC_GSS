@@ -11,7 +11,9 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
+import logging
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Request
@@ -29,6 +31,7 @@ from mav_gss_lib.platform.config import (
     apply_platform_config_update,
     persist_mission_config,
 )
+from mav_gss_lib.platform.tx.verifiers import write_instances
 from ..state import get_runtime
 from ..security import require_api_token
 
@@ -162,8 +165,24 @@ async def api_config_put(update: dict[str, Any], request: Request) -> dict[str, 
     if sending_active and (requested_rx_addr != old_rx_addr or requested_tx_addr != old_tx_addr):
         return JSONResponse(status_code=409, content={"error": "cannot change ZMQ addresses during active send"})
 
+    verification_reset = False
     with runtime.cfg_lock:
+        old_verifiers_enabled = bool(
+            (runtime.platform_cfg.get("tx") or {}).get("verifiers_enabled", True)
+        )
         apply_platform_config_update(runtime.platform_cfg, platform_update, DEFAULT_PLATFORM_CONFIG_SPEC)
+        new_verifiers_enabled = bool(
+            (runtime.platform_cfg.get("tx") or {}).get("verifiers_enabled", True)
+        )
+        if old_verifiers_enabled and not new_verifiers_enabled:
+            verification_reset = True
+            runtime.platform.verifiers.clear_open()
+            try:
+                write_instances(
+                    Path(runtime.log_dir) / ".pending_instances.jsonl", []
+                )
+            except Exception as exc:
+                logging.warning("pending_instances clear failed: %s", exc)
         if mission_update:
             # apply_mission_config_update returns a full-state merge starting
             # from deepcopy(current), so .update() overwrites every top-level
@@ -200,6 +219,8 @@ async def api_config_put(update: dict[str, Any], request: Request) -> dict[str, 
         new_rx_addr = get_rx_zmq_addr(runtime.platform_cfg)
         new_tx_addr = get_tx_zmq_addr(runtime.platform_cfg)
 
+    if verification_reset:
+        await runtime.tx.broadcast_verification_reset()
     if new_tx_addr != old_tx_addr:
         runtime.tx.restart_pub(new_tx_addr)
         if runtime.tx.log:

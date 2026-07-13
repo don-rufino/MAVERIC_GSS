@@ -1,11 +1,11 @@
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ConfigModal } from './ConfigModal'
 
 const CONFIG = {
   platform: {
     rx: { zmq_addr: 'tcp://127.0.0.1:52001', tx_blackout_ms: 0 },
-    tx: { zmq_addr: 'tcp://127.0.0.1:52002', delay_ms: 200, frequency: '437.575 MHz' },
+    tx: { zmq_addr: 'tcp://127.0.0.1:52002', delay_ms: 200, frequency: '437.575 MHz', verifiers_enabled: true },
     tracking: {
       tle: { source: 'CelesTrak', name: 'X', line1: '1 99999U', line2: '2 99999' },
       tle_fetch: { identifier: '99999', auto_refresh: false, refresh_interval_hours: 12 },
@@ -78,10 +78,33 @@ describe('ConfigModal', () => {
     expect(screen.getByText('TX ZMQ address')).toBeTruthy()
     expect(screen.getByText('TX delay')).toBeTruthy()
     expect(screen.getByText('TX → RX blackout')).toBeTruthy()
+    expect(screen.getByText('Command verifiers')).toBeTruthy()
+    expect(screen.getByText(/Experimental satellite-hunting only.*Keep enabled for normal operations/)).toBeTruthy()
+    const verifierSwitch = screen.getByRole('switch', { name: 'Command verifiers' })
+    expect(verifierSwitch.getAttribute('aria-checked')).toBe('true')
+    const descriptionId = verifierSwitch.getAttribute('aria-describedby')
+    expect(descriptionId).toBeTruthy()
+    expect(document.getElementById(descriptionId!)?.textContent).toMatch(/Experimental satellite-hunting only.*cancels active verification/)
     expect(screen.getByText('RX gain')).toBeTruthy()
     expect(screen.getByText('IQ recording')).toBeTruthy()
     expect(screen.getByText('Raw 1 Msps capture')).toBeTruthy()
-    expect(screen.getAllByRole('switch').length).toBe(2)
+    expect(screen.getAllByRole('switch').length).toBe(3)
+  })
+
+  it('saves only the command-verifier toggle diff', async () => {
+    await openModal()
+    fireEvent.click(within(rail()).getByText('Radio / RF'))
+    fireEvent.click(screen.getByRole('switch', { name: 'Command verifiers' }))
+    fireEvent.click(screen.getByText('Save & Close'))
+
+    await waitFor(() => {
+      const putCall = vi.mocked(global.fetch).mock.calls.find(([url, init]) =>
+        String(url) === '/api/config' && init?.method === 'PUT')
+      expect(putCall).toBeTruthy()
+      expect(JSON.parse(String(putCall?.[1]?.body))).toEqual({
+        platform: { tx: { verifiers_enabled: false } },
+      })
+    })
   })
 
   it('Tracking pane keeps TLE + auto-fetch settings and renders a switch', async () => {

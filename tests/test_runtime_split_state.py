@@ -120,6 +120,10 @@ class TestWebRuntimePrimarySplitState(unittest.TestCase):
         self.assertEqual(rt.tx_frequency, rt.platform_cfg["tx"].get("frequency", ""))
         self.assertEqual(rt.tx_delay_ms, int(rt.platform_cfg["tx"].get("delay_ms", 500)))
         self.assertEqual(
+            rt.tx_verifiers_enabled,
+            bool(rt.platform_cfg["tx"].get("verifiers_enabled", True)),
+        )
+        self.assertEqual(
             rt.tx_blackout_ms, int(rt.platform_cfg["rx"].get("tx_blackout_ms", 0) or 0),
         )
         from mav_gss_lib.constants import DEFAULT_MISSION_NAME

@@ -83,7 +83,8 @@ class _SendCoordinator:
             return True
         registry = svc.runtime.platform.verifiers
         deadline = time.time() + max_wait_ms / 1000.0
-        while any(not is_settled(inst) for inst in registry.open_instances()):
+        while (svc.runtime.tx_verifiers_enabled
+               and any(not is_settled(inst) for inst in registry.open_instances())):
             if time.time() >= deadline:
                 logging.warning(
                     "verifier wait timed out after %dms — proceeding with next send",
@@ -238,6 +239,18 @@ class _SendCoordinator:
             svc._pop_and_renumber()
             return _RunResult(aborted=True, sent_delta=0)
 
+        # One policy snapshot governs this command's verifier wait and
+        # registration.  The registry generation makes the snapshot
+        # cancellation-safe if the operator disables (and even re-enables)
+        # verification before registration completes.
+        registry = svc.runtime.platform.verifiers
+        with svc.runtime.cfg_lock:
+            verifier_generation = (
+                registry.generation()
+                if svc.runtime.tx_verifiers_enabled
+                else None
+            )
+
         # Sequential-verification gate: only one command's CheckWindow is open
         # at a time. Block here if any prior instance is still non-terminal,
         # so the next send only fires after the previous command is confirmed
@@ -249,7 +262,8 @@ class _SendCoordinator:
         # block forever. The lifespan startup attaches `verifier_sweep_task`;
         # unit-test runtimes (which skip lifespan) don't, and so bypass the
         # wait entirely.
-        if getattr(svc.runtime, "verifier_sweep_task", None) is not None:
+        if (verifier_generation is not None
+                and getattr(svc.runtime, "verifier_sweep_task", None) is not None):
             if any(not is_settled(inst)
                    for inst in svc.runtime.platform.verifiers.open_instances()):
                 svc.sending["waiting"] = True
@@ -302,24 +316,23 @@ class _SendCoordinator:
 
         from mav_gss_lib.platform.spec import derive_verifier_set
         from mav_gss_lib.platform.tx.verifiers import VerifierSet
-        try:
-            spec_root = getattr(svc.runtime.mission, "spec_root", None)
-            if spec_root is None:
-                vset = VerifierSet(verifiers=())
-            else:
-                vset = derive_verifier_set(
-                    spec_root,
-                    cmd_id=encoded_for_verifier.cmd_id,
-                    mission_facts=encoded_for_verifier.mission_facts,
-                )
-        except Exception as exc:
-            logging.warning("verifier_set derivation failed: %s", exc)
-            vset = VerifierSet(verifiers=())
+        vset = VerifierSet(verifiers=())
+        if verifier_generation is not None:
+            try:
+                spec_root = getattr(svc.runtime.mission, "spec_root", None)
+                if spec_root is not None:
+                    vset = derive_verifier_set(
+                        spec_root,
+                        cmd_id=encoded_for_verifier.cmd_id,
+                        mission_facts=encoded_for_verifier.mission_facts,
+                    )
+            except Exception as exc:
+                logging.warning("verifier_set derivation failed: %s", exc)
 
         instance: CommandInstance | None = None
-        if vset.verifiers:  # skip register when mission declares "verification disabled"
+        if verifier_generation is not None and vset.verifiers:
             key = svc.runtime.mission.commands.correlation_key(encoded_for_verifier)
-            instance = CommandInstance(
+            candidate = CommandInstance(
                 instance_id=_uuid.uuid4().hex,
                 correlation_key=key,
                 t0_ms=int(time.time() * 1000),
@@ -328,14 +341,18 @@ class _SendCoordinator:
                 outcomes={v.verifier_id: VerifierOutcome.pending() for v in vset.verifiers},
                 stage="released",
             )
-            svc.runtime.platform.verifiers.register(instance)
-            try:
-                write_instances(
-                    _Path(svc.runtime.log_dir) / ".pending_instances.jsonl",
-                    svc.runtime.platform.verifiers.open_instances(),
-                )
-            except Exception as exc:
-                logging.warning("pending_instances write failed: %s", exc)
+            if (svc.runtime.tx_verifiers_enabled
+                    and registry.register_if_generation(
+                        candidate, generation=verifier_generation,
+                    )):
+                instance = candidate
+                try:
+                    write_instances(
+                        _Path(svc.runtime.log_dir) / ".pending_instances.jsonl",
+                        registry.open_instances(),
+                    )
+                except Exception as exc:
+                    logging.warning("pending_instances write failed: %s", exc)
 
         # Broadcast everything dirty — register() marked the new instance dirty,
         # so consume_dirty() returns exactly the just-registered instance here.
@@ -447,6 +464,7 @@ class _SendCoordinator:
             # timed_out). Gated on the periodic sweeper actually running
             # so unit tests (which skip lifespan) don't hang.
             if (not svc.abort.is_set()
+                    and svc.runtime.tx_verifiers_enabled
                     and getattr(svc.runtime, "verifier_sweep_task", None) is not None):
                 if any(not is_settled(inst)
                        for inst in svc.runtime.platform.verifiers.open_instances()):

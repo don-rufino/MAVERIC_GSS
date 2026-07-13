@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from mav_gss_lib.platform.tx.verifiers import (
     CheckWindow, VerifierSpec, VerifierSet, VerifierOutcome, CommandInstance,
@@ -139,6 +140,40 @@ class RestoreElapsed(unittest.TestCase):
             )
             restored = restore_instances(path, now_ms=1_020_000)
             self.assertEqual(len(restored), 0)
+
+
+class StartupRestorePolicy(unittest.TestCase):
+    def test_startup_with_verifiers_disabled_skips_restore_and_clears_disk(self):
+        from fastapi.testclient import TestClient
+        from mav_gss_lib.platform.runtime import PlatformRuntime
+        from mav_gss_lib.server.app import create_app
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app = create_app()
+            runtime = app.state.runtime
+            runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
+            runtime.platform_cfg.setdefault("tx", {})["verifiers_enabled"] = False
+            pending_path = Path(tmp) / ".pending_instances.jsonl"
+            write_instances(pending_path, [_sample_instance()])
+
+            with (
+                patch.object(
+                    PlatformRuntime, "restore_verifiers", autospec=True,
+                ) as restore,
+                patch(
+                    "mav_gss_lib.server.app.schedule_update_check",
+                ),
+                patch(
+                    "mav_gss_lib.server.app.run_preflight_and_broadcast",
+                    new=AsyncMock(),
+                ),
+                TestClient(app),
+            ):
+                self.assertEqual(runtime.platform.verifiers.open_instances(), [])
+
+            restore.assert_not_called()
+            self.assertTrue(pending_path.exists())
+            self.assertEqual(pending_path.read_text(), "")
 
 
 if __name__ == "__main__":

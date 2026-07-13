@@ -237,6 +237,11 @@ class WebRuntime:
         return int(tx.get("delay_ms", 500))
 
     @property
+    def tx_verifiers_enabled(self) -> bool:
+        tx = self.platform_cfg.get("tx") or {}
+        return bool(tx.get("verifiers_enabled", True))
+
+    @property
     def tx_blackout_ms(self) -> int:
         rx = self.platform_cfg.get("rx") or {}
         return int(rx.get("tx_blackout_ms", 0) or 0)

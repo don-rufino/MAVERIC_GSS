@@ -332,6 +332,7 @@ export interface PlatformConfig {
     zmq_addr: string
     frequency: string
     delay_ms: number
+    verifiers_enabled: boolean
   }
   rx: {
     zmq_addr: string

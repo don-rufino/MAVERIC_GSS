@@ -13,10 +13,17 @@ describe('RowRenderer toggle', () => {
     render(withSearch('', (
       <RowRenderer row={{ id: 't', label: 'Auto-refresh', control: { kind: 'toggle', value: false, onChange } }} />
     )))
-    const sw = screen.getByRole('switch')
+    const sw = screen.getByRole('switch', { name: 'Auto-refresh' })
     expect(sw).toBeTruthy()
     fireEvent.click(sw)
     expect(onChange).toHaveBeenCalledWith(true)
+  })
+
+  it('gives text inputs their visible row label', () => {
+    render(withSearch('', (
+      <RowRenderer row={{ id: 'f', label: 'RX frequency', control: { kind: 'text', value: '437.575 MHz', onChange: () => {} } }} />
+    )))
+    expect(screen.getByRole('textbox', { name: 'RX frequency' })).toBeTruthy()
   })
 })
 

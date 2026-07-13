@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from 'react'
+import { useContext, useEffect, useId, useRef } from 'react'
 import { colors } from '@/lib/colors'
 import { GssInput } from '@/components/ui/gss-input'
 import { Switch } from '@/components/ui/switch'
@@ -31,7 +31,13 @@ function isStacked(c: Control): boolean {
   return (c.kind === 'text' && !!c.stacked) || c.kind === 'tle' || c.kind === 'fetch-identifier' || c.kind === 'env-status'
 }
 
-function TleBlock({ draft, onChange }: { draft: string; onChange: (v: string) => void }) {
+interface ControlLabelProps {
+  controlId: string
+  labelId: string
+  descriptionId?: string
+}
+
+function TleBlock({ draft, onChange, controlId, labelId, descriptionId }: { draft: string; onChange: (v: string) => void } & ControlLabelProps) {
   const ref = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     const el = ref.current
@@ -41,6 +47,9 @@ function TleBlock({ draft, onChange }: { draft: string; onChange: (v: string) =>
   }, [draft])
   return (
     <textarea
+      id={controlId}
+      aria-labelledby={labelId}
+      aria-describedby={descriptionId}
       ref={ref}
       value={draft}
       onChange={(e) => onChange(e.target.value)}
@@ -52,11 +61,11 @@ function TleBlock({ draft, onChange }: { draft: string; onChange: (v: string) =>
   )
 }
 
-function FetchIdentifier({ value, onChange, onFetch, fetching, fetchMsg, disabled }: Extract<Control, { kind: 'fetch-identifier' }>) {
+function FetchIdentifier({ value, onChange, onFetch, fetching, fetchMsg, disabled, controlId, labelId, descriptionId }: Extract<Control, { kind: 'fetch-identifier' }> & ControlLabelProps) {
   return (
     <div>
       <div className="flex gap-2">
-        <GssInput className="flex-1" value={value} onChange={(e) => onChange(e.target.value)} />
+        <GssInput id={controlId} aria-labelledby={labelId} aria-describedby={descriptionId} className="flex-1" value={value} onChange={(e) => onChange(e.target.value)} />
         <button
           type="button"
           disabled={disabled}
@@ -73,24 +82,27 @@ function FetchIdentifier({ value, onChange, onFetch, fetching, fetchMsg, disable
   )
 }
 
-function ControlView({ control }: { control: Control }) {
+function ControlView({ control, controlId, labelId, descriptionId }: { control: Control } & ControlLabelProps) {
   switch (control.kind) {
     case 'text':
       return control.stacked ? (
-        <GssInput className="w-full" style={{ textAlign: 'left' }} value={control.value} onChange={(e) => control.onChange(e.target.value)} />
+        <GssInput id={controlId} aria-labelledby={labelId} aria-describedby={descriptionId} className="w-full" style={{ textAlign: 'left' }} value={control.value} onChange={(e) => control.onChange(e.target.value)} />
       ) : (
-        <GssInput className="w-36 text-right" value={control.value} onChange={(e) => control.onChange(e.target.value)} />
+        <GssInput id={controlId} aria-labelledby={labelId} aria-describedby={descriptionId} className="w-36 text-right" value={control.value} onChange={(e) => control.onChange(e.target.value)} />
       )
     case 'number':
       return (
         <div className="flex items-center gap-1.5">
-          <GssInput type="number" className="w-16 text-right" value={control.value} onChange={(e) => control.onChange(Number(e.target.value))} />
+          <GssInput id={controlId} aria-labelledby={labelId} aria-describedby={descriptionId} type="number" className="w-16 text-right" value={control.value} onChange={(e) => control.onChange(Number(e.target.value))} />
           {control.unit && <span className="text-xs" style={{ color: colors.dim }}>{control.unit}</span>}
         </div>
       )
     case 'toggle':
       return (
         <Switch
+          id={controlId}
+          aria-labelledby={labelId}
+          aria-describedby={descriptionId}
           checked={control.value}
           onCheckedChange={(checked) => control.onChange(checked)}
           className="data-checked:bg-[#3CC98E]"
@@ -99,12 +111,15 @@ function ControlView({ control }: { control: Control }) {
     case 'info':
       return <span className="font-mono text-xs text-right break-all" style={{ color: colors.value }}>{control.value}</span>
     case 'tle':
-      return <TleBlock draft={control.draft} onChange={control.onChange} />
+      return <TleBlock draft={control.draft} onChange={control.onChange} controlId={controlId} labelId={labelId} descriptionId={descriptionId} />
     case 'fetch-identifier':
-      return <FetchIdentifier {...control} />
+      return <FetchIdentifier {...control} controlId={controlId} labelId={labelId} descriptionId={descriptionId} />
     case 'select':
       return (
         <select
+          id={controlId}
+          aria-labelledby={labelId}
+          aria-describedby={descriptionId}
           value={control.value}
           onChange={(e) => control.onChange(e.target.value)}
           className="w-40 rounded px-2.5 py-1.5 text-[12.5px] outline-none"
@@ -136,12 +151,16 @@ function ControlView({ control }: { control: Control }) {
 
 export function RowRenderer({ row }: { row: SettingRow }) {
   const visible = useFieldVisible(row.label, row.description)
+  const generatedId = useId()
   if (!visible) return null
+  const controlId = `config-control-${generatedId}`
+  const labelId = `config-label-${generatedId}`
+  const descriptionId = row.description ? `config-description-${generatedId}` : undefined
   const stacked = isStacked(row.control)
   const labelBlock = (
     <div className={stacked ? '' : 'min-w-0'}>
-      <div className="text-[13px]" style={{ color: colors.value }}>{row.label}</div>
-      {row.description && <div className="mt-0.5" style={{ fontSize: '11.5px', color: colors.dim }}>{row.description}</div>}
+      <div id={labelId} className="text-[13px]" style={{ color: colors.value }}>{row.label}</div>
+      {row.description && <div id={descriptionId} className="mt-0.5" style={{ fontSize: '11.5px', color: colors.dim }}>{row.description}</div>}
     </div>
   )
   if (stacked) {
@@ -149,14 +168,14 @@ export function RowRenderer({ row }: { row: SettingRow }) {
     return (
       <div className="py-1.5">
         {!hideLabel && labelBlock}
-        <div className={hideLabel ? '' : 'mt-1.5'}><ControlView control={row.control} /></div>
+        <div className={hideLabel ? '' : 'mt-1.5'}><ControlView control={row.control} controlId={controlId} labelId={labelId} descriptionId={descriptionId} /></div>
       </div>
     )
   }
   return (
     <div className="flex items-start justify-between gap-3 py-1.5">
       {labelBlock}
-      <ControlView control={row.control} />
+      <ControlView control={row.control} controlId={controlId} labelId={labelId} descriptionId={descriptionId} />
     </div>
   )
 }

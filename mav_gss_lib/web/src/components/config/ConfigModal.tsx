@@ -531,6 +531,9 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
           { id: 'tx_delay', label: 'TX delay', description: 'Pause before each uplink frame.', control: { kind: 'number', unit: 'ms', value: cfg.platform.tx.delay_ms, onChange: (v) => updatePlatform('tx', 'delay_ms', v) } },
           { id: 'blackout', label: 'TX → RX blackout', description: 'RX mute window after TX (half-duplex).', control: { kind: 'number', unit: 'ms', value: cfg.platform.rx.tx_blackout_ms ?? 0, onChange: (v) => updatePlatform('rx', 'tx_blackout_ms', v) } },
         ]},
+        { title: 'Command handling', rows: [
+          { id: 'verifiers_enabled', label: 'Command verifiers', description: 'Experimental satellite-hunting only. Keep enabled for normal operations; disabling cancels active verification and permits repeated commands without response-window gating.', control: { kind: 'toggle', value: cfg.platform.tx.verifiers_enabled ?? true, onChange: (v) => updatePlatform('tx', 'verifiers_enabled', v) } },
+        ]},
         { title: 'Front end', rows: [
           { id: 'rx_gain', label: 'RX gain', description: 'Flowgraph boot gain (B210, max 76 dB) — the GUI slider still overrides live. Stamped into capture metadata. Applies on radio start.', control: { kind: 'number', unit: 'dB', value: cfg.platform.radio?.rx_gain ?? 40, onChange: (v) => updatePlatform('radio', 'rx_gain', v) } },
         ]},

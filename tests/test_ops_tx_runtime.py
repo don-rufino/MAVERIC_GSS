@@ -7,11 +7,19 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mav_gss_lib.server.tx._send_coordinator as tx_service
 from mav_gss_lib.platform.spec import HeaderFieldNotOverridable
+from mav_gss_lib.platform.tx.verifiers import (
+    CheckWindow,
+    CommandInstance,
+    VerifierOutcome,
+    VerifierSet,
+    VerifierSpec,
+)
 from mav_gss_lib.server.tx.queue import make_checkpoint, make_mission_cmd, sanitize_queue_items, validate_mission_cmd
 from mav_gss_lib.server.state import create_runtime
 
@@ -336,6 +344,167 @@ class TestTxRuntime(unittest.TestCase):
 
         self.assertEqual(len(self.sent_payloads), 2)
         self.assertLess(elapsed, 0.6, f"run_send took {elapsed:.3f}s — expected <0.6s with delay_ms=0")
+
+    def test_verifiers_disabled_sends_repeats_without_wait_or_new_instances(self):
+        verifier_set = VerifierSet(verifiers=(
+            VerifierSpec(
+                "uppm_ack", "received", CheckWindow(0, 30_000), "UPPM", "info",
+            ),
+        ))
+        existing = CommandInstance(
+            instance_id="existing",
+            correlation_key=("com_ping", "LPPM"),
+            t0_ms=0,
+            cmd_event_id="existing-event",
+            verifier_set=verifier_set,
+            outcomes={"uppm_ack": VerifierOutcome.pending()},
+            stage="released",
+        )
+        registry = self.runtime.platform.verifiers
+        registry.register(existing)
+        registry.consume_dirty()
+
+        self.runtime.platform_cfg["tx"]["verifiers_enabled"] = False
+        registry.clear_open()
+        self.runtime.verifier_sweep_task = object()
+        self.runtime.tx.broadcast_verifier_instance = AsyncMock()
+        self.runtime.tx.queue = [
+            self._make_item("com_ping", ""),
+            self._make_item("com_ping", ""),
+        ]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(
+            active=True,
+            idx=-1,
+            total=2,
+            guarding=False,
+            sent_at=0,
+            waiting=False,
+        )
+
+        with patch.object(
+            tx_service._SendCoordinator,
+            "_wait_for_pending_verifications_clear",
+            new_callable=AsyncMock,
+        ) as wait:
+            asyncio.run(self.runtime.tx.run_send())
+
+        wait.assert_not_awaited()
+        self.assertEqual(len(self.sent_payloads), 2)
+        self.assertEqual(registry.open_instances(), [])
+        self.runtime.tx.broadcast_verifier_instance.assert_not_called()
+        self.assertEqual(len(self.runtime.tx.history), 2)
+
+    def test_reenable_during_disabled_publish_does_not_register_verifier(self):
+        registry = self.runtime.platform.verifiers
+        self.runtime.platform_cfg["tx"]["verifiers_enabled"] = False
+        self.runtime.verifier_sweep_task = object()
+        self.runtime.tx.broadcast_verifier_instance = AsyncMock()
+        self.runtime.tx.queue = [self._make_item("com_ping", "")]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(
+            active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False,
+        )
+
+        def _send_and_reenable(_sock, payload):
+            self.sent_payloads.append(payload)
+            self.runtime.platform_cfg["tx"]["verifiers_enabled"] = True
+            return True
+
+        tx_service.send_pdu = _send_and_reenable
+        with patch.object(
+            tx_service._SendCoordinator,
+            "_wait_for_pending_verifications_clear",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            asyncio.run(self.runtime.tx.run_send())
+
+        self.assertEqual(len(self.sent_payloads), 1)
+        self.assertEqual(registry.open_instances(), [])
+        self.runtime.tx.broadcast_verifier_instance.assert_not_called()
+
+    def test_disable_reenable_during_enabled_publish_invalidates_snapshot(self):
+        registry = self.runtime.platform.verifiers
+        self.runtime.platform_cfg["tx"]["verifiers_enabled"] = True
+        self.runtime.tx.broadcast_verifier_instance = AsyncMock()
+        self.runtime.tx.queue = [self._make_item("com_ping", "")]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(
+            active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False,
+        )
+
+        def _send_across_cancellation(_sock, payload):
+            self.sent_payloads.append(payload)
+            self.runtime.platform_cfg["tx"]["verifiers_enabled"] = False
+            registry.clear_open()
+            self.runtime.platform_cfg["tx"]["verifiers_enabled"] = True
+            return True
+
+        tx_service.send_pdu = _send_across_cancellation
+        asyncio.run(self.runtime.tx.run_send())
+
+        self.assertEqual(len(self.sent_payloads), 1)
+        self.assertEqual(registry.open_instances(), [])
+        self.runtime.tx.broadcast_verifier_instance.assert_not_called()
+
+    def test_enabled_send_registers_and_broadcasts_verifier(self):
+        self.runtime.platform_cfg["tx"]["verifiers_enabled"] = True
+        self.runtime.tx.broadcast_verifier_instance = AsyncMock()
+        self.runtime.tx.queue = [self._make_item("com_ping", "")]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(
+            active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False,
+        )
+
+        asyncio.run(self.runtime.tx.run_send())
+
+        instances = self.runtime.platform.verifiers.open_instances()
+        self.assertEqual(len(instances), 1)
+        self.runtime.tx.broadcast_verifier_instance.assert_called_once_with(instances[0])
+        self.assertEqual(
+            instances[0].cmd_event_id,
+            self.runtime.tx.history[0]["event_id"],
+        )
+
+    def test_disabling_verifiers_releases_an_active_verifier_wait(self):
+        verifier_set = VerifierSet(verifiers=(
+            VerifierSpec(
+                "uppm_ack", "received", CheckWindow(0, 30_000), "UPPM", "info",
+            ),
+        ))
+        self.runtime.platform.verifiers.register(CommandInstance(
+            instance_id="existing",
+            correlation_key=("com_ping", "LPPM"),
+            t0_ms=0,
+            cmd_event_id="existing-event",
+            verifier_set=verifier_set,
+            outcomes={"uppm_ack": VerifierOutcome.pending()},
+            stage="released",
+        ))
+        self.runtime.platform_cfg["tx"]["verifiers_enabled"] = True
+
+        async def _run():
+            entered_wait = asyncio.Event()
+            original_abort_wait = self.runtime.tx.abort.wait
+
+            async def _signal_wait():
+                entered_wait.set()
+                await original_abort_wait()
+
+            with patch.object(self.runtime.tx.abort, "wait", side_effect=_signal_wait):
+                wait_task = asyncio.create_task(
+                    self.runtime.tx._send_coord._wait_for_pending_verifications_clear(
+                        poll_ms=10,
+                        max_wait_ms=5_000,
+                    )
+                )
+                await asyncio.wait_for(entered_wait.wait(), timeout=0.5)
+                self.assertFalse(wait_task.done())
+                self.runtime.platform_cfg["tx"]["verifiers_enabled"] = False
+                return await asyncio.wait_for(wait_task, timeout=0.5)
+
+        self.assertFalse(asyncio.run(_run()))
 
     def test_post_send_dwell_broadcasts_waiting_and_blocks(self):
         """With `tx.delay_ms>0`, the sent item dwells at queue-front with `waiting=True`.

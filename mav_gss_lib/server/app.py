@@ -71,10 +71,20 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
         logging.warning("Dropped %d invalid queued item(s) during startup restore", skipped)
 
     import time as _time
-    runtime.platform.restore_verifiers(
-        path=str(Path(runtime.log_dir) / ".pending_instances.jsonl"),
-        now_ms=int(_time.time() * 1000),
-    )
+    pending_instances_path = Path(runtime.log_dir) / ".pending_instances.jsonl"
+    if runtime.tx_verifiers_enabled:
+        runtime.platform.restore_verifiers(
+            path=str(pending_instances_path),
+            now_ms=int(_time.time() * 1000),
+        )
+    else:
+        from mav_gss_lib.platform.tx.verifiers import write_instances
+        runtime.platform.verifiers.clear_open()
+        if pending_instances_path.exists():
+            try:
+                write_instances(pending_instances_path, [])
+            except Exception as exc:
+                logging.warning("pending_instances startup clear failed: %s", exc)
 
     tx_addr = get_tx_zmq_addr(runtime.platform_cfg)
     runtime.tx.restart_pub(tx_addr)

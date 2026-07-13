@@ -76,6 +76,35 @@ class RegisterAndLookup(unittest.TestCase):
         reg.register(_instance())
         self.assertIsNone(reg.lookup_open(("other", b"", "UPPM")))
 
+    def test_clear_open_removes_instances_and_advances_generation(self):
+        reg = VerifierRegistry()
+        inst = _instance()
+        reg.register(inst)
+        generation = reg.generation()
+
+        self.assertEqual(reg.clear_open(), [inst])
+        self.assertEqual(reg.open_instances(), [])
+        self.assertEqual(reg.generation(), generation + 1)
+
+    def test_registration_rejects_snapshot_from_before_clear(self):
+        reg = VerifierRegistry()
+        stale_generation = reg.generation()
+        reg.clear_open()
+
+        self.assertFalse(reg.register_if_generation(
+            _instance(), generation=stale_generation,
+        ))
+        self.assertEqual(reg.open_instances(), [])
+
+    def test_registration_accepts_current_generation(self):
+        reg = VerifierRegistry()
+        inst = _instance()
+
+        self.assertTrue(reg.register_if_generation(
+            inst, generation=reg.generation(),
+        ))
+        self.assertEqual(reg.open_instances(), [inst])
+
 
 class StageDerivation(unittest.TestCase):
     def test_first_received_verifier_transitions_to_received(self):
