@@ -868,7 +868,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
                 channels=list(range(0,1)),
             ),
         )
-        self.uhd_usrp_source_0.set_subdev_spec('A:A', 0)
+        self.uhd_usrp_source_0.set_subdev_spec('A:B', 0)
         self.uhd_usrp_source_0.set_samp_rate(samp_rate)
         # No synchronization enforced.
 

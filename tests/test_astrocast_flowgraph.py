@@ -25,6 +25,14 @@ def _flowgraph_module():
     return MAV_ASTROCAST
 
 
+def test_live_frontend_uses_rf_b_rx2():
+    source = (ROOT / "gnuradio" / "MAV_ASTROCAST.py").read_text(
+        encoding="utf-8")
+
+    assert "set_subdev_spec('A:B', 0)" in source
+    assert 'set_antenna("RX2", 0)' in source
+
+
 def test_live_frontend_matches_maveric_rx_conventions():
     flowgraph = _flowgraph_module()
 

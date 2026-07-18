@@ -112,12 +112,13 @@ are started without it.
 
 ## Hardware and fixed rates
 
-The graph opens one RX channel and one TX channel on the same B210 subdevice:
+The graph opens one RX channel and one TX channel on separate B210 RF
+frontends. Logical channel 0 maps to frontend B for RX and frontend A for TX:
 
 | Setting | RX | TX |
 |---|---:|---:|
 | UHD CPU format | complex float (`fc32`) | complex float (`fc32`) |
-| Subdevice | `A:A` | `A:A` |
+| Subdevice | `A:B` (RF B) | `A:A` (RF A) |
 | Antenna port | `RX2` | `TX/RX` |
 | Sample rate | 1 Msps | 2.4 Msps |
 | Nominal RF | mission/config value | mission/config value |
@@ -129,7 +130,7 @@ host time is only a construction fallback.
 
 ## Receive path
 
-The B210 source produces a 1 Msps complex stream from `RX2`.
+The B210 source produces a 1 Msps complex stream from RF B `RX2`.
 
 1. The raw stream feeds `_StreamHealthMonitor`. Every ten seconds it reports
    RMS and peak dBFS, samples near full scale, and the cumulative overflow
@@ -171,7 +172,8 @@ command wire format -> CSP v1 -> AX100 Mode 5 ASM+Golay
    symbol, Gaussian BT 0.5, and modulation index 2/3.
 5. A complex multiplier applies the operator's TX amplitude setting (default
    0.7).
-6. The stream feeds both the TX spectrum widget and the B210 `TX/RX` port.
+6. The stream feeds both the TX spectrum widget and the B210 RF A `TX/RX`
+   port.
 
 The TX gain slider is a **burst gain**, defaulting to 50 dB. Moving it changes
 the value used at the next key-up; it does not raise the idle hardware gain.
@@ -346,11 +348,13 @@ After a pass:
 
 ## Editing and regeneration
 
-`MAV_DUO.grc` is the editable GNU Radio Companion graph and `MAV_DUO.py` is the
-executable used by the station. Regenerating from GRC can rewrite the Python
-file, so changes must be represented in the `.grc` embedded-Python blocks and
-connections as well as the generated result. Do not rely on a Python-only edit
-surviving the next regeneration.
+`MAV_DUO.py` is the production executable used by the station, while
+`MAV_DUO.grc` mirrors its block graph and hardware settings for GNU Radio
+Companion. The current GRC does not encode the production `_PttGate` or GPIO
+initialization, so **do not regenerate `MAV_DUO.py` from the GRC**: doing so
+bypasses the relay sequencer and leaves the TX sink at its 0 dB idle gain.
+Hardware-setting changes must be hand-applied to both files while preserving
+the Python PTT path.
 
 Supporting files used at runtime are:
 

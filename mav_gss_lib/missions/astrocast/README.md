@@ -36,7 +36,7 @@ dropdown or `--mission` so each mission reads and writes its own file.
 The Radio tab supervises the Astrocast flowgraph; Doppler engage/disengage
 works unchanged (RX-only — TX tune messages publish but nothing subscribes).
 
-The live RF path intentionally mirrors MAV_DUO: B210 A:A/RX2, 1 Msps, gain
+The live RF path intentionally mirrors MAV_DUO: B210 A:B/RX2 (RF B), 1 Msps, gain
 40, a +250 kHz parked LO, Doppler commands into the UHD source, the same
 coax-relay RX GPIO state, and the same 181-tap decimating FIR feeding a 200
 ksps baseband spectrum and waterfall. The live differences are the 437.150

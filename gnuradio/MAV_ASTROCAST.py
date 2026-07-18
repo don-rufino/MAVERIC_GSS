@@ -3,7 +3,7 @@
 
 Qt GUI top block supervised by the GSS RadioService (set
 `platform.radio.script: gnuradio/MAV_ASTROCAST.py`). Its live B210 path
-mirrors MAV_DUO's RX acquisition conventions: A:A/RX2, 1 Msps, parked LO,
+mirrors MAV_DUO's RX acquisition conventions: A:B/RX2, 1 Msps, parked LO,
 gain 40, explicit idle/RX relay GPIO, 5x decimation, and a broad 200 ksps
 spectrum/waterfall before any beacon filtering. The decimated stream also
 feeds MAV_DUO's waterfall autosave recorder (mission-tagged PNG per run
@@ -811,7 +811,7 @@ def _build_core(tb, wavfile, iqfile, zmq_addr, doppler_addr):
             ",".join(("", "")),
             uhd.stream_args(cpu_format="fc32", args='', channels=list(range(0, 1))),
         )
-        tb.uhd_usrp_source_0.set_subdev_spec('A:A', 0)
+        tb.uhd_usrp_source_0.set_subdev_spec('A:B', 0)
         tb.uhd_usrp_source_0.set_samp_rate(SAMP_RATE)
         tb.uhd_usrp_source_0.set_center_freq(
             uhd.tune_request(tb.rx_freq, tb.rx_lo_offset), 0)

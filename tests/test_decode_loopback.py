@@ -278,6 +278,45 @@ class DecodeLoopbackTests(unittest.TestCase):
 class FlowgraphParamGuards(unittest.TestCase):
     """Always-on pins for the hardware-verified TX waveform (no GNU Radio)."""
 
+    def test_b210_frontend_split_and_ptt_path_are_pinned(self):
+        py = (GNURADIO / "MAV_DUO.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "self.uhd_usrp_source_0.set_subdev_spec('A:B', 0)", py)
+        self.assertIn(
+            'self.uhd_usrp_sink_0.set_subdev_spec("A:A", 0)', py)
+        self.assertIn(
+            'self.uhd_usrp_source_0.set_antenna("RX2", 0)', py)
+        self.assertIn(
+            "self.uhd_usrp_sink_0.set_antenna('TX/RX', 0)", py)
+
+        # Production TX must remain gated: the GRC cannot currently reproduce
+        # this Python-only relay/GPIO path, so regeneration is unsafe.
+        self.assertIn("class _PttGate", py)
+        self.assertIn(
+            'self.uhd_usrp_sink_0.set_gpio_attr("FP0", "OUT",  IDLE_OUT, MASK)',
+            py,
+        )
+        self.assertIn(
+            "self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), "
+            "(self.ptt_gate, 'pdu_in'))",
+            py,
+        )
+        self.assertIn(
+            "self.msg_connect((self.ptt_gate, 'pdu_out'), "
+            "(self.pdu_pdu_to_tagged_stream_0, 'pdus'))",
+            py,
+        )
+
+        grc = yaml.safe_load(
+            (GNURADIO / "MAV_DUO.grc").read_text(encoding="utf-8"))
+        blocks = {block["name"]: block for block in grc["blocks"]}
+        source = blocks["uhd_usrp_source_0"]["parameters"]
+        sink = blocks["uhd_usrp_sink_0"]["parameters"]
+        self.assertEqual(str(source["sd_spec0"]).strip('"'), "A:B")
+        self.assertEqual(str(sink["sd_spec0"]).strip('"'), "A:A")
+        self.assertEqual(str(source["ant0"]).strip('"'), "RX2")
+        self.assertEqual(str(sink["ant0"]).strip('"'), "TX/RX")
+
     def test_tx_modindex_pinned_to_ax100_auto_default(self):
         # 1/1.5 (h = 2/3) is the AX100 auto-modindex value for 1300-60000
         # baud and the value bench-verified against the flight unit. A
