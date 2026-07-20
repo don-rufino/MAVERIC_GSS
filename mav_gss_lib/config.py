@@ -111,6 +111,11 @@ _DEFAULTS = {
         # still allows live override; this makes the ops value reproducible
         # instead of a per-pass manual step.
         "rx_gain": 40,
+        # RX channel half-bandwidth in Hz (GSS_RX_BW_HZ): the flowgraph
+        # rebuilds both the channel-filter cutoff and the GUI display span
+        # from it at radio start. 50e3 = the mandated +/-50 kHz (100 kHz-wide
+        # channel).
+        "rx_bw": 50_000.0,
     },
     "tracking": {
         "control": {

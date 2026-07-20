@@ -384,6 +384,15 @@ class RadioServiceConfigTests(unittest.TestCase):
         rt_bad = _fake_runtime({"enabled": True, "rx_gain": "high"})
         self.assertNotIn("GSS_RX_GAIN", RadioService(rt_bad)._frequency_env())
 
+    def test_frequency_env_carries_rx_bw(self):
+        rt = _fake_runtime({"enabled": True, "rx_bw": 25_000})
+        env = RadioService(rt)._frequency_env()
+        self.assertEqual(env["GSS_RX_BW_HZ"], "25000.0")
+        # Non-numeric bandwidth never reaches the flowgraph; its own boot
+        # default (50e3) applies instead.
+        rt_bad = _fake_runtime({"enabled": True, "rx_bw": "wide"})
+        self.assertNotIn("GSS_RX_BW_HZ", RadioService(rt_bad)._frequency_env())
+
     def test_run_log_persists_radio_stdout(self):
         import tempfile as _tempfile
         with _tempfile.TemporaryDirectory() as tmp:

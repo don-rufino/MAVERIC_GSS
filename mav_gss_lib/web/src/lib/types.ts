@@ -350,6 +350,7 @@ export interface PlatformConfig {
     iq_raw_record?: boolean
     iq_disk_reserve_gb?: number
     rx_gain?: number
+    rx_bw?: number
   }
   tracking?: PlatformTrackingConfig
   general: {

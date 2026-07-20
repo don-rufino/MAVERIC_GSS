@@ -536,6 +536,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
         ]},
         { title: 'Front end', rows: [
           { id: 'rx_gain', label: 'RX gain', description: 'Flowgraph boot gain (B210, max 76 dB) — the GUI slider still overrides live. Stamped into capture metadata. Applies on radio start.', control: { kind: 'number', unit: 'dB', value: cfg.platform.radio?.rx_gain ?? 40, onChange: (v) => updatePlatform('radio', 'rx_gain', v) } },
+          { id: 'rx_bw', label: 'RX filter half-width', description: 'Channel filter cutoff around center — the filter and the freq/waterfall display span rebuild from it together. 50000 = the standard ±50 kHz (100 kHz channel). Stamped into capture metadata. Applies on radio start.', control: { kind: 'number', unit: 'Hz', value: cfg.platform.radio?.rx_bw ?? 50000, onChange: (v) => updatePlatform('radio', 'rx_bw', v) } },
         ]},
         { title: 'Capture', rows: [
           { id: 'iq_record', label: 'IQ recording', description: 'Record the RX stream as SigMF under <log dir>/iq (~1.6 MB/s). Applies on radio start.', control: { kind: 'toggle', value: cfg.platform.radio?.iq_record ?? false, onChange: (v) => updatePlatform('radio', 'iq_record', v) } },

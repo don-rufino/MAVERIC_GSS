@@ -102,6 +102,36 @@ class FullResolutionTests(unittest.TestCase):
         self.assertFalse(p2.exists())
 
 
+class SpanTokenTests(unittest.TestCase):
+    """The `_s<hz>` stem token carries each capture's span to the renderer."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_span_parsed_from_filename_token(self):
+        self.assertEqual(
+            wr.span_from_name("waterfall_maveric_20260720T000000Z_s100000.dat"),
+            100_000.0)
+
+    def test_tokenless_legacy_names_fall_back(self):
+        # Pre-rx_bw captures and MAV_ASTROCAST write no token -> SPAN_HZ.
+        self.assertIsNone(
+            wr.span_from_name("waterfall_maveric_20260710T000000Z.dat"))
+
+    def test_tokened_capture_renders(self):
+        dat = os.path.join(
+            self.tmp.name, "waterfall_maveric_20260720T000000Z_s50000.dat")
+        _write_rows(dat, 8)
+        png = wr.render(dat)
+        self.assertTrue(os.path.isfile(png))
+
+    def test_explicit_span_argument_overrides(self):
+        dat = os.path.join(self.tmp.name, "waterfall_x.dat")
+        _write_rows(dat, 4)
+        self.assertTrue(os.path.isfile(wr.render(dat, span_hz=50_000.0)))
+
+
 class RenderTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

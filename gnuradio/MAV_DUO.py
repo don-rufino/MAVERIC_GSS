@@ -186,20 +186,23 @@ class _PttGate(gr.basic_block):
 
 
 class _WaterfallLogger(gr.sync_block):
-    """Post-pass waterfall recorder for the decimated RX stream.
+    """Post-pass waterfall recorder for the RX display stream.
 
-    Appends timestamped 1024-bin dB rows to waterfall_<mission>_<start>.dat while the
-    flowgraph runs; stop() renders a SatNOGS-style PNG via waterfall_render
-    and deletes the .dat on success. Hard crashes leave the .dat behind, so
+    Appends timestamped 1024-bin dB rows to
+    waterfall_<mission>_<start>_s<span>.dat while the flowgraph runs; stop()
+    renders a SatNOGS-style PNG via waterfall_render and deletes the .dat on
+    success. The `_s<hz>` stem token carries the stream span so the renderer
+    labels the frequency axis correctly — including crash orphans rendered by
+    a later run at a different rx_bw. Hard crashes leave the .dat behind, so
     __init__ sweeps the output dir for leftovers and renders them in a
     background thread. Every failure path prints and disables the block —
     waterfall capture must never take down the radio.
     """
 
     FFT_SIZE = 1024
-    FFTS_PER_ROW = 20  # ~9.8 rows/s at 200 ksps
+    FFTS_PER_ROW = 20  # ~9.8 rows/s at 200 ksps; scales down with the display rate
 
-    def __init__(self):
+    def __init__(self, samp_rate=200_000.0):
         gr.sync_block.__init__(self, name="waterfall_logger",
                                in_sig=[np.complex64], out_sig=None)
         self._file = None
@@ -207,6 +210,7 @@ class _WaterfallLogger(gr.sync_block):
         self._render_mod = None
         raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
         self._center_hz = float(raw_center) if raw_center else None
+        self._span_hz = float(samp_rate)
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             if script_dir not in sys.path:
@@ -221,7 +225,9 @@ class _WaterfallLogger(gr.sync_block):
                 threading.Thread(target=self._render_orphans, args=(orphans,),
                                  daemon=True, name="waterfall-orphans").start()
             mission = os.environ.get("GSS_MISSION") or "maveric"
-            stem = "waterfall_%s_%s" % (mission, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+            stem = "waterfall_%s_%s_s%d" % (
+                mission, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
+                int(self._span_hz))
             self._dat_path = os.path.join(out_dir, stem + ".dat")
             self._file = open(self._dat_path, "ab")
             self._win = np.asarray(window.blackmanharris(self.FFT_SIZE), dtype=np.float32)
@@ -378,6 +384,7 @@ class _IqRecorder(gr.sync_block):
             provenance = {
                 "maveric:mission": mission,
                 "maveric:rx_gain_db": os.environ.get("GSS_RX_GAIN", ""),
+                "maveric:rx_bw_hz": os.environ.get("GSS_RX_BW_HZ", ""),
                 "maveric:rx_lo_offset_hz": os.environ.get("GSS_RX_LO_OFFSET_HZ", ""),
                 "maveric:build_sha": os.environ.get("GSS_BUILD_SHA", ""),
             }
@@ -838,6 +845,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.rx_decim = rx_decim = 5
         self.rx_actual_freq_label = rx_actual_freq_label = rx_actual_freq
         self.rx_gain = rx_gain = float(__import__('os').environ.get('GSS_RX_GAIN', 40))
+        self.rx_bw = rx_bw = float(__import__('os').environ.get('GSS_RX_BW_HZ', 50e3))
+        self.disp_decim = disp_decim = max(1, min(20, int((samp_rate / (2 * rx_decim)) // rx_bw)))
         self.rf_gain = rf_gain = 50
         self.modindex = modindex = 1/1.5
         self.baud = baud = 9600
@@ -1021,7 +1030,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
             1024, #size
             window.WIN_BLACKMAN_hARRIS, #wintype
             0, #fc
-            (samp_rate/rx_decim), #bw
+            ((samp_rate/rx_decim)/disp_decim), #bw
             "", #name
             1, #number of inputs
             None # parent
@@ -1060,7 +1069,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
             1024, #size
             window.WIN_BLACKMAN_hARRIS, #wintype
             0, #fc
-            (samp_rate/rx_decim), #bw
+            ((samp_rate/rx_decim)/disp_decim), #bw
             "", #name
             1,
             None # parent
@@ -1151,9 +1160,16 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         for c in range(1, 2):
             self.top_grid_layout.setColumnStretch(c, 1)
         self.pdu_pdu_to_tagged_stream_0 = pdu.pdu_to_tagged_stream(gr.types.byte_t, 'packet_len')
-        self.fir_filter_xxx_1 = filter.fir_filter_ccf(rx_decim, firdes.low_pass(2.0, samp_rate, 80e3, 15e3))
+        self.fir_filter_xxx_1 = filter.fir_filter_ccf(rx_decim, firdes.low_pass(2.0, samp_rate, rx_bw, 15e3))
         self.fir_filter_xxx_1.declare_sample_delay(0)
-        self.waterfall_logger = _WaterfallLogger()
+        # Display-only zoom: the GUI freq/waterfall span tracks the selected
+        # channel (view Nyquist = 100k/disp_decim >= rx_bw), rebuilt at radio
+        # start from GSS_RX_BW_HZ. Plain sample dropping is safe here — the
+        # channel FIR is already >=59 dB down past rx_bw+15k, so fold-back
+        # stays confined to the outermost display bins. The decoder, both IQ
+        # recorders, and the waterfall logger stay on the full 200 ksps tap.
+        self.blocks_keep_one_in_n_0 = blocks.keep_one_in_n(gr.sizeof_gr_complex*1, disp_decim)
+        self.waterfall_logger = _WaterfallLogger(samp_rate=((samp_rate/rx_decim)/disp_decim))
         self.iq_recorder = _IqRecorder(
             samp_rate=(int(samp_rate/rx_decim)),
             extra_meta={'maveric:decoder_yml': os.path.basename(decoder_yml),
@@ -1193,10 +1209,11 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.uhd_usrp_sink_0, 0))
         self.connect((self.digital_gfsk_mod_0, 0), (self.blocks_multiply_const_vxx_0, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.iq_recorder, 0))
-        self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_freq_sink_x_1, 0))
-        self.connect((self.fir_filter_xxx_1, 0), (self.qtgui_waterfall_sink_x_0, 0))
+        self.connect((self.blocks_keep_one_in_n_0, 0), (self.qtgui_freq_sink_x_1, 0))
+        self.connect((self.blocks_keep_one_in_n_0, 0), (self.qtgui_waterfall_sink_x_0, 0))
+        self.connect((self.fir_filter_xxx_1, 0), (self.blocks_keep_one_in_n_0, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.satellites_satellite_decoder_0, 0))
-        self.connect((self.fir_filter_xxx_1, 0), (self.waterfall_logger, 0))
+        self.connect((self.blocks_keep_one_in_n_0, 0), (self.waterfall_logger, 0))
         self.connect((self.pdu_pdu_to_tagged_stream_0, 0), (self.digital_gfsk_mod_0, 0))
         self.connect((self.uhd_usrp_source_0, 0), (self.fir_filter_xxx_1, 0))
         self.connect((self.uhd_usrp_source_0, 0), (self.iq_raw_recorder, 0))
@@ -1291,9 +1308,9 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
-        self.fir_filter_xxx_1.set_taps(firdes.low_pass(2.0, self.samp_rate, 80e3, 15e3))
-        self.qtgui_freq_sink_x_1.set_frequency_range(0, (self.samp_rate/self.rx_decim))
-        self.qtgui_waterfall_sink_x_0.set_frequency_range(0, (self.samp_rate/self.rx_decim))
+        self.fir_filter_xxx_1.set_taps(firdes.low_pass(2.0, self.samp_rate, self.rx_bw, 15e3))
+        self.qtgui_freq_sink_x_1.set_frequency_range(0, (self.samp_rate/self.rx_decim/self.disp_decim))
+        self.qtgui_waterfall_sink_x_0.set_frequency_range(0, (self.samp_rate/self.rx_decim/self.disp_decim))
         self.uhd_usrp_source_0.set_samp_rate(self.samp_rate)
 
     def get_rx_lo_offset(self):
@@ -1327,8 +1344,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_rx_decim(self, rx_decim):
         self.rx_decim = rx_decim
-        self.qtgui_freq_sink_x_1.set_frequency_range(0, (self.samp_rate/self.rx_decim))
-        self.qtgui_waterfall_sink_x_0.set_frequency_range(0, (self.samp_rate/self.rx_decim))
+        self.qtgui_freq_sink_x_1.set_frequency_range(0, (self.samp_rate/self.rx_decim/self.disp_decim))
+        self.qtgui_waterfall_sink_x_0.set_frequency_range(0, (self.samp_rate/self.rx_decim/self.disp_decim))
 
     def get_rx_actual_freq_label(self):
         return self.rx_actual_freq_label
@@ -1347,6 +1364,22 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
                          getattr(self, "iq_raw_recorder", None)):
             if recorder is not None:
                 recorder.note_gain(self.rx_gain)
+
+    def get_rx_bw(self):
+        return self.rx_bw
+
+    def set_rx_bw(self, rx_bw):
+        self.rx_bw = rx_bw
+        self.fir_filter_xxx_1.set_taps(firdes.low_pass(2.0, self.samp_rate, self.rx_bw, 15e3))
+
+    def get_disp_decim(self):
+        return self.disp_decim
+
+    def set_disp_decim(self, disp_decim):
+        self.disp_decim = disp_decim
+        self.blocks_keep_one_in_n_0.set_n(self.disp_decim)
+        self.qtgui_freq_sink_x_1.set_frequency_range(0, (self.samp_rate/self.rx_decim/self.disp_decim))
+        self.qtgui_waterfall_sink_x_0.set_frequency_range(0, (self.samp_rate/self.rx_decim/self.disp_decim))
 
     def get_rf_gain(self):
         return self.rf_gain

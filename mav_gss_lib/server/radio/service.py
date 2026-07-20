@@ -243,6 +243,7 @@ class RadioService:
             iq_record = bool(radio_cfg.get("iq_record", False))
             iq_raw_record = bool(radio_cfg.get("iq_raw_record", False))
             rx_gain = radio_cfg.get("rx_gain")
+            rx_bw = radio_cfg.get("rx_bw")
             decoder_yml = radio_cfg.get("decoder_yml")
             build_sha = str(general.get("build_sha") or "")
         env: dict[str, str] = {}
@@ -277,6 +278,11 @@ class RadioService:
         # SigMF capture provenance by the flowgraph recorders.
         if isinstance(rx_gain, (int, float)):
             env["GSS_RX_GAIN"] = str(float(rx_gain))
+        # RX channel half-bandwidth: the flowgraph rebuilds the channel
+        # filter and the display span from it at start — also stamped into
+        # SigMF capture provenance.
+        if isinstance(rx_bw, (int, float)):
+            env["GSS_RX_BW_HZ"] = str(float(rx_bw))
         if build_sha:
             env["GSS_BUILD_SHA"] = build_sha
         # Overflows are counted flowgraph-side via rx_time stream tags and

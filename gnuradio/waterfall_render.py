@@ -8,8 +8,12 @@ exercise it without GNU Radio and operators can re-render by hand:
 
 .dat format (written by _WaterfallLogger in MAV_DUO.py): repeating
 little-endian records of float64 unix-UTC timestamp + FFT_BINS float32 dB
-values, fftshifted so bin 0 = -SPAN_HZ/2. No header; a partial trailing
-record (hard crash mid-write) is dropped on load.
+values, fftshifted so bin 0 = -span/2. No header; a partial trailing
+record (hard crash mid-write) is dropped on load. The span rides in the
+filename as a trailing `_s<hz>` stem token so crash orphans rendered by a
+later run — possibly at a different rx_bw — keep the correct frequency
+axis; token-less captures (pre-rx_bw files, MAV_ASTROCAST) fall back to
+SPAN_HZ.
 
 Rendering is full resolution — one capture row per pixel row, one FFT bin
 per pixel column; the image simply grows with capture length instead of
@@ -23,6 +27,7 @@ through a memmap so day-long captures render without loading gigabytes.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,7 +35,7 @@ from pathlib import Path
 import numpy as np
 
 FFT_BINS = 1024
-SPAN_HZ = 200_000.0  # MAV_DUO decimated RX stream (1 Msps / rx_decim 5)
+SPAN_HZ = 200_000.0  # fallback span for captures without an `_s<hz>` stem token
 ROW_BYTES = 8 + FFT_BINS * 4
 MAX_ROWS_PER_PNG = 25_000  # ~42 min per part at ~9.8 rows/s
 
@@ -49,6 +54,12 @@ def center_freq_from_env() -> float | None:
         return float(raw) if raw else None
     except ValueError:
         return None
+
+
+def span_from_name(dat_path: str | Path) -> float | None:
+    """Span in Hz from the capture's trailing `_s<hz>` stem token, if any."""
+    match = re.search(r"_s(\d+)$", Path(dat_path).stem)
+    return float(match.group(1)) if match else None
 
 
 def _open_records(dat_path: Path) -> tuple[np.ndarray | None, int]:
@@ -96,6 +107,7 @@ def _render_part(
     elapsed_start: float,
     elapsed_end: float,
     title: str,
+    span_hz: float,
 ) -> None:
     import matplotlib
 
@@ -110,7 +122,7 @@ def _render_part(
         ax = fig.add_axes(
             [IMG_LEFT / width, IMG_BOTTOM / height, FFT_BINS / width, n / height]
         )
-        half_khz = SPAN_HZ / 2e3
+        half_khz = span_hz / 2e3
         im = ax.imshow(
             rows,
             aspect="auto",
@@ -139,6 +151,7 @@ def render(
     *,
     delete_dat: bool = False,
     center_freq_hz: float | None = None,
+    span_hz: float | None = None,
     max_rows_per_png: int = MAX_ROWS_PER_PNG,
 ) -> Path | None:
     """Render dat_path to full-resolution PNG(s); return the first part's path,
@@ -159,11 +172,13 @@ def render(
     ts = recs[:, :8].copy().view("<f8").ravel()
     vmin, vmax = _intensity_scale(recs, n)
     out = Path(png_path) if png_path is not None else dat_path.with_suffix(".png")
+    span = float(span_hz) if span_hz else (span_from_name(dat_path) or SPAN_HZ)
     t0 = float(ts[0])
     start = datetime.fromtimestamp(t0, tz=timezone.utc)
     base_title = f"RX waterfall · start {start:%Y-%m-%d %H:%M:%S}Z"
     if center_freq_hz:
         base_title += f" · {center_freq_hz / 1e6:.6f} MHz"
+    base_title += f" · span ±{span / 2e3:g} kHz"
 
     n_parts = (n + max_rows_per_png - 1) // max_rows_per_png
     for part in range(1, n_parts + 1):
@@ -178,6 +193,7 @@ def render(
             elapsed_start=float(ts[a]) - t0,
             elapsed_end=max(float(ts[b - 1]) - t0, float(ts[a]) - t0 + 0.1),
             title=title,
+            span_hz=span,
         )
 
     del recs

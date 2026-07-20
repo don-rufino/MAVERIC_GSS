@@ -187,6 +187,53 @@ blocks:
     coordinate: [816, 444.0]
     rotation: 0
     state: enabled
+- name: rx_bw
+  id: variable
+  parameters:
+    comment: "RX channel filter cutoff, one-sided (50e3 = +/-50 kHz = 100 kHz\nchannel).
+      Boot value from GSS_RX_BW_HZ (platform.radio.rx_bw, injected\nby RadioService);
+      applies on radio start. disp_decim rebuilds the\nGUI display span to match."
+    value: float(__import__('os').environ.get('GSS_RX_BW_HZ', 50e3))
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [816, 572.0]
+    rotation: 0
+    state: enabled
+- name: disp_decim
+  id: variable
+  parameters:
+    comment: "Display-only zoom: GUI freq/waterfall span (view Nyquist =\n100k/disp_decim)
+      tracks rx_bw. Decoder, recorders, and the\nwaterfall logger stay on the full
+      200 ksps tap."
+    value: max(1, min(20, int((samp_rate / (2 * rx_decim)) // rx_bw)))
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [816, 700.0]
+    rotation: 0
+    state: enabled
+- name: blocks_keep_one_in_n_0
+  id: blocks_keep_one_in_n
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: "Display zoom tap: plain sample dropping is safe (channel FIR\nis >=59
+      dB down past rx_bw+15k)"
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n: disp_decim
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [592, 704.0]
+    rotation: 0
+    state: enabled
 - name: samp_rate
   id: variable
   parameters:
@@ -475,6 +522,7 @@ blocks:
                   provenance = {
                       "maveric:mission": mission,
                       "maveric:rx_gain_db": os.environ.get("GSS_RX_GAIN", ""),
+                      "maveric:rx_bw_hz": os.environ.get("GSS_RX_BW_HZ", ""),
                       "maveric:rx_lo_offset_hz": os.environ.get("GSS_RX_LO_OFFSET_HZ", ""),
                       "maveric:build_sha": os.environ.get("GSS_BUILD_SHA", ""),
                   }
@@ -808,6 +856,7 @@ blocks:
                   provenance = {
                       "maveric:mission": mission,
                       "maveric:rx_gain_db": os.environ.get("GSS_RX_GAIN", ""),
+                      "maveric:rx_bw_hz": os.environ.get("GSS_RX_BW_HZ", ""),
                       "maveric:rx_lo_offset_hz": os.environ.get("GSS_RX_LO_OFFSET_HZ", ""),
                       "maveric:build_sha": os.environ.get("GSS_BUILD_SHA", ""),
                   }
@@ -1291,9 +1340,11 @@ blocks:
     _source_code: |
       """Waterfall autosave logger (mirror of _WaterfallLogger in MAV_DUO.py).
 
-      Appends timestamped 1024-bin dB rows to waterfall_<start>.dat; stop()
-      renders a SatNOGS-style PNG via waterfall_render and deletes the .dat
-      on success. Orphaned .dat files from hard crashes render on next start.
+      Appends timestamped 1024-bin dB rows to waterfall_<mission>_<start>_s<span>.dat;
+      stop() renders a SatNOGS-style PNG via waterfall_render and deletes the
+      .dat on success. Orphaned .dat files from hard crashes render on next
+      start; the `_s<hz>` stem token keeps their frequency axis correct even
+      when the next run uses a different rx_bw.
       """
 
       import os
@@ -1314,7 +1365,7 @@ blocks:
           FFT_SIZE = 1024
           FFTS_PER_ROW = 20
 
-          def __init__(self):
+          def __init__(self, samp_rate=200_000.0):
               gr.sync_block.__init__(self, name="waterfall_logger",
                                      in_sig=[np.complex64], out_sig=None)
               self._file = None
@@ -1322,6 +1373,7 @@ blocks:
               self._render_mod = None
               raw_center = os.environ.get("GSS_RX_FREQ_HZ", "")
               self._center_hz = float(raw_center) if raw_center else None
+              self._span_hz = float(samp_rate)
               try:
                   script_dir = os.path.dirname(os.path.abspath(__file__))
                   if script_dir not in sys.path:
@@ -1336,7 +1388,9 @@ blocks:
                       threading.Thread(target=self._render_orphans, args=(orphans,),
                                        daemon=True, name="waterfall-orphans").start()
                   mission = os.environ.get("GSS_MISSION") or "maveric"
-                  stem = "waterfall_%s_%s" % (mission, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+                  stem = "waterfall_%s_%s_s%d" % (
+                      mission, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
+                      int(self._span_hz))
                   self._dat_path = os.path.join(out_dir, stem + ".dat")
                   self._file = open(self._dat_path, "ab")
                   self._win = np.asarray(window.blackmanharris(self.FFT_SIZE), dtype=np.float32)
@@ -1413,12 +1467,14 @@ blocks:
     affinity: ''
     alias: ''
     comment: 'Waterfall autosave: logs FFT rows during the run, renders a PNG on
-      stop, sweeps crash leftovers on start. Mirrors _WaterfallLogger in MAV_DUO.py.'
+      stop, sweeps crash leftovers on start. Rides the display tap so saved PNGs
+      span the configured channel. Mirrors _WaterfallLogger in MAV_DUO.py.'
     maxoutbuf: '0'
     minoutbuf: '0'
+    samp_rate: (samp_rate/rx_decim)/disp_decim
   states:
-    _io_cache: ('Log RX FFT rows; render PNG on stop.', 'blk', [], [('0', 'complex',
-      1)], [], 'Log RX FFT rows; render PNG on stop.', [])
+    _io_cache: ('Log RX FFT rows; render PNG on stop.', 'blk', [('samp_rate', '200000.0')],
+      [('0', 'complex', 1)], [], 'Log RX FFT rows; render PNG on stop.', [])
     bus_sink: false
     bus_source: false
     bus_structure: null
@@ -1430,13 +1486,14 @@ blocks:
   parameters:
     affinity: ''
     alias: ''
-    comment: 'Decimate 1 Msps to 200 ksps; 80k/15k low-pass anti-aliases the /5
-      decimation (output Nyquist 100 kHz)'
+    comment: 'Channel filter + decimate 1 Msps to 200 ksps; one-sided cutoff rx_bw
+      with 15k transition stays alias-free across the slider range (output Nyquist
+      100 kHz)'
     decim: rx_decim
     maxoutbuf: '0'
     minoutbuf: '0'
     samp_delay: '0'
-    taps: firdes.low_pass(2.0, samp_rate, 80e3, 15e3)
+    taps: firdes.low_pass(2.0, samp_rate, rx_bw, 15e3)
     type: ccf
   states:
     bus_sink: false
@@ -1669,7 +1726,7 @@ blocks:
     autoscale: 'False'
     average: '1.0'
     axislabels: 'True'
-    bw: samp_rate/rx_decim
+    bw: (samp_rate/rx_decim)/disp_decim
     color1: '"blue"'
     color10: '"dark blue"'
     color2: '"red"'
@@ -1748,7 +1805,7 @@ blocks:
     alpha8: '1.0'
     alpha9: '1.0'
     axislabels: 'True'
-    bw: samp_rate/rx_decim
+    bw: (samp_rate/rx_decim)/disp_decim
     color1: '0'
     color10: '0'
     color2: '0'
@@ -2638,9 +2695,10 @@ connections:
 - [blocks_wavfile_source_0, '1', blocks_float_to_complex_0, '1']
 - [digital_gfsk_mod_0, '0', blocks_multiply_const_vxx_0, '0']
 - [fir_filter_xxx_1, '0', epy_block_iq, '0']
-- [fir_filter_xxx_1, '0', epy_block_waterfall, '0']
-- [fir_filter_xxx_1, '0', qtgui_freq_sink_x_1, '0']
-- [fir_filter_xxx_1, '0', qtgui_waterfall_sink_x_0, '0']
+- [blocks_keep_one_in_n_0, '0', epy_block_waterfall, '0']
+- [blocks_keep_one_in_n_0, '0', qtgui_freq_sink_x_1, '0']
+- [blocks_keep_one_in_n_0, '0', qtgui_waterfall_sink_x_0, '0']
+- [fir_filter_xxx_1, '0', blocks_keep_one_in_n_0, '0']
 - [fir_filter_xxx_1, '0', satellites_satellite_decoder_0, '0']
 - [pdu_pdu_to_tagged_stream_0, '0', digital_gfsk_mod_0, '0']
 - [satellites_satellite_decoder_0, out, satellites_hexdump_sink_0, in]
