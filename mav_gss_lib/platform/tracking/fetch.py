@@ -1,5 +1,9 @@
 """TLE fetch from CelesTrak (primary) and Space-Track (fallback).
 
+Both providers are pulled as GP CSV and re-encoded to TLE lines locally via
+sgp4 — CelesTrak serves no TLE/3LE format for catalog numbers above 99999
+(the Alpha-5 range) while its CSV carries the same elements for every object.
+
 Pure and offline-testable: all outbound HTTP flows through an injected
 `http_opener` (defaults to a urllib opener), so unit tests pass canned bytes and
 the suite never touches the network. This is the ONLY backend module that
@@ -9,6 +13,8 @@ Author: Irfan Annuar - USC ISI SERC
 """
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
 import re
@@ -21,6 +27,8 @@ from http.cookiejar import CookieJar
 from typing import Callable, Literal
 
 import numpy as np
+from sgp4 import exporter, omm
+from sgp4.api import Satrec
 from skyfield.api import load
 
 from .propagation import (
@@ -65,28 +73,34 @@ def detect_identifier(value: str) -> tuple[IdentifierKind, str]:
 
 def celestrak_url(kind: IdentifierKind, value: str) -> str:
     param = {"catnr": "CATNR", "intdes": "INTDES", "name": "NAME"}[kind]
-    query = urllib.parse.urlencode({param: value, "FORMAT": "TLE"})
+    query = urllib.parse.urlencode({param: value, "FORMAT": "CSV"})
     return f"{CELESTRAK_BASE}?{query}"
 
 
-def parse_tle_blocks(text: str) -> list[tuple[str, str, str]]:
+def parse_gp_csv(text: str) -> list[tuple[str, str, str]]:
+    """Convert a GP CSV response (CelesTrak or Space-Track column set) into
+    (name, line1, line2) TLE blocks via sgp4's OMM reader + TLE exporter.
+    The re-encoding is element-exact vs CelesTrak's own TLE output (byte-
+    identical on the Alpha-5 golden fixture; zero-exponent fields may render
+    with the opposite sign convention). Rows that fail conversion are dropped."""
     head = text.lstrip()[:40].upper()
     if any(head.startswith(p) for p in _REJECT_PREFIXES):
         return []
-    lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    try:
+        rows = list(omm.parse_csv(io.StringIO(text)))
+    except csv.Error:
+        return []
     out: list[tuple[str, str, str]] = []
-    i = 0
-    while i < len(lines):
-        if lines[i].startswith("1 ") and i + 1 < len(lines) and lines[i + 1].startswith("2 "):
-            out.append(("", lines[i], lines[i + 1]))
-            i += 2
-        elif (i + 2 < len(lines)
-              and lines[i + 1].startswith("1 ")
-              and lines[i + 2].startswith("2 ")):
-            out.append((lines[i].strip(), lines[i + 1], lines[i + 2]))
-            i += 3
-        else:
-            i += 1
+    for fields in rows:
+        try:
+            if "." not in fields["EPOCH"]:
+                fields["EPOCH"] += ".0"  # sgp4's OMM strptime requires fractional seconds
+            sat = Satrec()
+            omm.initialize(sat, fields)
+            line1, line2 = exporter.export_tle(sat)
+        except (KeyError, TypeError, ValueError):
+            continue
+        out.append(((fields.get("OBJECT_NAME") or "").strip(), line1, line2))
     return out
 
 
@@ -161,7 +175,7 @@ def _fetch_celestrak(opener, identifier: str, *, now_ms: int) -> FetchResult:
         text = _http_get(opener, celestrak_url(kind, value))
     except (urllib.error.URLError, OSError) as exc:
         return FetchResult(ok=False, detail=f"celestrak request failed: {type(exc).__name__}")
-    blocks = parse_tle_blocks(text)
+    blocks = parse_gp_csv(text)
     if not blocks:
         return FetchResult(ok=False, detail="celestrak returned no usable TLE")
     try:
@@ -185,13 +199,13 @@ def _fetch_spacetrack(opener, identifier: str, env: dict, *, now_ms: int) -> Fet
     login = urllib.parse.urlencode({"identity": user, "password": pwd}).encode()
     query = (f"{SPACETRACK_BASE}/basicspacedata/query/class/gp/{predicate}/"
              f"{urllib.parse.quote(value)}/orderby/{urllib.parse.quote('EPOCH desc')}"
-             f"/limit/1/format/tle")
+             f"/limit/1/format/csv")
     try:
         _http_get(opener, f"{SPACETRACK_BASE}/ajaxauth/login", data=login)
         text = _http_get(opener, query)
     except (urllib.error.URLError, OSError):
         return FetchResult(ok=False, detail="space-track request failed")
-    blocks = parse_tle_blocks(text)
+    blocks = parse_gp_csv(text)
     if not blocks:
         return FetchResult(ok=False, detail="space-track returned no usable TLE")
     try:
