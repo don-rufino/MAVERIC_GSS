@@ -1,0 +1,34 @@
+# SUCHAI-4 mission database (RX-only, believed/unclaimed).
+#
+# NORAD 69911, "Transporter-17 Object AU" — believed to be SUCHAI-4
+# (Universidad de Chile) based on frequency (437.250 MHz) and framing
+# (AX100 Mode 5 ASM+Golay, 4k8 FSK) matching gr-satellites' SUCHAI-3.yml
+# transmitter entry, the closest known predecessor in the same bus
+# family. Not an official catalog claim.
+#
+# Real captures (2026-08-28) decode as a consistent big-endian CSP v1
+# header (prio=2, src=1, dest=30, dport=20 on all three frames) — no
+# public housekeeping payload format, so frames are logged raw with CSP
+# header facts only, same as luojia1/roads/suomi100.
+schema_version: 1
+id: suchai4
+name: "SUCHAI-4 (unclaimed)"
+header:
+  version: "1.0.0"
+  date: "2026-09-02"
+  description: "SUCHAI-4 RX-only declarative mission database"
+
+parameter_types: {}
+
+parameters: {}
+
+sequence_containers: {}
+
+ui:
+  rx_columns:
+    - { id: type,  label: type, width: 52, path: header.type, badge: true,
+        value_icons: { BCN: telemetry, TLM: file }, default_icon: unknown }
+    - { id: src,   label: src,  width: 44, align: right, path: header.src }
+    - { id: dst,   label: dst,  width: 44, align: right, path: header.dst }
+    - { id: dport, label: port, width: 44, align: right, path: header.dport }
+    - { id: len,   label: len,  width: 48, align: right, path: header.len }

@@ -1,0 +1,25 @@
+# SUCHAI-4 downlink decoder profile (believed/unclaimed — see mission.yml).
+#
+# NORAD 69911 ("Transporter-17 Object AU"). Frequency and framing
+# confirmed against three real captures (2026-08-28), matching
+# gr-satellites' SUCHAI-3.yml "4k8 FSK downlink" transmitter entry
+# exactly (same Universidad de Chile SUCHAI bus family, closest known
+# predecessor). Peak deviation (1600 Hz) is inherited from SUCHAI-3's
+# profile as the best available reference, not independently confirmed
+# for SUCHAI-4 — revisit if demod quality suggests otherwise.
+
+name: SUCHAI-4
+norad: 69911
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  4k8 FSK AX100 ASM+Golay downlink:
+    frequency: 437.250e+6
+    modulation: FSK
+    baudrate: 4800
+    deviation: 1600
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm

@@ -58,6 +58,9 @@ EXPECTED = {
         (1200, 1200, "Astrocast FX.25 NRZ-I", 437_150_000),
         (1200, 1200, "Astrocast FX.25 NRZ", 437_150_000),
     },
+    "SUCHAI4_DECODER.yml": {
+        (4800, 1600, M5, 437_250_000),
+    },
 }
 
 MISSION_PROFILE = {
@@ -72,6 +75,7 @@ MISSION_PROFILE = {
     "nushsat1": "NUSHSAT1_DECODER.yml",
     "sharjahsat": "SHARJAHSAT_DECODER.yml",
     "astrocast": "ASTROCAST_DECODER.yml",
+    "suchai4": "SUCHAI4_DECODER.yml",
 }
 
 
