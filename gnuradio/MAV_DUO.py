@@ -200,7 +200,7 @@ class _WaterfallLogger(gr.sync_block):
     """
 
     FFT_SIZE = 1024
-    FFTS_PER_ROW = 20  # ~9.8 rows/s at 200 ksps; scales down with the display rate
+    FFTS_PER_ROW = 10  # ~9.8 rows/s at 200 ksps; scales down with the display rate
 
     def __init__(self, samp_rate=200_000.0):
         gr.sync_block.__init__(self, name="waterfall_logger",
@@ -840,12 +840,13 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.tx_actual_freq_label = tx_actual_freq_label = tx_actual_freq
         self.samp_ratetx = samp_ratetx = 2400000
         self.samp_rate = samp_rate = 1000000
-        self.rx_lo_offset = rx_lo_offset = float(__import__('os').environ.get('GSS_RX_LO_OFFSET_HZ', 250e3))
+        self.rx_lo_offset = rx_lo_offset = float(__import__('os').environ.get('GSS_RX_LO_OFFSET_HZ', 100e3))
         self.rx_freq = rx_freq = float(__import__('os').environ.get('GSS_RX_FREQ_HZ', 437.575e6))
         self.rx_decim = rx_decim = 5
         self.rx_actual_freq_label = rx_actual_freq_label = rx_actual_freq
         self.rx_gain = rx_gain = float(__import__('os').environ.get('GSS_RX_GAIN', 40))
-        self.rx_bw = rx_bw = float(__import__('os').environ.get('GSS_RX_BW_HZ', 50e3))
+        self.rx_bw = rx_bw = float(__import__('os').environ.get('GSS_RX_BW_HZ', 20e3))
+        self.bw0 = bw0 = float(__import__('os').environ.get('GSS_RX_BW0_HZ', 280e3))
         self.disp_decim = disp_decim = max(1, min(20, int((samp_rate / (2 * rx_decim)) // rx_bw)))
         self.rf_gain = rf_gain = 50
         self.modindex = modindex = 1/1.5
@@ -884,6 +885,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.uhd_usrp_source_0.set_center_freq(uhd.tune_request(rx_freq, rx_lo_offset), 0)
         self.uhd_usrp_source_0.set_antenna("RX2", 0)
         self.uhd_usrp_source_0.set_gain(rx_gain, 0)
+        self.uhd_usrp_source_0.set_bandwidth(bw0,0)
         self.uhd_usrp_sink_0 = uhd.usrp_sink(
             ",".join(("", "")),
             uhd.stream_args(
@@ -1160,7 +1162,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         for c in range(1, 2):
             self.top_grid_layout.setColumnStretch(c, 1)
         self.pdu_pdu_to_tagged_stream_0 = pdu.pdu_to_tagged_stream(gr.types.byte_t, 'packet_len')
-        self.fir_filter_xxx_1 = filter.fir_filter_ccf(rx_decim, firdes.low_pass(2.0, samp_rate, rx_bw, 15e3))
+        self.fir_filter_xxx_1 = filter.fir_filter_ccf(rx_decim, firdes.low_pass(1.0, samp_rate, rx_bw, 15e3))
         self.fir_filter_xxx_1.declare_sample_delay(0)
         # Display-only zoom: the GUI freq/waterfall span tracks the selected
         # channel (view Nyquist = 100k/disp_decim >= rx_bw), rebuilt at radio
@@ -1308,7 +1310,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
-        self.fir_filter_xxx_1.set_taps(firdes.low_pass(2.0, self.samp_rate, self.rx_bw, 15e3))
+        self.fir_filter_xxx_1.set_taps(firdes.low_pass(1.0, self.samp_rate, self.rx_bw, 15e3))
         self.qtgui_freq_sink_x_1.set_frequency_range(0, (self.samp_rate/self.rx_decim/self.disp_decim))
         self.qtgui_waterfall_sink_x_0.set_frequency_range(0, (self.samp_rate/self.rx_decim/self.disp_decim))
         self.uhd_usrp_source_0.set_samp_rate(self.samp_rate)
@@ -1370,7 +1372,14 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_rx_bw(self, rx_bw):
         self.rx_bw = rx_bw
-        self.fir_filter_xxx_1.set_taps(firdes.low_pass(2.0, self.samp_rate, self.rx_bw, 15e3))
+        self.fir_filter_xxx_1.set_taps(firdes.low_pass(1.0, self.samp_rate, self.rx_bw, 15e3))
+
+    def get_bw0(self):
+        return self.bw0
+
+    def set_bw0(self, bw0):
+        self.bw0 = bw0
+        self.uhd_usrp_source_0.set_bandwidth(self.bw0, 0)
 
     def get_disp_decim(self):
         return self.disp_decim
