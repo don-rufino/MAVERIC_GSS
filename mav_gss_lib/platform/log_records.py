@@ -255,3 +255,59 @@ def tracking_event_record(
             "detail": detail,
         },
     }
+
+
+def tracking_sample_record(
+    doppler: dict[str, Any],
+    *,
+    session_id: str,
+    version: str,
+    source: str,
+    mission_id: str = "",
+    operator: str = "",
+    station: str = "",
+    event_id: str | None = None,
+) -> dict[str, Any]:
+    """Build one tracking-sample record: az/el + requested Doppler-corrected
+    RX/TX frequencies at one instant.
+
+    *doppler* is the dict TrackingService.doppler() returns — every
+    DopplerCorrection field (ts_ms, mode, range_rate_mps, rx/tx_hz,
+    rx/tx_shift_hz, rx/tx_tune_hz) plus elevation_deg/azimuth_deg/range_km.
+    *source* distinguishes a background tick sample ("tick") from one taken
+    at the moment of a TX attempt ("tx_attempt"), so post-pass review can
+    tell which rows are guaranteed to bracket an actual uplink.
+
+    Only ever carries *requested* values — there is no UHD read-back of the
+    actual applied LO/DSP yet (see project memory
+    mav_duo_frequency_diagnostic_logging.md, part 4, deferred).
+    """
+    ts_ms = int(doppler.get("ts_ms", 0))
+    return {
+        "event_id": event_id or new_event_id(),
+        "event_kind": "tracking_sample",
+        "session_id": session_id,
+        "ts_ms": ts_ms,
+        "ts_iso": ts_iso(ts_ms),
+        "seq": 0,
+        "v": version,
+        "mission_id": mission_id,
+        "operator": operator,
+        "station": station,
+        "tracking_sample": {
+            "source": source,
+            "mode": doppler.get("mode", ""),
+            "station_id": doppler.get("station_id", ""),
+            "satellite": doppler.get("satellite", ""),
+            "elevation_deg": doppler.get("elevation_deg"),
+            "azimuth_deg": doppler.get("azimuth_deg"),
+            "range_km": doppler.get("range_km"),
+            "range_rate_mps": doppler.get("range_rate_mps"),
+            "rx_hz": doppler.get("rx_hz"),
+            "rx_shift_hz": doppler.get("rx_shift_hz"),
+            "rx_tune_hz": doppler.get("rx_tune_hz"),
+            "tx_hz": doppler.get("tx_hz"),
+            "tx_shift_hz": doppler.get("tx_shift_hz"),
+            "tx_tune_hz": doppler.get("tx_tune_hz"),
+        },
+    }

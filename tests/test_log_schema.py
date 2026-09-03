@@ -28,7 +28,8 @@ _ENVELOPE_KEYS = {
     "seq", "v", "mission_id", "operator", "station",
 }
 
-_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm", "radio", "tracking"}
+_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm", "radio", "tracking",
+                   "tracking_sample"}
 
 
 def _assert_envelope(rec: dict) -> None:
@@ -282,3 +283,49 @@ def test_tracking_event_envelope_shape():
     assert lines[1]["tracking"]["action"] == "disconnect"
     assert lines[1]["tracking"]["mode"] == "disconnected"
     assert lines[1]["tracking"]["prev_mode"] == "connected"
+
+
+def test_tracking_sample_envelope_shape():
+    doppler = {
+        "ts_ms": 1714053603500,
+        "mode": "connected",
+        "station_id": "GS-0",
+        "satellite": "MAVERIC",
+        "elevation_deg": 42.5,
+        "azimuth_deg": 187.3,
+        "range_km": 612.4,
+        "range_rate_mps": -6120.0,
+        "rx_hz": 437_575_000.0,
+        "rx_shift_hz": 8900.0,
+        "rx_tune_hz": 437_583_900.0,
+        "tx_hz": 437_575_000.0,
+        "tx_shift_hz": -8900.0,
+        "tx_tune_hz": 437_566_100.0,
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        log = SessionLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="5.7.0",
+                    mission_id="maveric", station="GS-0", operator="irfan")
+        try:
+            log.write_tracking_sample(doppler, source="tick")
+            log.write_tracking_sample({**doppler, "ts_ms": 1714053604500}, source="tx_attempt")
+        finally:
+            log.close()
+
+        with open(log.jsonl_path) as f:
+            lines = [json.loads(l) for l in f if l.strip()]
+
+    assert len(lines) == 2
+    for rec in lines:
+        _assert_envelope(rec)
+        assert rec["event_kind"] == "tracking_sample"
+        assert rec["mission_id"] == "maveric"
+        assert rec["station"] == "GS-0"
+        assert rec["seq"] == 0
+        assert rec["tracking_sample"]["mode"] == "connected"
+        assert rec["tracking_sample"]["elevation_deg"] == 42.5
+        assert rec["tracking_sample"]["azimuth_deg"] == 187.3
+        assert rec["tracking_sample"]["rx_tune_hz"] == 437_583_900.0
+        assert rec["tracking_sample"]["tx_tune_hz"] == 437_566_100.0
+
+    assert lines[0]["tracking_sample"]["source"] == "tick"
+    assert lines[1]["tracking_sample"]["source"] == "tx_attempt"

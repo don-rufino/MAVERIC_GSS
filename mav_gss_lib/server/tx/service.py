@@ -255,6 +255,7 @@ class TxService:
                 )
             except Exception as exc:
                 logging.warning("TX log write failed: %s", exc)
+            self._log_tx_tracking_sample()
 
         hist_entry = {
             "n": self.count,
@@ -276,6 +277,23 @@ class TxService:
             del self.history[: len(self.history) - self.runtime.max_history]
         return hist_entry
 
+    def _log_tx_tracking_sample(self) -> None:
+        """Best-effort: log a tracking_sample tagged source="tx_attempt" at
+        the moment a command is sent, so this uplink attempt's az/el and
+        requested Doppler-corrected frequency are recorded even in throttled
+        cadence mode (which otherwise only logs background ticks
+        periodically). Reads the last-published tick rather than
+        recomputing, so a TX send never triggers an extra Doppler-sink
+        publish as a side effect."""
+        broadcaster = getattr(self.runtime, "doppler_broadcaster", None)
+        latest = getattr(broadcaster, "latest", None) if broadcaster is not None else None
+        doppler = latest.get("doppler") if isinstance(latest, dict) else None
+        if not doppler or not hasattr(self.log, "write_tracking_sample"):
+            return
+        try:
+            self.log.write_tracking_sample(doppler, source="tx_attempt")
+        except Exception as exc:
+            logging.warning("TX tracking-sample log failed: %s", exc)
 
     async def run_send(self) -> None:
         """Public entry to the serialized TX send loop.

@@ -61,6 +61,7 @@ async def doppler_tick_loop(
     *,
     period_s_override: float | None = None,
 ) -> None:
+    last_logged_ms: int | None = None
     while True:
         try:
             correction = await asyncio.to_thread(runtime.tracking.doppler)
@@ -69,11 +70,16 @@ async def doppler_tick_loop(
             # broadcast lands during that window, the in-flight tick would
             # otherwise publish a stale `connected` frame after it.
             correction["mode"] = runtime.tracking.doppler_mode
+            now_ms = int(time.time() * 1000)
             await broadcaster.publish({
                 "type": "doppler",
                 "doppler": correction,
-                "ts_ms": int(time.time() * 1000),
+                "ts_ms": now_ms,
             })
+            control = _control_config(runtime)
+            if _cadence_due(control, last_logged_ms, now_ms):
+                last_logged_ms = now_ms
+                _log_tracking_sample(runtime, correction, source="tick")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -87,10 +93,39 @@ async def doppler_tick_loop(
         await asyncio.sleep(period_s)
 
 
-def _resolve_period(runtime: "WebRuntime") -> float:
+def _control_config(runtime: "WebRuntime") -> dict:
     with runtime.cfg_lock:
-        control = get_tracking_control(runtime.platform_cfg or {})
-    return max(0.1, control["tick_period_s"])
+        return get_tracking_control(runtime.platform_cfg or {})
+
+
+def _resolve_period(runtime: "WebRuntime") -> float:
+    return max(0.1, _control_config(runtime)["tick_period_s"])
+
+
+def _cadence_due(control: dict, last_logged_ms: int | None, now_ms: int) -> bool:
+    """True when a background tick sample should be logged, per the
+    tracking.control.log_cadence setting. "tick" logs every call; anything
+    else (default "tx_throttled") logs at most once per log_decimation_s.
+    TX attempts always log their own sample regardless of this — see
+    TxService._record_sent — this only throttles the idle/background rate."""
+    if control.get("log_cadence") == "tick":
+        return True
+    if last_logged_ms is None:
+        return True
+    decimation_s = max(0.1, float(control.get("log_decimation_s", 5.0)))
+    return (now_ms - last_logged_ms) >= decimation_s * 1000.0
+
+
+def _log_tracking_sample(runtime: "WebRuntime", correction: dict, *, source: str) -> None:
+    log = getattr(getattr(runtime, "rx", None), "log", None)
+    if log is None:
+        log = getattr(getattr(runtime, "tx", None), "log", None)
+    if log is None or not hasattr(log, "write_tracking_sample"):
+        return
+    try:
+        log.write_tracking_sample(correction, source=source)
+    except Exception:
+        _LOG.exception("tracking sample log failed")
 
 
 __all__ = ["DopplerBroadcaster", "doppler_tick_loop"]

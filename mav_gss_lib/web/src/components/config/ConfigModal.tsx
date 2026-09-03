@@ -338,6 +338,25 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
     })
   }, [])
 
+  const updateTrackingControl = useCallback((patch: Partial<NonNullable<PlatformTrackingConfig['control']>>) => {
+    setCfg((prev) => {
+      if (!prev) return prev
+      const tracking = prev.platform.tracking
+      const next = {
+        ...prev,
+        platform: {
+          ...prev.platform,
+          tracking: {
+            ...(tracking ?? {}),
+            control: { ...(tracking?.control ?? {}), ...patch },
+          } as PlatformTrackingConfig,
+        },
+      }
+      setDirty(true)
+      return next
+    })
+  }, [])
+
   const updateTrackingFetch = useCallback((patch: Partial<NonNullable<PlatformTrackingConfig['tle_fetch']>>) => {
     setCfg((prev) => {
       if (!prev) return prev
@@ -565,6 +584,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       { id: 'auto_refresh', label: 'Auto-refresh', description: 'Periodically re-fetch elements.', control: { kind: 'toggle', value: cfg.platform.tracking?.tle_fetch?.auto_refresh ?? false, onChange: (v) => updateTrackingFetch({ auto_refresh: v }) } },
       { id: 'refresh_hours', label: 'Refresh interval', description: 'How often to re-fetch while enabled.', control: { kind: 'number', unit: 'hours', value: cfg.platform.tracking?.tle_fetch?.refresh_interval_hours ?? 12, onChange: (v) => updateTrackingFetch({ refresh_interval_hours: v }) } },
     )
+    const logCadence = cfg.platform.tracking?.control?.log_cadence ?? 'tx_throttled'
     out.push({
       id: 'tracking', title: 'Tracking', description: 'Orbit propagation and Doppler tuning source.',
       groups: [
@@ -573,6 +593,13 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
           { id: 'tle', label: 'Two-line elements (TLE)', description: 'Name, line 1, line 2 — applied live on the next tick.', control: { kind: 'tle', draft: tleDraft, onChange: handleTleDraftChange } },
         ]},
         { title: 'Auto-fetch', rows: autoFetchRows },
+        { title: 'Diagnostic logging', rows: [
+          { id: 'log_cadence', label: 'Tracking sample rate', description: 'How often az/el and requested Doppler-corrected RX/TX frequencies are written to the session log. TX attempts always log their own sample regardless of this setting.', control: { kind: 'select', value: logCadence, options: [
+            { value: 'tx_throttled', label: 'TX attempts + throttled background' },
+            { value: 'tick', label: 'Every tick (1 Hz)' },
+          ], onChange: (v) => updateTrackingControl({ log_cadence: v as 'tick' | 'tx_throttled' }) } },
+          { id: 'log_decimation_s', label: 'Background sample interval', description: 'Minimum time between background samples while throttled. Ignored in "Every tick" mode.', control: { kind: 'number', unit: 's', value: cfg.platform.tracking?.control?.log_decimation_s ?? 5, onChange: (v) => updateTrackingControl({ log_decimation_s: v }) } },
+        ]},
       ],
     })
 
@@ -589,7 +616,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       out.push({ id: 'about', title: 'About', description: 'Session and build details.', groups: [{ title: 'Session', rows }] })
     }
     return out
-  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, missions, switchError, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingFetch, updateTrackingTle])
+  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, missions, switchError, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingControl, updateTrackingFetch, updateTrackingTle])
 
   const trimmed = search.trim()
   const contentPanes = trimmed ? panes : panes.filter((p) => p.id === activeCategory)

@@ -325,6 +325,10 @@ export interface PlatformTrackingConfig {
     refresh_interval_hours: number
     provider?: 'celestrak' | 'spacetrack'
   }
+  control?: {
+    log_cadence?: 'tick' | 'tx_throttled'
+    log_decimation_s?: number
+  }
 }
 
 export interface PlatformConfig {

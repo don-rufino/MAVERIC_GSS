@@ -269,7 +269,15 @@ class TrackingService:
         if self._doppler_mode == "connected":
             self._publish(correction)
         self._last_tick_ms = ts_ms
-        return asdict(correction)
+        # look angles are computed above to feed range_rate_mps into the
+        # correction, but were otherwise discarded — surface them here too
+        # so callers (the 1 Hz tick loop, tracking_sample logging) get az/el
+        # without paying for the much heavier tracking_state() call.
+        result = asdict(correction)
+        result["elevation_deg"] = look.elevation_deg
+        result["azimuth_deg"] = look.azimuth_deg
+        result["range_km"] = look.range_km
+        return result
 
     def status(self) -> dict:
         return {
