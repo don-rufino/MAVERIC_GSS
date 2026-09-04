@@ -584,7 +584,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       { id: 'auto_refresh', label: 'Auto-refresh', description: 'Periodically re-fetch elements.', control: { kind: 'toggle', value: cfg.platform.tracking?.tle_fetch?.auto_refresh ?? false, onChange: (v) => updateTrackingFetch({ auto_refresh: v }) } },
       { id: 'refresh_hours', label: 'Refresh interval', description: 'How often to re-fetch while enabled.', control: { kind: 'number', unit: 'hours', value: cfg.platform.tracking?.tle_fetch?.refresh_interval_hours ?? 12, onChange: (v) => updateTrackingFetch({ refresh_interval_hours: v }) } },
     )
-    const logCadence = cfg.platform.tracking?.control?.log_cadence ?? 'tx_throttled'
+    const logCadence = cfg.platform.tracking?.control?.log_cadence ?? 'off'
     out.push({
       id: 'tracking', title: 'Tracking', description: 'Orbit propagation and Doppler tuning source.',
       groups: [
@@ -594,11 +594,12 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
         ]},
         { title: 'Auto-fetch', rows: autoFetchRows },
         { title: 'Diagnostic logging', rows: [
-          { id: 'log_cadence', label: 'Tracking sample rate', description: 'How often az/el and requested Doppler-corrected RX/TX frequencies are written to the session log. TX attempts always log their own sample regardless of this setting.', control: { kind: 'select', value: logCadence, options: [
-            { value: 'tx_throttled', label: 'TX attempts + throttled background' },
-            { value: 'tick', label: 'Every tick (1 Hz)' },
-          ], onChange: (v) => updateTrackingControl({ log_cadence: v as 'tick' | 'tx_throttled' }) } },
-          { id: 'log_decimation_s', label: 'Background sample interval', description: 'Minimum time between background samples while throttled. Ignored in "Every tick" mode.', control: { kind: 'number', unit: 's', value: cfg.platform.tracking?.control?.log_decimation_s ?? 5, onChange: (v) => updateTrackingControl({ log_decimation_s: v }) } },
+          { id: 'log_cadence', label: 'Background tracking sample rate', description: 'Every RX decode and TX attempt always logs its own az/el and requested Doppler-corrected frequencies, regardless of this setting. This only controls an additional background trace between those, for reviewing the dead air of a pass.', control: { kind: 'select', value: logCadence, options: [
+            { value: 'off', label: 'Off (default) — RX/TX only' },
+            { value: 'tx_throttled', label: 'Throttled background trace' },
+            { value: 'tick', label: 'Full background trace (1 Hz)' },
+          ], onChange: (v) => updateTrackingControl({ log_cadence: v as 'off' | 'tick' | 'tx_throttled' }) } },
+          { id: 'log_decimation_s', label: 'Background sample interval', description: 'Minimum time between background samples while throttled. Ignored in "Off" and "Full background trace" modes.', control: { kind: 'number', unit: 's', value: cfg.platform.tracking?.control?.log_decimation_s ?? 5, onChange: (v) => updateTrackingControl({ log_decimation_s: v }) } },
         ]},
       ],
     })

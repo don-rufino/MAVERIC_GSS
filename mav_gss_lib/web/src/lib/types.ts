@@ -326,7 +326,7 @@ export interface PlatformTrackingConfig {
     provider?: 'celestrak' | 'spacetrack'
   }
   control?: {
-    log_cadence?: 'tick' | 'tx_throttled'
+    log_cadence?: 'off' | 'tick' | 'tx_throttled'
     log_decimation_s?: number
   }
 }
