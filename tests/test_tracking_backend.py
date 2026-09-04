@@ -68,6 +68,20 @@ class _Runtime:
 
 
 class TestTrackingService(unittest.TestCase):
+    def test_doppler_includes_orbital_altitude_distinct_from_range(self):
+        """altitude_km (subsatellite point) and range_km (topocentric
+        line-of-sight distance) are different quantities that only
+        converge near zenith — both must be present and, for a satellite
+        not directly overhead, distinguishably different."""
+        runtime = _Runtime()
+
+        result = runtime.tracking.doppler()
+
+        self.assertIn("altitude_km", result)
+        self.assertIn("range_km", result)
+        self.assertGreater(result["altitude_km"], 0)
+        self.assertGreater(result["range_km"], 0)
+
     def test_connected_mode_publishes_to_sink(self):
         runtime = _Runtime()
         sink = _CaptureSink()

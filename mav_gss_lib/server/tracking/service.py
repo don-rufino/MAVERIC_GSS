@@ -28,7 +28,9 @@ from mav_gss_lib.platform.tracking import (
 )
 from mav_gss_lib.config import get_tracking_control
 from mav_gss_lib.platform.tracking.models import DopplerMode
-from mav_gss_lib.platform.tracking.propagation import look_angles_at, doppler_correction
+from mav_gss_lib.platform.tracking.propagation import (
+    look_angles_at, doppler_correction, satellite_point_at,
+)
 
 if TYPE_CHECKING:
     from mav_gss_lib.server.state import WebRuntime
@@ -277,6 +279,15 @@ class TrackingService:
         result["elevation_deg"] = look.elevation_deg
         result["azimuth_deg"] = look.azimuth_deg
         result["range_km"] = look.range_km
+        # Orbital altitude (subsatellite point straight down to the ground
+        # track) is a different quantity from range_km above (the
+        # topocentric line-of-sight distance from this station, which only
+        # approaches altitude near zenith and grows much larger at low/
+        # negative elevation) — surfaced separately so a log reader isn't
+        # left comparing range_km against an expected orbit altitude.
+        # satellite_point_at() is as cheap as look_angles_at(), same
+        # reasoning as the comment above.
+        result["altitude_km"] = satellite_point_at(satellite, ts_ms).altitude_km
         return result
 
     def status(self) -> dict:

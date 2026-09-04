@@ -294,6 +294,7 @@ def test_tracking_sample_envelope_shape():
         "elevation_deg": 42.5,
         "azimuth_deg": 187.3,
         "range_km": 612.4,
+        "altitude_km": 587.2,
         "range_rate_mps": -6120.0,
         "rx_hz": 437_575_000.0,
         "rx_shift_hz": 8900.0,
@@ -325,6 +326,8 @@ def test_tracking_sample_envelope_shape():
         assert rec["tracking_sample"]["elevation_deg"] == 42.5
         assert rec["tracking_sample"]["azimuth_deg"] == 187.3
         assert rec["tracking_sample"]["rx_tune_hz"] == 437_583_900.0
+        assert rec["tracking_sample"]["range_km"] == 612.4
+        assert rec["tracking_sample"]["altitude_km"] == 587.2
         assert rec["tracking_sample"]["tx_tune_hz"] == 437_566_100.0
 
     assert lines[0]["tracking_sample"]["source"] == "tick"

@@ -187,6 +187,7 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
   const el = Number(t.elevation_deg)
   const az = Number(t.azimuth_deg)
   const range = Number(t.range_km)
+  const altitude = Number(t.altitude_km)
   const rr = Number(t.range_rate_mps)
   const shiftHz = Number(direction === 'rx' ? t.rx_shift_hz : t.tx_shift_hz)
   const tuneHz = Number(direction === 'rx' ? t.rx_tune_hz : t.tx_tune_hz)
@@ -212,9 +213,10 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
           {direction === 'rx' ? 'rx_decode' : 'tx_attempt'} &middot; &Delta;{fmtSigned(deltaS, 2)}s
         </span>
       </div>
-      <div className="grid grid-cols-4 gap-x-4 gap-y-1">
+      <div className="grid grid-cols-5 gap-x-3 gap-y-1">
         <TrackingDataCell label="Elevation" value={Number.isFinite(el) ? `${el.toFixed(1)}°` : '--'} />
         <TrackingDataCell label="Azimuth" value={Number.isFinite(az) ? `${az.toFixed(1)}°` : '--'} />
+        <TrackingDataCell label="Altitude" value={Number.isFinite(altitude) ? `${altitude.toFixed(0)} km` : '--'} />
         <TrackingDataCell label="Range" value={Number.isFinite(range) ? `${range.toFixed(0)} km` : '--'} />
         <TrackingDataCell label="Range Rate" value={Number.isFinite(rr) ? `${fmtSigned(rr, 1)} m/s` : '--'} />
       </div>

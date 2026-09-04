@@ -274,7 +274,11 @@ def tracking_sample_record(
 
     *doppler* is the dict TrackingService.doppler() returns — every
     DopplerCorrection field (ts_ms, mode, range_rate_mps, rx/tx_hz,
-    rx/tx_shift_hz, rx/tx_tune_hz) plus elevation_deg/azimuth_deg/range_km.
+    rx/tx_shift_hz, rx/tx_tune_hz) plus elevation_deg/azimuth_deg/range_km/
+    altitude_km. range_km is the topocentric line-of-sight distance from
+    the station (what matters for Doppler/pointing); altitude_km is the
+    satellite's height above the ground track (the subsatellite point) —
+    the two are different quantities and only converge near zenith.
     *source* distinguishes a background tick sample ("tick") from one taken
     at the exact moment of a downlink decode ("rx_decode") or a TX attempt
     ("tx_attempt"), so post-pass review can tell which rows are guaranteed
@@ -310,6 +314,7 @@ def tracking_sample_record(
             "elevation_deg": doppler.get("elevation_deg"),
             "azimuth_deg": doppler.get("azimuth_deg"),
             "range_km": doppler.get("range_km"),
+            "altitude_km": doppler.get("altitude_km"),
             "range_rate_mps": doppler.get("range_rate_mps"),
             "rx_hz": doppler.get("rx_hz"),
             "rx_shift_hz": doppler.get("rx_shift_hz"),
