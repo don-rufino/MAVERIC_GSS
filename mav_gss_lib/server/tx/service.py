@@ -290,8 +290,10 @@ class TxService:
         doppler = latest.get("doppler") if isinstance(latest, dict) else None
         if not doppler or not hasattr(self.log, "write_tracking_sample"):
             return
+        radio = getattr(self.runtime, "radio", None)
+        actual = getattr(radio, "latest_tune_result", None) if radio is not None else None
         try:
-            self.log.write_tracking_sample(doppler, source="tx_attempt")
+            self.log.write_tracking_sample(doppler, source="tx_attempt", actual=actual)
         except Exception as exc:
             logging.warning("TX tracking-sample log failed: %s", exc)
 

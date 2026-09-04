@@ -199,12 +199,16 @@ class SessionLog(_BaseLog):
             detail=detail,
         ))
 
-    def write_tracking_sample(self, doppler: dict[str, Any], *, source: str) -> None:
+    def write_tracking_sample(
+        self, doppler: dict[str, Any], *, source: str,
+        actual: dict[str, Any] | None = None,
+    ) -> None:
         """Append one tracking-sample event: az/el + requested Doppler-corrected
         RX/TX frequencies at one instant. *doppler* is the dict
         TrackingService.doppler() returns. *source* is "tick" for a
         background sample, "rx_decode" for one taken at downlink decode time,
-        or "tx_attempt" for one taken at TX send time — see
+        or "tx_attempt" for one taken at TX send time. *actual*, when given,
+        is RadioService.latest_tune_result — see
         platform.log_records.tracking_sample_record."""
         from mav_gss_lib.platform.log_records import tracking_sample_record
 
@@ -216,4 +220,5 @@ class SessionLog(_BaseLog):
             mission_id=self._mission_id,
             operator=self._operator,
             station=self._station,
+            actual=actual,
         ))

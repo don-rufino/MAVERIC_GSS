@@ -190,6 +190,9 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
   const rr = Number(t.range_rate_mps)
   const shiftHz = Number(direction === 'rx' ? t.rx_shift_hz : t.tx_shift_hz)
   const tuneHz = Number(direction === 'rx' ? t.rx_tune_hz : t.tx_tune_hz)
+  const actualHz = Number(direction === 'rx' ? t.rx_actual_hz : t.tx_actual_hz)
+  const hasActual = Number.isFinite(actualHz)
+  const deltaHz = hasActual && Number.isFinite(tuneHz) ? actualHz - tuneHz : NaN
   const dirColor = direction === 'rx' ? colors.info : colors.label
   const deltaS = match.deltaMs / 1000
   return (
@@ -217,8 +220,14 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
         <TrackingDataCell label={`${direction.toUpperCase()} Shift`} value={Number.isFinite(shiftHz) ? `${fmtSigned(shiftHz, 0)} Hz` : '--'} tone={dirColor} />
-        <TrackingDataCell label={`${direction.toUpperCase()} Tune`} value={Number.isFinite(tuneHz) ? `${fmtHz(tuneHz)} Hz` : '--'} tone={dirColor} />
+        <TrackingDataCell label={`${direction.toUpperCase()} Tune (requested)`} value={Number.isFinite(tuneHz) ? `${fmtHz(tuneHz)} Hz` : '--'} tone={dirColor} />
       </div>
+      {hasActual && (
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
+          <TrackingDataCell label={`${direction.toUpperCase()} Tune (actual)`} value={`${fmtHz(actualHz)} Hz`} tone={dirColor} />
+          <TrackingDataCell label="Δ actual − requested" value={Number.isFinite(deltaHz) ? `${fmtSigned(deltaHz, 1)} Hz` : '--'} />
+        </div>
+      )}
     </div>
   )
 }

@@ -509,6 +509,22 @@ class RadioServiceConfigTests(unittest.TestCase):
         svc._ingest_tx_health("TX_HEALTH {not json")
         self.assertEqual(svc.status()["tx_health"]["underflows_total"], 3)
 
+    def test_tune_result_lines_surface_via_latest_tune_result(self):
+        svc = RadioService(_fake_runtime())
+        self.assertIsNone(svc.latest_tune_result)
+        svc._ingest_tune_result(
+            'TUNE_RESULT {"rx_actual_hz": 437583898.2, "tx_actual_hz": 437566101.9}')
+        result = svc.latest_tune_result
+        self.assertEqual(result["rx_actual_hz"], 437583898.2)
+        self.assertEqual(result["tx_actual_hz"], 437566101.9)
+        self.assertGreater(result["ts_ms"], 0)
+        # Malformed payloads never clobber the last good reading.
+        svc._ingest_tune_result("TUNE_RESULT {not json")
+        self.assertEqual(svc.latest_tune_result["rx_actual_hz"], 437583898.2)
+        # Not part of the general stdout scan unless the marker is present.
+        svc._ingest_tune_result("some unrelated log line")
+        self.assertEqual(svc.latest_tune_result["rx_actual_hz"], 437583898.2)
+
     def test_tx_health_is_marked_stale_while_running(self):
         svc = RadioService(_fake_runtime())
         svc.proc = _SignalProcess()

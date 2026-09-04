@@ -144,6 +144,7 @@ class RadioService:
         self._exit_callbacks: list[Callable[[], None]] = []
         self._stream_health: dict[str, Any] | None = None
         self._tx_health: dict[str, Any] | None = None
+        self._tune_result: dict[str, Any] | None = None
         self._capture_storage: dict[str, Any] | None = None
         self._run_log_path: Path | None = None
         # Set only after the current run's waiter has drained stdout,
@@ -665,6 +666,7 @@ class RadioService:
             self._command_snapshot = list(cmd)
             self._stream_health = None
             self._tx_health = None
+            self._tune_result = None
             self._terminal_done = terminal_done
             self._resize_log_if_needed()
             self._log.clear()
@@ -709,6 +711,7 @@ class RadioService:
                 if self.proc is proc:
                     self._ingest_stream_health(stamped)
                     self._ingest_tx_health(stamped)
+                    self._ingest_tune_result(stamped)
                     self._publish_log_line(stamped)
         except Exception as exc:
             logging.warning("radio stdout reader failed: %s", exc)
@@ -757,6 +760,39 @@ class RadioService:
             with self._state_lock:
                 self._tx_health = payload
             self._schedule_broadcast({"type": "status", "status": self.status()})
+
+    def _ingest_tune_result(self, line: str) -> None:
+        """Parse the flowgraph's read-only actual-tune heartbeat
+        (`TUNE_RESULT {json}`, from _TuneResultMonitor in MAV_DUO.py).
+
+        This is a UHD read-back (get_center_freq()), not a measurement
+        against any external reference -- it can confirm or refute a
+        requested-vs-applied mismatch inside the flowgraph's own tuning
+        arithmetic, but it cannot detect a reference-oscillator (TCXO) drift
+        common to both the request and the read-back. See
+        docs/step4_actual_tune_readback.pdf for the full distinction.
+        """
+        marker = line.find("TUNE_RESULT ")
+        if marker < 0:
+            return
+        try:
+            payload = json.loads(line[marker + len("TUNE_RESULT "):])
+        except (ValueError, TypeError):
+            return
+        if isinstance(payload, dict):
+            payload["ts_ms"] = int(time.time() * 1000)
+            with self._state_lock:
+                self._tune_result = payload
+
+    @property
+    def latest_tune_result(self) -> dict[str, Any] | None:
+        """Latest actual-tune reading (rx_actual_hz/tx_actual_hz/ts_ms), or
+        None if the flowgraph hasn't reported one yet this run. Read by
+        RxProjectionRunner._log_rx_tracking_sample and
+        TxService._log_tx_tracking_sample to attach alongside the requested
+        Doppler correction at RX-decode/TX-send time."""
+        with self._state_lock:
+            return dict(self._tune_result) if self._tune_result else None
 
     def _waiter(self, proc: subprocess.Popen[str],
                 run_log: "_RunLog | None" = None,

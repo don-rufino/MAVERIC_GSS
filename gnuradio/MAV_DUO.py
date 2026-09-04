@@ -792,6 +792,90 @@ class _TxAsyncMonitor(gr.basic_block):
         return True
 
 
+class _TuneResultMonitor(gr.basic_block):
+    """Read-only heartbeat reporting what the USRP is actually tuned to.
+
+    Deliberately makes no change to the existing tune-command path —
+    uhd_usrp_source_0/uhd_usrp_sink_0's 'command' message ports keep being
+    driven exactly as before, straight from the ZMQ doppler-correction
+    source, with gr-uhd's own internal handler applying the tune exactly as
+    it does today. This block only calls get_center_freq(), a pure
+    read-only query with no side effects, on a timer independent of that
+    path, and reports the result as structured `TUNE_RESULT {json}` lines
+    that RadioService parses — same convention as STREAM_HEALTH/TX_HEALTH.
+
+    This was deliberately chosen over intercepting/replacing the tune
+    command handling (which would let us also report UHD's separate
+    actual_rf_freq/actual_dsp_freq split) because it carries none of the
+    risk of altering how the radio actually tunes: nothing here can affect
+    real tuning behavior, only observe it after the fact. See
+    docs/step4_actual_tune_readback.pdf for the full comparison and the
+    standalone hardware verification behind this choice.
+
+    In addition to the idle heartbeat, a 'tune_cmd' input port is fed from
+    the *same* broadcast zeromq_sub_msg_source_rxcmd/txcmd already send to
+    uhd_usrp_source_0/sink_0 and the IQ recorders (message ports fan out to
+    any number of subscribers; this is one more, changing nothing about
+    the existing three). That triggers an extra report shortly after each
+    real tune change lands, instead of waiting for the next heartbeat tick.
+    """
+
+    def __init__(self, usrp_source, usrp_sink, report_every_s=1.0,
+                 settle_s=0.05):
+        gr.basic_block.__init__(self, name="tune_result_monitor",
+                                in_sig=[], out_sig=[])
+        self._source = usrp_source
+        self._sink = usrp_sink
+        self._every = float(report_every_s)
+        self._settle_s = float(settle_s)
+        self._stop_event = threading.Event()
+        self._thread = None
+        self.message_port_register_in(pmt.intern("tune_cmd"))
+        self.set_msg_handler(pmt.intern("tune_cmd"), self._on_tune_cmd)
+
+    def _report(self):
+        try:
+            rx_hz = self._source.get_center_freq(0)
+        except Exception:
+            rx_hz = None
+        try:
+            tx_hz = self._sink.get_center_freq(0)
+        except Exception:
+            tx_hz = None
+        print("TUNE_RESULT " + json.dumps({
+            "rx_actual_hz": rx_hz,
+            "tx_actual_hz": tx_hz,
+        }), flush=True)
+
+    def _on_tune_cmd(self, _message):
+        # Delivery order between this port and uhd_usrp_source_0/sink_0's
+        # own 'command' port on the same broadcast isn't guaranteed, so
+        # give gr-uhd's own handler a brief moment to finish applying the
+        # tune on its own thread before reading back. Blocking sleeps
+        # inside a message handler are an established pattern in this file
+        # (see _PttGate's lead_s/tail_s sequencing).
+        self._stop_event.wait(self._settle_s)
+        self._report()
+
+    def _heartbeat(self):
+        self._report()
+        while not self._stop_event.wait(self._every):
+            self._report()
+
+    def start(self):
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._heartbeat, name="tune-result", daemon=True)
+        self._thread.start()
+        return True
+
+    def stop(self):
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+        return True
+
+
 class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def __init__(self):
@@ -1184,6 +1268,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
                         'maveric:tap': 'pre_fir_1msps'})
         self.stream_health = _StreamHealthMonitor(samp_rate=samp_rate)
         self.tx_async_monitor = _TxAsyncMonitor()
+        self.tune_result_monitor = _TuneResultMonitor(
+            self.uhd_usrp_source_0, self.uhd_usrp_sink_0)
         self.digital_gfsk_mod_0 = digital.gfsk_mod(
             samples_per_symbol=(int(samp_ratetx/baud)),
             sensitivity=((pi*modindex) / int(samp_ratetx/baud)),
@@ -1207,6 +1293,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.iq_raw_recorder, 'command'))
         self.msg_connect((self.zeromq_sub_msg_source_txcmd, 'out'), (self.uhd_usrp_sink_0, 'command'))
         self.msg_connect((self.uhd_usrp_sink_0, 'async_msgs'), (self.tx_async_monitor, 'async'))
+        self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.tune_result_monitor, 'tune_cmd'))
+        self.msg_connect((self.zeromq_sub_msg_source_txcmd, 'out'), (self.tune_result_monitor, 'tune_cmd'))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.qtgui_freq_sink_x_0, 0))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.uhd_usrp_sink_0, 0))
         self.connect((self.digital_gfsk_mod_0, 0), (self.blocks_multiply_const_vxx_0, 0))

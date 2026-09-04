@@ -207,8 +207,10 @@ def _log_rx_tracking_sample(deps: RxProjectionDeps) -> None:
     log = deps.get_rx_log()
     if log is None or not hasattr(log, "write_tracking_sample"):
         return
+    radio = getattr(runtime, "radio", None)
+    actual = getattr(radio, "latest_tune_result", None) if radio is not None else None
     try:
-        log.write_tracking_sample(doppler, source="rx_decode")
+        log.write_tracking_sample(doppler, source="rx_decode", actual=actual)
     except Exception as exc:
         logging.warning("RX tracking-sample log failed: %s", exc)
 

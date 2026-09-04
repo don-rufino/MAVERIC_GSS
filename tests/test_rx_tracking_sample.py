@@ -1,18 +1,22 @@
 """RxProjectionRunner._log_rx_tracking_sample: RX decodes get their own
 tracking_sample row (source="rx_decode") from the last-published Doppler
 tick, mirroring TxService._log_tx_tracking_sample — without recomputing or
-re-publishing a fresh tune command."""
+re-publishing a fresh tune command. Also attaches RadioService's latest
+UHD read-back (requested-vs-actual), when one is available."""
 import unittest
 from unittest.mock import MagicMock
 
 from mav_gss_lib.server.rx.projections import RxProjectionDeps, _log_rx_tracking_sample
 
 
-def _deps_with_latest(doppler: dict | None, *, log: object | None) -> RxProjectionDeps:
+def _deps_with_latest(
+    doppler: dict | None, *, log: object | None, tune_result: dict | None = None,
+) -> RxProjectionDeps:
     runtime = MagicMock()
     runtime.doppler_broadcaster.latest = (
         {"type": "doppler", "doppler": doppler} if doppler is not None else None
     )
+    runtime.radio.latest_tune_result = tune_result
     return RxProjectionDeps(
         runtime=runtime,
         last_arrival_ms={},
@@ -31,7 +35,19 @@ class RxTrackingSampleTests(unittest.TestCase):
 
         _log_rx_tracking_sample(deps)
 
-        log.write_tracking_sample.assert_called_once_with(doppler, source="rx_decode")
+        log.write_tracking_sample.assert_called_once_with(
+            doppler, source="rx_decode", actual=None)
+
+    def test_attaches_latest_actual_tune_reading_when_available(self):
+        doppler = {"mode": "connected", "rx_tune_hz": 437_259_756.0}
+        tune_result = {"rx_actual_hz": 437_259_754.1, "tx_actual_hz": 437_240_243.8}
+        log = MagicMock()
+        deps = _deps_with_latest(doppler, log=log, tune_result=tune_result)
+
+        _log_rx_tracking_sample(deps)
+
+        log.write_tracking_sample.assert_called_once_with(
+            doppler, source="rx_decode", actual=tune_result)
 
     def test_does_not_recompute_or_republish(self):
         """Reads the broadcaster's cached latest value; never touches

@@ -7,13 +7,14 @@ from unittest.mock import MagicMock
 from mav_gss_lib.server.tx.service import TxService
 
 
-def _runtime_with_latest(doppler: dict | None):
+def _runtime_with_latest(doppler: dict | None, *, tune_result: dict | None = None):
     r = MagicMock()
     r.platform_cfg = {"tx": {"delay_ms": 100, "verifiers_enabled": True},
                        "general": {"log_dir": "/tmp"}}
     r.doppler_broadcaster.latest = (
         {"type": "doppler", "doppler": doppler} if doppler is not None else None
     )
+    r.radio.latest_tune_result = tune_result
     return TxService(r)
 
 
@@ -25,7 +26,19 @@ class TxTrackingSampleTests(unittest.TestCase):
 
         tx._log_tx_tracking_sample()
 
-        tx.log.write_tracking_sample.assert_called_once_with(doppler, source="tx_attempt")
+        tx.log.write_tracking_sample.assert_called_once_with(
+            doppler, source="tx_attempt", actual=None)
+
+    def test_attaches_latest_actual_tune_reading_when_available(self):
+        doppler = {"mode": "connected", "tx_tune_hz": 437_566_100.0}
+        tune_result = {"rx_actual_hz": 437_583_898.2, "tx_actual_hz": 437_566_101.9}
+        tx = _runtime_with_latest(doppler, tune_result=tune_result)
+        tx.log = MagicMock()
+
+        tx._log_tx_tracking_sample()
+
+        tx.log.write_tracking_sample.assert_called_once_with(
+            doppler, source="tx_attempt", actual=tune_result)
 
     def test_does_not_recompute_or_republish(self):
         """Reads the broadcaster's cached latest value; never touches

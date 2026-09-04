@@ -128,8 +128,10 @@ def _log_tracking_sample(runtime: "WebRuntime", correction: dict, *, source: str
         log = getattr(getattr(runtime, "tx", None), "log", None)
     if log is None or not hasattr(log, "write_tracking_sample"):
         return
+    radio = getattr(runtime, "radio", None)
+    actual = getattr(radio, "latest_tune_result", None) if radio is not None else None
     try:
-        log.write_tracking_sample(correction, source=source)
+        log.write_tracking_sample(correction, source=source, actual=actual)
     except Exception:
         _LOG.exception("tracking sample log failed")
 

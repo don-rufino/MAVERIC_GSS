@@ -329,3 +329,25 @@ def test_tracking_sample_envelope_shape():
 
     assert lines[0]["tracking_sample"]["source"] == "tick"
     assert lines[1]["tracking_sample"]["source"] == "tx_attempt"
+    # No actual= was passed -- both fields present but null, never omitted.
+    for rec in lines:
+        assert rec["tracking_sample"]["rx_actual_hz"] is None
+        assert rec["tracking_sample"]["tx_actual_hz"] is None
+
+
+def test_tracking_sample_carries_actual_tune_readback_when_given():
+    doppler = {"ts_ms": 1714053603500, "mode": "connected",
+               "rx_tune_hz": 437_583_900.0, "tx_tune_hz": 437_566_100.0}
+    actual = {"rx_actual_hz": 437_583_898.2, "tx_actual_hz": 437_566_101.9,
+              "ts_ms": 1714053603300}
+    with tempfile.TemporaryDirectory() as tmp:
+        log = SessionLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="6.1.0",
+                    mission_id="maveric", station="GS-0", operator="irfan")
+        try:
+            log.write_tracking_sample(doppler, source="rx_decode", actual=actual)
+        finally:
+            log.close()
+        with open(log.jsonl_path) as f:
+            rec = json.loads(f.readline())
+    assert rec["tracking_sample"]["rx_actual_hz"] == 437_583_898.2
+    assert rec["tracking_sample"]["tx_actual_hz"] == 437_566_101.9

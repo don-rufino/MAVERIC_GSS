@@ -267,6 +267,7 @@ def tracking_sample_record(
     operator: str = "",
     station: str = "",
     event_id: str | None = None,
+    actual: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one tracking-sample record: az/el + requested Doppler-corrected
     RX/TX frequencies at one instant.
@@ -279,11 +280,17 @@ def tracking_sample_record(
     ("tx_attempt"), so post-pass review can tell which rows are guaranteed
     to bracket an actual RX/TX event.
 
-    Only ever carries *requested* values — there is no UHD read-back of the
-    actual applied LO/DSP yet (see project memory
-    mav_duo_frequency_diagnostic_logging.md, part 4, deferred).
+    *actual*, when given, is RadioService.latest_tune_result: a UHD
+    read-back (get_center_freq()) of what the radio is actually tuned to,
+    independent of the request above. This can confirm or refute a
+    requested-vs-applied mismatch inside the flowgraph's own tuning
+    arithmetic; it cannot detect a reference-oscillator (TCXO) drift common
+    to both the request and the read-back — see
+    docs/step4_actual_tune_readback.pdf for the full distinction. None
+    (the default) when the flowgraph hasn't reported one yet.
     """
     ts_ms = int(doppler.get("ts_ms", 0))
+    actual = actual or {}
     return {
         "event_id": event_id or new_event_id(),
         "event_kind": "tracking_sample",
@@ -310,5 +317,7 @@ def tracking_sample_record(
             "tx_hz": doppler.get("tx_hz"),
             "tx_shift_hz": doppler.get("tx_shift_hz"),
             "tx_tune_hz": doppler.get("tx_tune_hz"),
+            "rx_actual_hz": actual.get("rx_actual_hz"),
+            "tx_actual_hz": actual.get("tx_actual_hz"),
         },
     }
