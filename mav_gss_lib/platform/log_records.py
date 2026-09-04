@@ -275,8 +275,9 @@ def tracking_sample_record(
     DopplerCorrection field (ts_ms, mode, range_rate_mps, rx/tx_hz,
     rx/tx_shift_hz, rx/tx_tune_hz) plus elevation_deg/azimuth_deg/range_km.
     *source* distinguishes a background tick sample ("tick") from one taken
-    at the moment of a TX attempt ("tx_attempt"), so post-pass review can
-    tell which rows are guaranteed to bracket an actual uplink.
+    at the exact moment of a downlink decode ("rx_decode") or a TX attempt
+    ("tx_attempt"), so post-pass review can tell which rows are guaranteed
+    to bracket an actual RX/TX event.
 
     Only ever carries *requested* values — there is no UHD read-back of the
     actual applied LO/DSP yet (see project memory

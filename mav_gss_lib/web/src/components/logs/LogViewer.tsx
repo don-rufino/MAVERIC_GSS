@@ -128,6 +128,101 @@ function prettyMissionJson(value: unknown): string {
   return JSON.stringify(sanitizeForDisplay(value), null, 2)
 }
 
+// Exact-capture tracking_sample rows (source="rx_decode"/"tx_attempt") join
+// into the RX/TX row that triggered them — see RxProjectionRunner.
+// _log_rx_tracking_sample / TxService._log_tx_tracking_sample. There is no
+// explicit link field; both are written back-to-back with the packet they
+// belong to, so nearest-by-timestamp within a generous window is unambiguous
+// in practice (typically <1s, bounded by the 1 Hz Doppler tick).
+const TRACKING_MATCH_WINDOW_MS = 5000
+
+function nearestTrackingSample(
+  samples: LogEntry[],
+  tsMs: number,
+  source: 'rx_decode' | 'tx_attempt',
+): { sample: LogEntry; deltaMs: number } | undefined {
+  let best: { sample: LogEntry; deltaMs: number; absDelta: number } | undefined
+  for (const s of samples) {
+    const block = s.tracking_sample
+    if (!block || typeof block !== 'object') continue
+    if ((block as Record<string, unknown>).source !== source) continue
+    const sampleTs = Number(s.ts_ms ?? NaN)
+    if (!Number.isFinite(sampleTs)) continue
+    const deltaMs = tsMs - sampleTs
+    const absDelta = Math.abs(deltaMs)
+    if (absDelta > TRACKING_MATCH_WINDOW_MS) continue
+    if (!best || absDelta < best.absDelta) best = { sample: s, deltaMs, absDelta }
+  }
+  return best ? { sample: best.sample, deltaMs: best.deltaMs } : undefined
+}
+
+// Mirrors DopplerSection.tsx's formatting so a Doppler value reads the same
+// whether it's seen live in the radio panel or replayed from the log.
+function fmtHz(hz: number): string {
+  return Math.round(hz).toLocaleString('en-US')
+}
+function fmtSigned(value: number, digits = 1): string {
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(digits)}`
+}
+
+function TrackingDataCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-medium uppercase" style={{ color: colors.dim }}>{label}</div>
+      <div title={value} className="mt-0.5 truncate font-mono text-xs tabular-nums" style={{ color: tone ?? colors.value }}>
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; deltaMs: number }; direction: 'rx' | 'tx' }) {
+  const t = (match.sample.tracking_sample && typeof match.sample.tracking_sample === 'object')
+    ? match.sample.tracking_sample as Record<string, unknown>
+    : {}
+  const mode = String(t.mode ?? '')
+  const connected = mode === 'connected'
+  const satellite = String(t.satellite ?? '')
+  const el = Number(t.elevation_deg)
+  const az = Number(t.azimuth_deg)
+  const range = Number(t.range_km)
+  const rr = Number(t.range_rate_mps)
+  const shiftHz = Number(direction === 'rx' ? t.rx_shift_hz : t.tx_shift_hz)
+  const tuneHz = Number(direction === 'rx' ? t.rx_tune_hz : t.tx_tune_hz)
+  const dirColor = direction === 'rx' ? colors.info : colors.label
+  const deltaS = match.deltaMs / 1000
+  return (
+    <div className="rounded-md border px-2.5 py-2" style={{ borderColor: colors.borderSubtle, backgroundColor: 'rgba(255,255,255,0.02)' }}>
+      <div className="flex items-center gap-2 flex-wrap pb-1.5">
+        {satellite && <span className="font-mono text-[11px]" style={{ color: colors.value }}>{satellite}</span>}
+        {mode && (
+          <Badge
+            variant="outline"
+            className="h-[18px] rounded text-[10px]"
+            style={{ color: connected ? colors.success : colors.dim, borderColor: `${connected ? colors.success : colors.dim}66`, backgroundColor: 'transparent' }}
+          >
+            {mode.toUpperCase()}
+          </Badge>
+        )}
+        <span className="text-[10px] font-mono" style={{ color: colors.sep }}>
+          {direction === 'rx' ? 'rx_decode' : 'tx_attempt'} &middot; &Delta;{fmtSigned(deltaS, 2)}s
+        </span>
+      </div>
+      <div className="grid grid-cols-4 gap-x-4 gap-y-1">
+        <TrackingDataCell label="Elevation" value={Number.isFinite(el) ? `${el.toFixed(1)}°` : '--'} />
+        <TrackingDataCell label="Azimuth" value={Number.isFinite(az) ? `${az.toFixed(1)}°` : '--'} />
+        <TrackingDataCell label="Range" value={Number.isFinite(range) ? `${range.toFixed(0)} km` : '--'} />
+        <TrackingDataCell label="Range Rate" value={Number.isFinite(rr) ? `${fmtSigned(rr, 1)} m/s` : '--'} />
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
+        <TrackingDataCell label={`${direction.toUpperCase()} Shift`} value={Number.isFinite(shiftHz) ? `${fmtSigned(shiftHz, 0)} Hz` : '--'} tone={dirColor} />
+        <TrackingDataCell label={`${direction.toUpperCase()} Tune`} value={Number.isFinite(tuneHz) ? `${fmtHz(tuneHz)} Hz` : '--'} tone={dirColor} />
+      </div>
+    </div>
+  )
+}
+
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 let hasLoadedLogViewer = false
@@ -145,6 +240,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
     setSelected,
     entries,
     telemetryByParent,
+    trackingSamples,
     loading,
     hasMore,
     currentOffset,
@@ -420,6 +516,9 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                     const kindLabel = isSys ? 'SYS' : (isTx ? 'TX' : 'RX')
                     const mission = (e.mission && typeof e.mission === 'object') ? e.mission as Record<string, unknown> : undefined
                     const sysBlock = isSys ? systemEventBlock(e, kind) : undefined
+                    const trackingMatch = !isSys && (kind === 'rx_packet' || isTx)
+                      ? nearestTrackingSample(trackingSamples, Number(e.ts_ms ?? NaN), isTx ? 'tx_attempt' : 'rx_decode')
+                      : undefined
 
                     return (
                       <ContextMenuRoot key={i}>
@@ -452,6 +551,9 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                             {/* Expanded detail */}
                             {isExpanded && (
                               <div className="px-6 py-2 space-y-1.5" style={{ backgroundColor: colors.bgApp }}>
+                                {trackingMatch && (
+                                  <TrackingSampleCard match={trackingMatch} direction={isTx ? 'tx' : 'rx'} />
+                                )}
                                 {warnings.length > 0 && (
                                   <div className="flex items-center gap-1 flex-wrap">
                                     <AlertTriangle className="size-3" style={{ color: colors.warning }} />

@@ -131,12 +131,19 @@ _DEFAULTS = {
             # literal fallbacks apply only when it is launched by hand.
             "rx_lo_offset_hz": 250_000.0,
             "tx_lo_offset_hz": -400_000.0,
-            # How often tracking_sample events (az/el, requested Doppler
-            # frequencies) get written to the session log. "tick" logs every
-            # 1 Hz tick; "tx_throttled" logs only around TX attempts (always,
-            # regardless of this interval — see TxService._record_sent) plus
-            # a decimated background rate every log_decimation_s while idle.
-            "log_cadence": "tx_throttled",
+            # How often *background* tracking_sample events (az/el, requested
+            # Doppler frequencies, source="tick") get written to the session
+            # log. Every RX decode and TX attempt always gets its own exact
+            # sample regardless of this setting — see
+            # RxProjectionRunner._log_rx_tracking_sample and
+            # TxService._log_tx_tracking_sample — so "off" only removes the
+            # dead-air trace between those, not the RX/TX capture itself.
+            # "off" (default): no background samples at all. "tick": logs
+            # every 1 Hz tick. "tx_throttled": a decimated background rate
+            # every log_decimation_s, opt in per session when chasing
+            # something like a frequency-offset investigation where the
+            # gaps between packets matter too.
+            "log_cadence": "off",
             "log_decimation_s": 5.0,
         },
     },

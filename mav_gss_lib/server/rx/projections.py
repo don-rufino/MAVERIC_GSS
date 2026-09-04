@@ -187,6 +187,30 @@ def _write_rx_log(deps: RxProjectionDeps, pkt: Any, version: str, event_id: str)
         log.write_packet(record, pkt, parameter_records=param_records)
     except Exception as exc:
         logging.warning("RX log write failed: %s", exc)
+    _log_rx_tracking_sample(deps)
+
+
+def _log_rx_tracking_sample(deps: RxProjectionDeps) -> None:
+    """Best-effort: log a tracking_sample tagged source="rx_decode" at the
+    moment a downlink packet decodes, mirroring
+    TxService._log_tx_tracking_sample so a downlink gets the same
+    near-1-Hz-fresh capture a TX attempt already does, independent of the
+    background tick's own logging cadence (which may be off). Reads the
+    last-published tick rather than recomputing, so a decode never triggers
+    an extra Doppler-sink publish as a side effect."""
+    runtime = deps.runtime
+    broadcaster = getattr(runtime, "doppler_broadcaster", None)
+    latest = getattr(broadcaster, "latest", None) if broadcaster is not None else None
+    doppler = latest.get("doppler") if isinstance(latest, dict) else None
+    if not doppler:
+        return
+    log = deps.get_rx_log()
+    if log is None or not hasattr(log, "write_tracking_sample"):
+        return
+    try:
+        log.write_tracking_sample(doppler, source="rx_decode")
+    except Exception as exc:
+        logging.warning("RX tracking-sample log failed: %s", exc)
 
 
 __all__ = [

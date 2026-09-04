@@ -17,6 +17,7 @@ export function useLogQuery() {
   const [selected, setSelected] = useState<string | null>(null)
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [telemetryByParent, setTelemetryByParent] = useState<Map<string, LogEntry[]>>(new Map())
+  const [trackingSamples, setTrackingSamples] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [currentOffset, setCurrentOffset] = useState(0)
@@ -90,6 +91,16 @@ export function useLogQuery() {
           setTelemetryByParent(map)
         })
         .catch(() => setTelemetryByParent(new Map()))
+
+      // Exact-capture tracking samples (source=rx_decode / tx_attempt) for
+      // joining az/el + Doppler into the RX/TX row that triggered them.
+      // Excludes background "tick" rows even on a session with the
+      // background trace opted in — those aren't attached to any packet
+      // and have no row to join into.
+      fetch(`/api/logs/${sessionId}/tracking_samples?source=rx_decode,tx_attempt&limit=10000`)
+        .then((r) => r.ok ? r.json() : { entries: [] })
+        .then((data: { entries: LogEntry[] }) => setTrackingSamples(data.entries))
+        .catch(() => setTrackingSamples([]))
     }
   }, [debouncedLabel, debouncedFrom, debouncedTo])
 
@@ -97,6 +108,7 @@ export function useLogQuery() {
     setSelected(null)
     setEntries([])
     setTelemetryByParent(new Map())
+    setTrackingSamples([])
     setLabelFilter('')
     setFromTime('')
     setToTime('')
@@ -112,6 +124,7 @@ export function useLogQuery() {
     setSelected,
     entries,
     telemetryByParent,
+    trackingSamples,
     loading,
     hasMore,
     currentOffset,

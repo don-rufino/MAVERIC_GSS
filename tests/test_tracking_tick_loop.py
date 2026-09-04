@@ -101,7 +101,25 @@ class DopplerTickLoopTests(unittest.IsolatedAsyncioTestCase):
         _, kwargs = runtime.rx.log.write_tracking_sample.call_args
         self.assertEqual(kwargs["source"], "tick")
 
-    async def test_loop_throttles_tracking_sample_in_default_cadence(self) -> None:
+    async def test_loop_logs_nothing_in_off_cadence(self) -> None:
+        runtime = _Runtime(log_cadence="off")
+        broadcaster = DopplerBroadcaster()
+        task = asyncio.create_task(
+            doppler_tick_loop(runtime, broadcaster, period_s_override=0.05)
+        )
+        await asyncio.sleep(0.18)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        # "off" is the default cadence: the loop keeps computing/broadcasting
+        # (so RX-decode/TX-attempt hooks still read a fresh cached tick) but
+        # never writes a background tracking_sample row.
+        self.assertGreaterEqual(runtime.tracking.doppler.call_count, 2)
+        runtime.rx.log.write_tracking_sample.assert_not_called()
+
+    async def test_loop_throttles_tracking_sample_in_tx_throttled_cadence(self) -> None:
         runtime = _Runtime(log_cadence="tx_throttled", log_decimation_s=1.0)
         broadcaster = DopplerBroadcaster()
         task = asyncio.create_task(
@@ -119,6 +137,14 @@ class DopplerTickLoopTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CadenceDueTests(unittest.TestCase):
+    def test_off_cadence_never_due(self) -> None:
+        control = {"log_cadence": "off", "log_decimation_s": 5.0}
+        self.assertFalse(_cadence_due(control, last_logged_ms=None, now_ms=1_000))
+        self.assertFalse(_cadence_due(control, last_logged_ms=1_000, now_ms=100_000))
+
+    def test_missing_cadence_defaults_to_off(self) -> None:
+        self.assertFalse(_cadence_due({}, last_logged_ms=None, now_ms=1_000))
+
     def test_tick_cadence_always_due(self) -> None:
         control = {"log_cadence": "tick", "log_decimation_s": 5.0}
         self.assertTrue(_cadence_due(control, last_logged_ms=1_000, now_ms=1_001))

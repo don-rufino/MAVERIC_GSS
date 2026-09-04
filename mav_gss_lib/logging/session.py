@@ -203,8 +203,9 @@ class SessionLog(_BaseLog):
         """Append one tracking-sample event: az/el + requested Doppler-corrected
         RX/TX frequencies at one instant. *doppler* is the dict
         TrackingService.doppler() returns. *source* is "tick" for a
-        background sample or "tx_attempt" for one taken at TX send time —
-        see platform.log_records.tracking_sample_record."""
+        background sample, "rx_decode" for one taken at downlink decode time,
+        or "tx_attempt" for one taken at TX send time — see
+        platform.log_records.tracking_sample_record."""
         from mav_gss_lib.platform.log_records import tracking_sample_record
 
         self.write_jsonl(tracking_sample_record(

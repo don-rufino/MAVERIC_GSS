@@ -104,11 +104,17 @@ def _resolve_period(runtime: "WebRuntime") -> float:
 
 def _cadence_due(control: dict, last_logged_ms: int | None, now_ms: int) -> bool:
     """True when a background tick sample should be logged, per the
-    tracking.control.log_cadence setting. "tick" logs every call; anything
-    else (default "tx_throttled") logs at most once per log_decimation_s.
-    TX attempts always log their own sample regardless of this — see
-    TxService._record_sent — this only throttles the idle/background rate."""
-    if control.get("log_cadence") == "tick":
+    tracking.control.log_cadence setting. "off" (default) never logs a
+    background sample. "tick" logs every call. "tx_throttled" logs at most
+    once per log_decimation_s. RX decodes and TX attempts always log their
+    own sample regardless of this — see
+    RxProjectionRunner._log_rx_tracking_sample and
+    TxService._log_tx_tracking_sample — this only throttles the opt-in
+    idle/background rate."""
+    cadence = control.get("log_cadence", "off")
+    if cadence == "off":
+        return False
+    if cadence == "tick":
         return True
     if last_logged_ms is None:
         return True

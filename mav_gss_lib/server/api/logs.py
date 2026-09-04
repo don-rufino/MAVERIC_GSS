@@ -2,9 +2,10 @@
 mav_gss_lib.server.api.logs -- Log Browsing Routes
 
 Endpoints:
-  GET /api/logs                          -- list sessions
-  GET /api/logs/{session_id}             -- stream rx_packet / tx_command events
-  GET /api/logs/{session_id}/parameters  -- stream parameter events
+  GET /api/logs                               -- list sessions
+  GET /api/logs/{session_id}                  -- stream rx_packet / tx_command events
+  GET /api/logs/{session_id}/parameters       -- stream parameter events
+  GET /api/logs/{session_id}/tracking_samples -- stream tracking_sample events
 
 Records on disk use the unified envelope built by
 ``mav_gss_lib.platform.log_records``; the API does no RX/TX forking —
@@ -225,6 +226,62 @@ async def api_log_entries(
         if ts_to is not None and isinstance(ts_ms, int) and ts_ms > ts_to:
             continue
 
+        if matched < offset:
+            matched += 1
+            continue
+        if len(entries) < limit:
+            entries.append(entry)
+            matched += 1
+        else:
+            has_more = True
+            break
+
+    return _strip_nonfinite(
+        {"entries": entries, "has_more": has_more, "offset": offset, "limit": limit}
+    )
+
+
+@router.get("/api/logs/{session_id}/tracking_samples", response_model=None)
+async def api_log_tracking_samples(
+    session_id: str,
+    request: Request,
+    source: Optional[str] = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(2000, ge=1, le=_MAX_LIMIT),
+) -> dict[str, Any] | JSONResponse:
+    """Return tracking_sample rows from a session, optionally filtered by source.
+
+    Excluded from the main ``/api/logs/{session_id}`` listing by default (see
+    ``_DEFAULT_KINDS``) so background ticks never crowd the RX/TX row list.
+    The viewer fetches this separately — filtered to ``source=rx_decode,
+    tx_attempt`` — to join the exact-capture sample into the packet that
+    triggered it, the same way ``/parameters`` is fetched separately and
+    joined by ``rx_event_id``.
+
+    ``source``: comma-separated whitelist (e.g. "rx_decode,tx_attempt").
+    Omit to return every source, including "tick"/"tx_throttled" background
+    rows for an opted-in session's full trace.
+    """
+    runtime = get_runtime(request)
+    log_file = _resolve_log_file(runtime, session_id)
+    if isinstance(log_file, JSONResponse):
+        return log_file
+
+    allowed_sources = (
+        {s.strip() for s in source.split(",") if s.strip()} if source else None
+    )
+
+    entries = []
+    has_more = False
+    matched = 0
+    for entry in _iter_entries(log_file):
+        if entry.get("event_kind") != "tracking_sample":
+            continue
+        if allowed_sources is not None:
+            sample = entry.get("tracking_sample")
+            row_source = sample.get("source") if isinstance(sample, dict) else None
+            if row_source not in allowed_sources:
+                continue
         if matched < offset:
             matched += 1
             continue
