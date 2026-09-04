@@ -816,8 +816,11 @@ class _TuneResultMonitor(gr.basic_block):
     the *same* broadcast zeromq_sub_msg_source_rxcmd/txcmd already send to
     uhd_usrp_source_0/sink_0 and the IQ recorders (message ports fan out to
     any number of subscribers; this is one more, changing nothing about
-    the existing three). That triggers an extra report shortly after each
-    real tune change lands, instead of waiting for the next heartbeat tick.
+    the existing three). While Doppler is engaged this fires at whatever
+    rate corrections stream (~1 Hz) — far more often than the heartbeat —
+    so both paths share one report_every_s throttle: at most one
+    TUNE_RESULT line total per interval, whichever trigger gets there
+    first, rather than the heartbeat cadence only bounding its own path.
     """
 
     def __init__(self, usrp_source, usrp_sink, report_every_s=1.0,
@@ -830,6 +833,8 @@ class _TuneResultMonitor(gr.basic_block):
         self._settle_s = float(settle_s)
         self._stop_event = threading.Event()
         self._thread = None
+        self._report_lock = threading.Lock()
+        self._last_report_ts = 0.0
         self.message_port_register_in(pmt.intern("tune_cmd"))
         self.set_msg_handler(pmt.intern("tune_cmd"), self._on_tune_cmd)
 
@@ -847,6 +852,18 @@ class _TuneResultMonitor(gr.basic_block):
             "tx_actual_hz": tx_hz,
         }), flush=True)
 
+    def _report_if_due(self):
+        # Shared throttle: the heartbeat and the tune_cmd trigger both come
+        # through here, so engaged (~1 Hz tune_cmd traffic) and disengaged
+        # (heartbeat only) settle to the same report_every_s rate instead
+        # of the trigger path bypassing the cadence entirely.
+        with self._report_lock:
+            now = time.monotonic()
+            if now - self._last_report_ts < self._every:
+                return
+            self._last_report_ts = now
+        self._report()
+
     def _on_tune_cmd(self, _message):
         # Delivery order between this port and uhd_usrp_source_0/sink_0's
         # own 'command' port on the same broadcast isn't guaranteed, so
@@ -855,12 +872,12 @@ class _TuneResultMonitor(gr.basic_block):
         # inside a message handler are an established pattern in this file
         # (see _PttGate's lead_s/tail_s sequencing).
         self._stop_event.wait(self._settle_s)
-        self._report()
+        self._report_if_due()
 
     def _heartbeat(self):
-        self._report()
+        self._report_if_due()
         while not self._stop_event.wait(self._every):
-            self._report()
+            self._report_if_due()
 
     def start(self):
         self._stop_event.clear()
@@ -1269,7 +1286,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.stream_health = _StreamHealthMonitor(samp_rate=samp_rate)
         self.tx_async_monitor = _TxAsyncMonitor()
         self.tune_result_monitor = _TuneResultMonitor(
-            self.uhd_usrp_source_0, self.uhd_usrp_sink_0)
+            self.uhd_usrp_source_0, self.uhd_usrp_sink_0, report_every_s=15.0)
         self.digital_gfsk_mod_0 = digital.gfsk_mod(
             samples_per_symbol=(int(samp_ratetx/baud)),
             sensitivity=((pi*modindex) / int(samp_ratetx/baud)),
