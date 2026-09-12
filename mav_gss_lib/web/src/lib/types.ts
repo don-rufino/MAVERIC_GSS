@@ -56,7 +56,7 @@ export interface ColumnDef {
   flex?: boolean
   toggle?: string
   path?: string
-  kind?: 'value' | 'verifiers' | 'cmd_id'
+  kind?: 'value' | 'verifiers' | 'cmd_id' | 'tx_offset'
   badge?: boolean
   truncate?: boolean
   value_icons?: Record<string, string>
@@ -183,6 +183,9 @@ export interface TxHistoryItem {
   // the same id is used as `CommandInstance.cmd_event_id` when the instance
   // is registered. Optional because older persisted rows may not have it.
   event_id?: string
+  // TX offset-sweep step live at send time, 0 when the sweep is off/not
+  // applicable. Optional because older persisted rows may not have it.
+  tx_offset_step_hz?: number
 }
 
 export interface SendProgress {
@@ -335,6 +338,9 @@ export interface PlatformTrackingConfig {
     log_cadence?: 'off' | 'tick' | 'tx_throttled'
     log_decimation_s?: number
     link_budget_enabled?: boolean
+    offset_sweep_base_hz?: number
+    offset_sweep_step_hz?: number
+    offset_sweep_max_deviation_hz?: number
   }
 }
 
@@ -498,6 +504,7 @@ export interface DopplerCorrection {
   tx_tune_hz: number
   rx_signal_loss_db: number
   tx_signal_loss_db: number
+  tx_offset_step_hz: number
 }
 
 export interface TrackingStatusMessage {
@@ -505,6 +512,7 @@ export interface TrackingStatusMessage {
   mode: DopplerMode
   last_error: string
   last_tick_ms: number
+  offset_sweep_enabled: boolean
 }
 
 export interface TrackingDopplerMessage {

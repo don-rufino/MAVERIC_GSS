@@ -1,5 +1,6 @@
 """Platform-owned satellite tracking and Doppler calculations."""
 
+from .offset_sweep import OffsetSweep, OffsetSweepConfig
 from .config import (
     default_station,
     default_tracking_config,
@@ -48,6 +49,8 @@ __all__ = [
     "Footprint",
     "GroundTrack",
     "LookAngles",
+    "OffsetSweep",
+    "OffsetSweepConfig",
     "PassDetail",
     "PassSample",
     "SatellitePoint",

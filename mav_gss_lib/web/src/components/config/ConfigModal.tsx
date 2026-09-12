@@ -6,6 +6,7 @@ import { X, Settings, Rocket, Radio, Satellite, Info, Antenna } from 'lucide-rea
 import { authFetch } from '@/lib/auth'
 import { parseTleBlock, joinTleBlock } from '@/lib/tle'
 import { waitForMissionThenReload } from '@/lib/restart'
+import { isOffsetSweepMission } from '@/lib/offsetSweep'
 import { Kbd } from '@/components/ui/kbd'
 import { ConfirmDialog } from '@/components/shared/dialogs/ConfirmDialog'
 import { ConfigRail, type RailItem } from './ConfigRail'
@@ -665,6 +666,11 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
         { title: 'Link budget', rows: [
           { id: 'link_budget_enabled', label: 'Publish Received Power', description: 'Adds a computed Received Power (EIRP - path loss + Rx gain) to each RX/TX tracking sample, using the EIRP/Rx-gain figures from Mission Settings and the Station tab. Off by default — leave off until those figures are confirmed, since anything logged here is hard to walk back later. Signal Loss (path loss alone) always logs regardless of this setting.', control: { kind: 'toggle', value: cfg.platform.tracking?.control?.link_budget_enabled ?? false, onChange: (v) => updateTrackingControl({ link_budget_enabled: v }) } },
         ]},
+        ...(isOffsetSweepMission(cfg.mission.id) ? [{ title: 'Offset Sweep', rows: [
+          { id: 'offset_sweep_base_hz', label: 'Base offset', description: 'Center of the sweep — set this to the last confirmed-working offset to re-center a new batch instead of starting over.', control: { kind: 'number' as const, unit: 'Hz', value: cfg.platform.tracking?.control?.offset_sweep_base_hz ?? 0, onChange: (v: number) => updateTrackingControl({ offset_sweep_base_hz: v }) } },
+          { id: 'offset_sweep_step_hz', label: 'Step size', description: 'Spacing between successive offsets in the zig-zag.', control: { kind: 'number' as const, unit: 'Hz', value: cfg.platform.tracking?.control?.offset_sweep_step_hz ?? 0, onChange: (v: number) => updateTrackingControl({ offset_sweep_step_hz: v }) } },
+          { id: 'offset_sweep_max_deviation_hz', label: 'Max deviation', description: 'Hard ceiling on the absolute offset from the nominal corrected frequency (not from the base) — a step past this is never generated regardless of how the base is centered.', control: { kind: 'number' as const, unit: 'Hz', value: cfg.platform.tracking?.control?.offset_sweep_max_deviation_hz ?? 0, onChange: (v: number) => updateTrackingControl({ offset_sweep_max_deviation_hz: v }) } },
+        ]}] : []),
       ],
     })
 

@@ -153,6 +153,18 @@ _DEFAULTS = {
             # keeps unverified numbers out of the log until the operator
             # turns it on deliberately.
             "link_budget_enabled": False,
+            # Provisional TX frequency-offset search: on top of whatever TX
+            # frequency is already live (Doppler-corrected or Static Mode's
+            # nominal), step by a bounded outward zig-zag from a base offset
+            # on every aperiodic uplink send. Generic mechanism — the actual
+            # base/step/max-deviation values are a per-mission operational
+            # tuning decision (see mission docs), not a platform default, so
+            # they stay at 0/off here. Restricted to missions that opt in
+            # (see TrackingService.set_offset_sweep_enabled).
+            "offset_sweep_enabled": False,
+            "offset_sweep_base_hz": 0.0,
+            "offset_sweep_step_hz": 0.0,
+            "offset_sweep_max_deviation_hz": 0.0,
         },
     },
     "general": {

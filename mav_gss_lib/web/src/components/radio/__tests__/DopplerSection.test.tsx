@@ -17,6 +17,7 @@ const baseProps = {
     tx_tune_hz: 437_575_210,
     rx_signal_loss_db: 145.28,
     tx_signal_loss_db: 145.28,
+    tx_offset_step_hz: 0,
   },
   mode: 'disconnected' as const,
   error: '',
@@ -25,6 +26,7 @@ const baseProps = {
   engage: vi.fn(async () => {}),
   disengage: vi.fn(async () => {}),
   toggleStatic: vi.fn(async () => {}),
+  toggleOffsetSweep: vi.fn(async () => {}),
   dismissError: vi.fn(),
 }
 
@@ -108,5 +110,34 @@ describe('DopplerSection', () => {
     render(<DopplerSection {...baseProps} toggleStatic={toggleStatic} />)
     fireEvent.click(screen.getByRole('switch', { name: 'Static Mode' }))
     expect(toggleStatic).toHaveBeenCalled()
+  })
+
+  it('hides Offset Sweep entirely when not available for this mission', () => {
+    render(<DopplerSection {...baseProps} offsetSweepAvailable={false} />)
+    expect(screen.queryByText('Offset Sweep')).toBeNull()
+  })
+
+  it('shows Offset Sweep when available, independent of Doppler mode', () => {
+    render(<DopplerSection {...baseProps} mode="connected" offsetSweepAvailable />)
+    expect(screen.getByText('Offset Sweep')).toBeTruthy()
+    const toggle = screen.getByRole('switch', { name: 'Offset Sweep' })
+    expect(toggle.getAttribute('aria-disabled')).not.toBe('true')
+  })
+
+  it('calls toggleOffsetSweep on switch click', () => {
+    const toggleOffsetSweep = vi.fn(async () => {})
+    render(<DopplerSection {...baseProps} offsetSweepAvailable toggleOffsetSweep={toggleOffsetSweep} />)
+    fireEvent.click(screen.getByRole('switch', { name: 'Offset Sweep' }))
+    expect(toggleOffsetSweep).toHaveBeenCalled()
+  })
+
+  it('shows the live TX Offset only when the sweep is enabled', () => {
+    const { rerender } = render(<DopplerSection {...baseProps} offsetSweepAvailable offsetSweepEnabled={false} />)
+    expect(screen.queryByText('TX Offset')).toBeNull()
+
+    rerender(<DopplerSection {...baseProps} offsetSweepAvailable offsetSweepEnabled
+      doppler={{ ...baseProps.doppler, tx_offset_step_hz: 1200 }} />)
+    expect(screen.getByText('TX Offset')).toBeTruthy()
+    expect(screen.getByText('+1200 Hz')).toBeTruthy()
   })
 })

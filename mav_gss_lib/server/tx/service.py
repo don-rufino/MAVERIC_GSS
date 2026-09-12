@@ -271,11 +271,27 @@ class TxService:
             "wire_hex": framed.wire.hex(),
             "raw_hex": raw_cmd.hex(),
             "event_id": event_id or "",
+            "tx_offset_step_hz": self._current_offset_step_hz(),
         }
         self.history.append(hist_entry)
         if len(self.history) > self.runtime.max_history:
             del self.history[: len(self.history) - self.runtime.max_history]
         return hist_entry
+
+    def _current_offset_step_hz(self) -> float:
+        """The TX offset-sweep step that was live for the last published
+        Doppler tick — 0.0 whenever the sweep is off, inapplicable (Static
+        Mode), or no tick has published yet. Read from the broadcaster's
+        last-published tick rather than recomputing, matching
+        ``_log_tx_tracking_sample``'s reasoning: a TX send should never
+        itself trigger a fresh Doppler-sink publish as a side effect.
+        """
+        broadcaster = getattr(self.runtime, "doppler_broadcaster", None)
+        latest = getattr(broadcaster, "latest", None) if broadcaster is not None else None
+        doppler = latest.get("doppler") if isinstance(latest, dict) else None
+        if not isinstance(doppler, dict):
+            return 0.0
+        return float(doppler.get("tx_offset_step_hz") or 0.0)
 
     def _log_tx_tracking_sample(self) -> None:
         """Best-effort: log a tracking_sample tagged source="tx_attempt" at

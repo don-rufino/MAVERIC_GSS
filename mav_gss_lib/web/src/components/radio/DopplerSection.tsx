@@ -11,12 +11,19 @@ export interface DopplerSectionProps {
   doppler: DopplerCorrection | null
   mode: DopplerMode
   error: string
-  busy: 'engage' | 'disengage' | 'static-on' | 'static-off' | null
+  busy: 'engage' | 'disengage' | 'static-on' | 'static-off' | 'offset-sweep-on' | 'offset-sweep-off' | null
   actionError: string | null
   engage: () => Promise<void>
   disengage: () => Promise<void>
   toggleStatic: () => Promise<void>
   dismissError: () => void
+  /** Provisional — only offered to missions that have opted in; see
+   *  `_OFFSET_SWEEP_MISSIONS` on the backend. Undefined props below are
+   *  fine to omit entirely when this is false (mirrors the backend
+   *  treating an unconfigured sweep as fully inert). */
+  offsetSweepAvailable?: boolean
+  offsetSweepEnabled?: boolean
+  toggleOffsetSweep?: () => Promise<void>
 }
 
 function fmtHz(hz: number): string {
@@ -69,9 +76,13 @@ function DataCell({ label, value, tone, className }: { label: string; value: str
 }
 
 export function DopplerSection(props: DopplerSectionProps) {
-  const { doppler, mode, error, busy, actionError, engage, disengage, toggleStatic } = props
+  const {
+    doppler, mode, error, busy, actionError, engage, disengage, toggleStatic,
+    offsetSweepAvailable, offsetSweepEnabled, toggleOffsetSweep,
+  } = props
   const engaged = mode === 'connected'
   const staticOn = mode === 'static'
+  const sweepOn = !!offsetSweepEnabled
   const tone = error
     ? colors.danger
     : staticOn ? colors.warning
@@ -126,6 +137,37 @@ export function DopplerSection(props: DopplerSectionProps) {
           />
         </div>
 
+        {offsetSweepAvailable && (
+          <div
+            className="flex items-start justify-between gap-2.5 rounded-md border px-2.5 py-2"
+            style={{
+              borderColor: sweepOn ? `${colors.warning}66` : colors.borderSubtle,
+              backgroundColor: sweepOn ? `${colors.warning}14` : colors.bgCard,
+            }}
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-bold" style={{ color: colors.textPrimary }}>
+                Offset Sweep
+                <span
+                  className="rounded px-1 text-[9px] font-bold uppercase tracking-wide"
+                  style={{ color: colors.textDisabled, border: `1px solid ${colors.borderStrong}` }}
+                >
+                  provisional
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11px] leading-snug" style={{ color: sweepOn ? colors.warning : colors.textMuted }}>
+                Steps TX around the corrected frequency on every uplink send.
+              </div>
+            </div>
+            <Switch
+              checked={sweepOn}
+              onCheckedChange={() => void toggleOffsetSweep?.()}
+              disabled={busy !== null}
+              aria-label="Offset Sweep"
+            />
+          </div>
+        )}
+
         <Button
           size="sm"
           variant="outline"
@@ -163,6 +205,16 @@ export function DopplerSection(props: DopplerSectionProps) {
             <DataCell label="RX Tune"  value={doppler ? `${fmtHz(doppler.rx_tune_hz)} Hz` : '--'} />
             <DataCell label="TX Shift" value={doppler ? `${fmtSigned(doppler.tx_shift_hz, 0)} Hz` : '--'} />
             <DataCell label="TX Tune"  value={doppler ? `${fmtHz(doppler.tx_tune_hz)} Hz` : '--'} />
+          </div>
+        )}
+
+        {sweepOn && !staticOn && (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <DataCell
+              label="TX Offset"
+              value={doppler ? `${fmtSigned(doppler.tx_offset_step_hz, 0)} Hz` : '--'}
+              tone={colors.warning}
+            />
           </div>
         )}
 

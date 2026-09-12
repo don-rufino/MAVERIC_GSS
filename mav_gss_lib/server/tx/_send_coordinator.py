@@ -275,6 +275,12 @@ class _SendCoordinator:
                     svc.sending["waiting"] = False
                     await svc.send_queue_update()
 
+        # Advance the (mission-gated, off-by-default) TX offset-sweep search
+        # before this send goes out, so the step this command carries is
+        # already reflected in the log/history row built below. No-op when
+        # the sweep isn't enabled.
+        svc.runtime.tracking.advance_offset_sweep()
+
         if not send_pdu(ctx.sock, framed.wire):
             logging.error("ZMQ send failed for %s", item.get("cmd_id", "?"))
             await svc.broadcast({"type": "send_error", "error": "ZMQ send failed"})

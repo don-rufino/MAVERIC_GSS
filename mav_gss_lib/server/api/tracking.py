@@ -118,6 +118,27 @@ async def api_tracking_doppler_static(state: str, request: Request) -> dict[str,
     return {"static": enabled, "mode": result}
 
 
+@router.post("/api/tracking/offset-sweep/{state}", response_model=None)
+async def api_tracking_offset_sweep(state: str, request: Request) -> dict[str, Any] | JSONResponse:
+    denied = require_api_token(request)
+    if denied:
+        return denied
+    normalized = state.strip().lower()
+    if normalized in {"on", "enable", "enabled"}:
+        enabled = True
+    elif normalized in {"off", "disable", "disabled"}:
+        enabled = False
+    else:
+        return JSONResponse(status_code=422, content={"error": f"unsupported Offset Sweep state: {state}"})
+    runtime = get_runtime(request)
+    try:
+        result = runtime.tracking.set_offset_sweep_enabled(enabled)
+    except (TrackingError, OSError, RuntimeError) as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+    await runtime.doppler_broadcaster.publish({"type": "status", **runtime.tracking.status()})
+    return {"offset_sweep_enabled": result}
+
+
 @router.post("/api/tracking/tle/fetch", response_model=None)
 async def api_tracking_tle_fetch(request: Request) -> dict[str, Any] | JSONResponse:
     denied = require_api_token(request)

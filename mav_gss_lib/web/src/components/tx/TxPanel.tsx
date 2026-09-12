@@ -16,8 +16,9 @@ import { getMissionBuilder } from '@/plugins/registry'
 import { useColumnDefs } from '@/state/sessionHooks'
 import type {
   TxQueueItem, TxQueueSummary,
-  SendProgress, GuardConfirm, GssConfig,
+  SendProgress, GuardConfirm, GssConfig, ColumnDef,
 } from '@/lib/types'
+import { isOffsetSweepMission } from '@/lib/offsetSweep'
 
 interface TxPanelProps {
   config: GssConfig | null
@@ -66,7 +67,15 @@ export function TxPanel({
   const MissionBuilder = useMemo(() => getMissionBuilder(missionId), [missionId])
   const hasCommandBuilder = MissionBuilder !== null
 
-  const txColumns = ctxDefs?.tx ?? []
+  const missionTxColumns = ctxDefs?.tx ?? []
+  const txColumns = useMemo(() => {
+    if (!isOffsetSweepMission(missionId)) return missionTxColumns
+    const offsetCol: ColumnDef = { id: 'tx_offset', label: 'Offset', kind: 'tx_offset', width: 64, align: 'right' }
+    const rightIdx = missionTxColumns.findIndex(c => c.align === 'right')
+    return rightIdx < 0
+      ? [...missionTxColumns, offsetCol]
+      : [...missionTxColumns.slice(0, rightIdx), offsetCol, ...missionTxColumns.slice(rightIdx)]
+  }, [missionTxColumns, missionId])
 
   const [frameLabel, setFrameLabel] = useState<string>('')
   useEffect(() => {

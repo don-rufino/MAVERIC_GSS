@@ -16,6 +16,7 @@ import {
 import { CellValue } from '@/components/shared/rendering'
 import { useTx } from '@/state/txHooks'
 import { VerifierTickStrip } from './VerifierTickStrip'
+import { TxOffsetBadge } from './TxOffsetBadge'
 import { VerifierDetailBlock } from './VerifierDetailBlock'
 import { txDetailBlocks, txParameterBlocks } from '@/lib/txDetail'
 import type { ColumnDef, TxQueueCmd, TxHistoryItem, TxRowStatus } from '@/lib/types'
@@ -123,6 +124,16 @@ export function QueueItem({
       return (
         <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)}`} style={columnWidthStyle(c)}>
           <VerifierTickStrip instance={instance} now_ms={nowMs} />
+        </span>
+      )
+    }
+    if (c.kind === 'tx_offset') {
+      // Platform-injected, not mission-declared (see lib/columns.ts) — this
+      // is tracking/radio data, not something a mission's `facts` blob
+      // carries, so it can't be resolved via the normal column path.
+      return (
+        <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)}`} style={columnWidthStyle(c)}>
+          <TxOffsetBadge offsetHz={'tx_offset_step_hz' in item ? item.tx_offset_step_hz : undefined} />
         </span>
       )
     }

@@ -10,6 +10,7 @@ contracts.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import logging
 import threading
 import time
@@ -18,6 +19,8 @@ from typing import TYPE_CHECKING, Callable, Protocol
 
 from mav_gss_lib.platform.tracking import (
     DopplerCorrection,
+    OffsetSweep,
+    OffsetSweepConfig,
     TrackingError,
     build_satellite,
     normalize_tracking_config,
@@ -52,6 +55,12 @@ class NullDopplerSink:
 
 SinkFactory = Callable[..., DopplerSink]
 
+# Missions that have opted into the provisional TX offset-sweep search
+# (see docs/uplink_frequency_offset_compensation.md — not a tracked file).
+# The mechanism itself is generic; this is the only place mission
+# eligibility is decided.
+_OFFSET_SWEEP_MISSIONS = {"maveric"}
+
 
 def _default_sink_factory(
     *,
@@ -82,6 +91,7 @@ class TrackingService:
         self.runtime = runtime
         self._sink: DopplerSink = sink or NullDopplerSink()
         self._doppler_mode: DopplerMode = "disconnected"
+        self._offset_sweep: OffsetSweep | None = None
         self._sink_lock = threading.Lock()
         self._sink_factory: SinkFactory = sink_factory or _default_sink_factory
         self._last_error: str = ""
@@ -180,6 +190,52 @@ class TrackingService:
             prev_mode=prev_mode,
         )
         return self._doppler_mode
+
+    @property
+    def offset_sweep_enabled(self) -> bool:
+        return self._offset_sweep is not None
+
+    def set_offset_sweep_enabled(self, enabled: bool) -> bool:
+        """Enable/disable the provisional TX offset-sweep search.
+
+        Generic mechanism (see ``mav_gss_lib.platform.tracking.OffsetSweep``),
+        but restricted per mission — only missions that have opted in
+        (``_OFFSET_SWEEP_MISSIONS``) may enable it. Idempotent either way.
+        """
+        with self._sink_lock:
+            if not enabled:
+                self._offset_sweep = None
+                return False
+            if self._offset_sweep is not None:
+                return True
+            if self.runtime.mission_id not in _OFFSET_SWEEP_MISSIONS:
+                raise TrackingError("Offset Sweep is not available for this mission")
+            control = self._control_config()
+            self._offset_sweep = OffsetSweep(OffsetSweepConfig(
+                base_hz=control["offset_sweep_base_hz"],
+                step_hz=control["offset_sweep_step_hz"],
+                max_deviation_hz=control["offset_sweep_max_deviation_hz"],
+            ))
+            return True
+
+    def advance_offset_sweep(self) -> float:
+        """Advance to the next offset in the sweep, meant to be called once
+        per aperiodic uplink send (never on a timer). If Doppler is engaged,
+        immediately recomputes and republishes the correction with the new
+        offset rather than waiting for the next background tick — the step
+        must reach the radio before the command it accompanies goes out, and
+        the 1 Hz tick cadence alone can't guarantee that ordering. No-op
+        (returns 0.0) when the sweep isn't enabled. A no-op while Static Mode
+        is active too: static mode intentionally has no active publish path
+        (see ``set_static_mode``), so an offset here wouldn't reach the radio
+        — combining the two isn't supported yet.
+        """
+        if self._offset_sweep is None:
+            return 0.0
+        offset_hz = self._offset_sweep.advance()
+        if self._doppler_mode == "connected":
+            self.doppler()
+        return offset_hz
 
     def _nominal_park_correction(self, *, mode: DopplerMode = "disconnected") -> DopplerCorrection:
         # Built from the live tracking config so disengage/static-mode parks
@@ -304,6 +360,16 @@ class TrackingService:
             rx_hz=config.frequencies.rx_hz,
             tx_hz=config.frequencies.tx_hz,
         )
+        # Applied to `correction` itself — not just the result dict below —
+        # so the offset actually reaches the radio via `_publish()`, not
+        # only the display/log. TX-only: RX is untouched.
+        offset_hz = self._offset_sweep.current_offset_hz if self._offset_sweep is not None else 0.0
+        if offset_hz:
+            correction = dataclasses.replace(
+                correction,
+                tx_shift_hz=correction.tx_shift_hz + offset_hz,
+                tx_tune_hz=correction.tx_tune_hz + offset_hz,
+            )
         if self._doppler_mode == "connected":
             self._publish(correction)
         self._last_tick_ms = ts_ms
@@ -312,6 +378,7 @@ class TrackingService:
         # so callers (the 1 Hz tick loop, tracking_sample logging) get az/el
         # without paying for the much heavier tracking_state() call.
         result = asdict(correction)
+        result["tx_offset_step_hz"] = offset_hz
         result["elevation_deg"] = look.elevation_deg
         result["azimuth_deg"] = look.azimuth_deg
         result["range_km"] = look.range_km
@@ -389,6 +456,12 @@ class TrackingService:
         result["tx_dsp_hz"] = 0.0
         result["rx_signal_loss_db"] = 0.0
         result["tx_signal_loss_db"] = 0.0
+        # Always 0.0 here regardless of whether the sweep is enabled: Static
+        # Mode has no active publish path (see set_static_mode), so any
+        # configured offset wouldn't actually reach the radio — this stays
+        # honest about what's really being transmitted rather than reporting
+        # a step that was never applied.
+        result["tx_offset_step_hz"] = 0.0
         return result
 
     def status(self) -> dict:
@@ -396,6 +469,7 @@ class TrackingService:
             "mode": self._doppler_mode,
             "last_error": self._last_error,
             "last_tick_ms": self._last_tick_ms,
+            "offset_sweep_enabled": self.offset_sweep_enabled,
         }
 
     def _publish(self, correction: DopplerCorrection) -> None:

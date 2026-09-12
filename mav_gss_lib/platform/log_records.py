@@ -276,7 +276,10 @@ def tracking_sample_record(
     DopplerCorrection field (ts_ms, mode, range_rate_mps, rx/tx_hz,
     rx/tx_shift_hz, rx/tx_tune_hz) plus elevation_deg/azimuth_deg/range_km/
     altitude_km/rx_lo_offset_hz/tx_lo_offset_hz/rx_dsp_hz/tx_dsp_hz/
-    rx_signal_loss_db/tx_signal_loss_db/rx_received_dbw/tx_received_dbw.
+    rx_signal_loss_db/tx_signal_loss_db/rx_received_dbw/tx_received_dbw/
+    tx_offset_step_hz (the provisional TX offset-sweep search's currently
+    active step, 0.0 when the sweep is off or inapplicable — see
+    TrackingService.set_offset_sweep_enabled).
     range_km is the topocentric line-of-sight distance from the station
     (what matters for Doppler/pointing); altitude_km is the satellite's
     height above the ground track (the subsatellite point) — the two are
@@ -333,6 +336,7 @@ def tracking_sample_record(
             "tx_hz": doppler.get("tx_hz"),
             "tx_shift_hz": doppler.get("tx_shift_hz"),
             "tx_tune_hz": doppler.get("tx_tune_hz"),
+            "tx_offset_step_hz": doppler.get("tx_offset_step_hz"),
             "rx_actual_hz": actual.get("rx_actual_hz"),
             "tx_actual_hz": actual.get("tx_actual_hz"),
             "rx_lo_offset_hz": doppler.get("rx_lo_offset_hz"),

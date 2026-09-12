@@ -7,16 +7,21 @@ import type {
   TrackingWsMessage,
 } from '@/lib/types'
 
+export type TrackingBusy =
+  | 'engage' | 'disengage' | 'static-on' | 'static-off' | 'offset-sweep-on' | 'offset-sweep-off'
+
 export interface UseTrackingSocket {
   doppler: DopplerCorrection | null
   mode: DopplerMode
   error: string
   connected: boolean
-  busy: 'engage' | 'disengage' | 'static-on' | 'static-off' | null
+  busy: TrackingBusy | null
   actionError: string | null
+  offsetSweepEnabled: boolean
   engage: () => Promise<void>
   disengage: () => Promise<void>
   toggleStatic: () => Promise<void>
+  toggleOffsetSweep: () => Promise<void>
   dismissError: () => void
 }
 
@@ -25,8 +30,9 @@ export function useTrackingSocket(): UseTrackingSocket {
   const [mode, setMode] = useState<DopplerMode>('disconnected')
   const [error, setError] = useState<string>('')
   const [connected, setConnected] = useState<boolean>(false)
-  const [busy, setBusy] = useState<'engage' | 'disengage' | 'static-on' | 'static-off' | null>(null)
+  const [busy, setBusy] = useState<TrackingBusy | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [offsetSweepEnabled, setOffsetSweepEnabled] = useState<boolean>(false)
   const sockRef = useRef<{ close: () => void } | null>(null)
 
   useEffect(() => {
@@ -41,6 +47,7 @@ export function useTrackingSocket(): UseTrackingSocket {
         } else if (msg.type === 'status') {
           setMode(msg.mode)
           setError(msg.last_error || '')
+          setOffsetSweepEnabled(msg.offset_sweep_enabled)
         } else if (msg.type === 'error') {
           setError(msg.error)
         }
@@ -55,7 +62,7 @@ export function useTrackingSocket(): UseTrackingSocket {
   // when the WS is momentarily disconnected (the server-side broadcast would
   // reach no subscribers in that window). The WS push remains the source of
   // truth in steady state — this is just an optimistic top-up.
-  const post = useCallback(async (path: string): Promise<{ mode?: string }> => {
+  const post = useCallback(async (path: string): Promise<{ mode?: string; offset_sweep_enabled?: boolean }> => {
     const r = await authFetch(path, { method: 'POST' })
     const body = await r.json().catch(() => ({}))
     if (!r.ok) {
@@ -104,7 +111,24 @@ export function useTrackingSocket(): UseTrackingSocket {
     }
   }, [mode, post])
 
+  const toggleOffsetSweep = useCallback(async () => {
+    const turningOn = !offsetSweepEnabled
+    setBusy(turningOn ? 'offset-sweep-on' : 'offset-sweep-off')
+    setActionError(null)
+    try {
+      const body = await post(`/api/tracking/offset-sweep/${turningOn ? 'on' : 'off'}`)
+      if (typeof body.offset_sweep_enabled === 'boolean') setOffsetSweepEnabled(body.offset_sweep_enabled)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }, [offsetSweepEnabled, post])
+
   const dismissError = useCallback(() => setActionError(null), [])
 
-  return { doppler, mode, error, connected, busy, actionError, engage, disengage, toggleStatic, dismissError }
+  return {
+    doppler, mode, error, connected, busy, actionError, offsetSweepEnabled,
+    engage, disengage, toggleStatic, toggleOffsetSweep, dismissError,
+  }
 }

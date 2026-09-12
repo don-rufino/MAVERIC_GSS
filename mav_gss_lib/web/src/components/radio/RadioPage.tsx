@@ -19,6 +19,7 @@ import { type RadioStatus } from './useRadioSocket'
 import { useRadio } from '@/state/radioHooks'
 import { useTracking } from '@/state/trackingHooks'
 import { DopplerSection } from './DopplerSection'
+import { isOffsetSweepMission } from '@/lib/offsetSweep'
 
 const HEALTH_STALE_AFTER_MS = 30_000
 
@@ -341,6 +342,9 @@ export function RadioPage() {
             disengage={tracking.disengage}
             toggleStatic={tracking.toggleStatic}
             dismissError={tracking.dismissError}
+            offsetSweepAvailable={isOffsetSweepMission(config?.mission.id)}
+            offsetSweepEnabled={tracking.offsetSweepEnabled}
+            toggleOffsetSweep={tracking.toggleOffsetSweep}
           />
 
           <section className="flex flex-col rounded-lg border shadow-panel" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>

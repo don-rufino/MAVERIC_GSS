@@ -31,6 +31,7 @@ def _runtime() -> SimpleNamespace:
     runtime.cfg_lock = threading.Lock()
     runtime.rx = SimpleNamespace(log=None)
     runtime.tx = SimpleNamespace(log=None)
+    runtime.mission_id = "maveric"
     return runtime
 
 
@@ -108,6 +109,100 @@ class StaticModeTests(unittest.TestCase):
         self.assertEqual(runtime.tracking.set_static_mode(True), "static")
         self.assertEqual(runtime.tracking.set_static_mode(False), "disconnected")
         self.assertEqual(runtime.tracking.set_static_mode(False), "disconnected")
+
+
+def _with_offset_sweep_control(runtime: SimpleNamespace, **overrides) -> None:
+    control = runtime.platform_cfg["tracking"]["control"]
+    control.update({
+        "offset_sweep_base_hz": 0.0,
+        "offset_sweep_step_hz": 50.0,
+        "offset_sweep_max_deviation_hz": 150.0,
+        **overrides,
+    })
+
+
+class OffsetSweepTests(unittest.TestCase):
+    def test_enable_refuses_for_non_maveric_mission(self) -> None:
+        runtime = _runtime()
+        runtime.mission_id = "astrocast"
+        _with_offset_sweep_control(runtime)
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+
+        with self.assertRaises(TrackingError):
+            runtime.tracking.set_offset_sweep_enabled(True)
+        self.assertFalse(runtime.tracking.offset_sweep_enabled)
+
+    def test_enable_succeeds_for_maveric_and_reads_config(self) -> None:
+        runtime = _runtime()
+        _with_offset_sweep_control(runtime)
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+
+        self.assertTrue(runtime.tracking.set_offset_sweep_enabled(True))
+        self.assertTrue(runtime.tracking.offset_sweep_enabled)
+
+    def test_disable_is_idempotent(self) -> None:
+        runtime = _runtime()
+        _with_offset_sweep_control(runtime)
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+
+        self.assertFalse(runtime.tracking.set_offset_sweep_enabled(False))
+        self.assertFalse(runtime.tracking.set_offset_sweep_enabled(False))
+
+    def test_status_reports_offset_sweep_enabled(self) -> None:
+        runtime = _runtime()
+        _with_offset_sweep_control(runtime)
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+
+        self.assertFalse(runtime.tracking.status()["offset_sweep_enabled"])
+        runtime.tracking.set_offset_sweep_enabled(True)
+        self.assertTrue(runtime.tracking.status()["offset_sweep_enabled"])
+
+    def test_doppler_applies_offset_to_published_correction_and_result(self) -> None:
+        runtime = _runtime()
+        _with_offset_sweep_control(runtime)
+        sink = MagicMock()
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: sink)
+        runtime.tracking.set_offset_sweep_enabled(True)
+        runtime.tracking.engage()
+        sink.reset_mock()
+
+        result = runtime.tracking.doppler()
+        self.assertEqual(result["tx_offset_step_hz"], 0.0)  # sequence starts at base=0.0
+
+        published_correction = sink.publish.call_args[0][0]
+        self.assertEqual(published_correction.tx_tune_hz, result["tx_tune_hz"])
+
+        offset_hz = runtime.tracking.advance_offset_sweep()
+        self.assertEqual(offset_hz, 50.0)
+        # advance_offset_sweep() must have already republished with the new
+        # offset — a caller sending a command right after this must not race
+        # a stale tune sitting in the flowgraph for up to a full tick period.
+        # assertAlmostEqual, not assertEqual: each doppler() call re-samples
+        # the satellite's range-rate at the current wall-clock instant, so
+        # two calls a fraction of a millisecond apart carry a tiny natural
+        # Doppler-shift drift on top of the exact +50.0 Hz offset step.
+        second_published = sink.publish.call_args[0][0]
+        self.assertAlmostEqual(
+            second_published.tx_tune_hz - published_correction.tx_tune_hz, 50.0, delta=1.0,
+        )
+
+    def test_static_mode_never_reports_nonzero_offset_step(self) -> None:
+        runtime = _runtime()
+        _with_offset_sweep_control(runtime, offset_sweep_base_hz=50.0)
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+        runtime.tracking.set_offset_sweep_enabled(True)
+        runtime.tracking.set_static_mode(True)
+
+        result = runtime.tracking.doppler()
+        self.assertEqual(result["mode"], "static")
+        self.assertEqual(result["tx_offset_step_hz"], 0.0)
+
+    def test_advance_offset_sweep_is_noop_when_disabled(self) -> None:
+        runtime = _runtime()
+        _with_offset_sweep_control(runtime)
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+
+        self.assertEqual(runtime.tracking.advance_offset_sweep(), 0.0)
 
 
 if __name__ == "__main__":
