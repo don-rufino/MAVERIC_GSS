@@ -166,6 +166,12 @@ function fmtSigned(value: number, digits = 1): string {
   return `${sign}${value.toFixed(digits)}`
 }
 
+// GPredict shows a single "Signal loss" figure at 100 MHz whenever a
+// satellite has no .trsp transponder entry, instead of the real downlink
+// frequency — see DopplerSection.tsx's lossAtFreq for the live-panel twin
+// of this same reference value.
+const GPREDICT_DEFAULT_HZ = 100_000_000
+
 function TrackingDataCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className="min-w-0">
@@ -198,6 +204,10 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
   const dspHz = Number(direction === 'rx' ? t.rx_dsp_hz : t.tx_dsp_hz)
   const hasOffset = Number.isFinite(loOffsetHz) || Number.isFinite(dspHz)
   const signalLossDb = Number(direction === 'rx' ? t.rx_signal_loss_db : t.tx_signal_loss_db)
+  const lossFreqHz = Number(direction === 'rx' ? t.rx_hz : t.tx_hz)
+  const lossAt100MhzDb = Number.isFinite(signalLossDb) && Number.isFinite(lossFreqHz) && lossFreqHz > 0
+    ? signalLossDb + 20 * Math.log10(GPREDICT_DEFAULT_HZ / lossFreqHz)
+    : NaN
   const receivedDbw = Number(direction === 'rx' ? t.rx_received_dbw : t.tx_received_dbw)
   const hasReceivedPower = Number.isFinite(receivedDbw)
   const dirColor = direction === 'rx' ? colors.info : colors.label
@@ -219,13 +229,14 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
           {direction === 'rx' ? 'rx_decode' : 'tx_attempt'} &middot; &Delta;{fmtSigned(deltaS, 2)}s
         </span>
       </div>
-      <div className="grid grid-cols-6 gap-x-3 gap-y-1">
+      <div className="grid grid-cols-7 gap-x-3 gap-y-1">
         <TrackingDataCell label="Elevation" value={Number.isFinite(el) ? `${el.toFixed(1)}°` : '--'} />
         <TrackingDataCell label="Azimuth" value={Number.isFinite(az) ? `${az.toFixed(1)}°` : '--'} />
         <TrackingDataCell label="Altitude" value={Number.isFinite(altitude) ? `${altitude.toFixed(0)} km` : '--'} />
         <TrackingDataCell label="Range" value={Number.isFinite(range) ? `${range.toFixed(0)} km` : '--'} />
         <TrackingDataCell label="Range Rate" value={Number.isFinite(rr) ? `${fmtSigned(rr, 1)} m/s` : '--'} />
         <TrackingDataCell label="Signal Loss" value={Number.isFinite(signalLossDb) ? `${signalLossDb.toFixed(1)} dB` : '--'} />
+        <TrackingDataCell label="Signal Loss @ 100 MHz" value={Number.isFinite(lossAt100MhzDb) ? `${lossAt100MhzDb.toFixed(1)} dB` : '--'} tone={colors.sep} />
       </div>
       {hasOffset && (
         <div className="mt-1.5 text-[9px] font-medium uppercase tracking-wide" style={{ color: colors.sep }}>
