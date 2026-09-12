@@ -22,7 +22,7 @@ SAMPLE_TLE_LINE2 = "2 25544  51.6400   0.0000 0000000   0.0000   0.0000 15.50000
 SPEED_OF_LIGHT_MPS = 299_792_458.0
 EARTH_RADIUS_KM = 6378.137
 
-DopplerMode = Literal["disconnected", "connected", "sim"]
+DopplerMode = Literal["disconnected", "connected", "sim", "static"]
 TleMethod = Literal["manual", "fetched", "seed"]
 
 

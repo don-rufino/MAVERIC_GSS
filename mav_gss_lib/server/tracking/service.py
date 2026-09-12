@@ -105,6 +105,8 @@ class TrackingService:
         with self._sink_lock:
             if self._doppler_mode == "connected":
                 return self._doppler_mode
+            if self._doppler_mode == "static":
+                raise TrackingError("cannot engage Doppler while Static Mode is on")
             prev_mode = self._doppler_mode
         control = self._control_config()
         sink = self._sink_factory(
@@ -148,17 +150,48 @@ class TrackingService:
         )
         return self._doppler_mode
 
-    def _nominal_park_correction(self) -> DopplerCorrection:
-        # Built from the live tracking config so disengage parks the USRP at
-        # the operator-configured nominal frequencies, not the last
-        # Doppler-shifted tune. Mode is "disconnected" so subscribers can tell
-        # this apart from a live correction.
+    def set_static_mode(self, enabled: bool) -> DopplerMode:
+        """Enable/disable Static Mode: park RX/TX at the nominal configured
+        frequency and stop the tick loop from doing any TLE/Doppler math at
+        all (see ``doppler()``) — for a bench/range test at a fixed carrier
+        where a background TLE-driven number would only be confusing.
+
+        Mutually exclusive with Doppler engagement in both directions:
+        ``engage()`` refuses while static, and this refuses while connected —
+        an operator has to explicitly disengage first rather than one toggle
+        silently killing the other.
+        """
+        with self._sink_lock:
+            if enabled:
+                if self._doppler_mode == "connected":
+                    raise TrackingError("cannot enable Static Mode while Doppler is engaged")
+                if self._doppler_mode == "static":
+                    return self._doppler_mode
+                prev_mode = self._doppler_mode
+                self._doppler_mode = "static"
+            else:
+                if self._doppler_mode != "static":
+                    return self._doppler_mode
+                prev_mode = self._doppler_mode
+                self._doppler_mode = "disconnected"
+        self._write_tracking_event(
+            "static_on" if enabled else "static_off",
+            mode=self._doppler_mode,
+            prev_mode=prev_mode,
+        )
+        return self._doppler_mode
+
+    def _nominal_park_correction(self, *, mode: DopplerMode = "disconnected") -> DopplerCorrection:
+        # Built from the live tracking config so disengage/static-mode parks
+        # the USRP at the operator-configured nominal frequencies, not the
+        # last Doppler-shifted tune. Mode is passed through so subscribers
+        # can tell this apart from a live correction.
         config = self.config_model()
         return DopplerCorrection(
             ts_ms=_now_ms(),
             station_id=config.selected_station.id,
             satellite=config.tle.name,
-            mode="disconnected",
+            mode=mode,
             range_rate_mps=0.0,
             rx_hz=config.frequencies.rx_hz,
             rx_shift_hz=0.0,
@@ -257,6 +290,8 @@ class TrackingService:
 
     def doppler(self, *, time_ms: int | None = None) -> dict:
         ts_ms = _now_ms() if time_ms is None else int(time_ms)
+        if self._doppler_mode == "static":
+            return self._static_doppler_result(ts_ms)
         config = self.config_model()
         satellite = build_satellite(config)
         look = look_angles_at(satellite, config.selected_station, ts_ms)
@@ -329,6 +364,31 @@ class TrackingService:
             result["tx_received_dbw"] = (
                 station.tx_eirp_dbw - tx_signal_loss_db + config.link_budget.satellite_rx_gain_dbi
             )
+        return result
+
+    def _static_doppler_result(self, ts_ms: int) -> dict:
+        """``doppler()``'s Static Mode branch: same result shape as the live
+        path, but built entirely from config — no ``build_satellite``,
+        ``look_angles_at``, or ``satellite_point_at`` call, so a stale/wrong
+        TLE selection cannot affect a static-frequency bench test. Look-angle
+        and signal-loss fields, which only mean something relative to a
+        propagated position, come back as 0.0; callers key off
+        ``mode == "static"`` rather than these values.
+        """
+        self._last_tick_ms = ts_ms
+        correction = self._nominal_park_correction(mode="static")
+        control = self._control_config()
+        result = asdict(correction)
+        result["elevation_deg"] = 0.0
+        result["azimuth_deg"] = 0.0
+        result["range_km"] = 0.0
+        result["altitude_km"] = 0.0
+        result["rx_lo_offset_hz"] = float(control.get("rx_lo_offset_hz", 0.0))
+        result["tx_lo_offset_hz"] = float(control.get("tx_lo_offset_hz", 0.0))
+        result["rx_dsp_hz"] = 0.0
+        result["tx_dsp_hz"] = 0.0
+        result["rx_signal_loss_db"] = 0.0
+        result["tx_signal_loss_db"] = 0.0
         return result
 
     def status(self) -> dict:

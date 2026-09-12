@@ -24,6 +24,7 @@ const baseProps = {
   actionError: null,
   engage: vi.fn(async () => {}),
   disengage: vi.fn(async () => {}),
+  toggleStatic: vi.fn(async () => {}),
   dismissError: vi.fn(),
 }
 
@@ -78,5 +79,34 @@ describe('DopplerSection', () => {
   it('shows error footer when error is present', () => {
     render(<DopplerSection {...baseProps} error="invalid TLE: SGP4 error 6" />)
     expect(screen.getByText(/invalid TLE/)).toBeTruthy()
+  })
+
+  it('locks the Static Mode switch while engaged', () => {
+    render(<DopplerSection {...baseProps} mode="connected" doppler={{ ...baseProps.doppler, mode: 'connected' }} />)
+    const toggle = screen.getByRole('switch', { name: 'Static Mode' })
+    expect(toggle.getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('locks the Engage button while Static Mode is on', () => {
+    render(<DopplerSection {...baseProps} mode="static" doppler={{ ...baseProps.doppler, mode: 'static' }} />)
+    expect(screen.getAllByText('STATIC').length).toBeGreaterThan(0)
+    const engageBtn = screen.getByRole('button', { name: 'Engage' }) as HTMLButtonElement
+    expect(engageBtn.disabled).toBe(true)
+  })
+
+  it('blanks Doppler-derived cells and shows the parked frequency in Static Mode', () => {
+    render(<DopplerSection {...baseProps} mode="static" doppler={{ ...baseProps.doppler, mode: 'static' }} />)
+    expect(screen.getByText('RX Parked At')).toBeTruthy()
+    expect(screen.getByText('TX Parked At')).toBeTruthy()
+    expect(screen.getAllByText('437,575,000 Hz')).toHaveLength(2)
+    expect(screen.queryByText('RX Shift')).toBeNull()
+    expect(screen.queryByText('RX Tune')).toBeNull()
+  })
+
+  it('calls toggleStatic on switch click', () => {
+    const toggleStatic = vi.fn(async () => {})
+    render(<DopplerSection {...baseProps} toggleStatic={toggleStatic} />)
+    fireEvent.click(screen.getByRole('switch', { name: 'Static Mode' }))
+    expect(toggleStatic).toHaveBeenCalled()
   })
 })

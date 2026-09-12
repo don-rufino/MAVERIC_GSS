@@ -12,10 +12,11 @@ export interface UseTrackingSocket {
   mode: DopplerMode
   error: string
   connected: boolean
-  busy: 'engage' | 'disengage' | null
+  busy: 'engage' | 'disengage' | 'static-on' | 'static-off' | null
   actionError: string | null
   engage: () => Promise<void>
   disengage: () => Promise<void>
+  toggleStatic: () => Promise<void>
   dismissError: () => void
 }
 
@@ -24,7 +25,7 @@ export function useTrackingSocket(): UseTrackingSocket {
   const [mode, setMode] = useState<DopplerMode>('disconnected')
   const [error, setError] = useState<string>('')
   const [connected, setConnected] = useState<boolean>(false)
-  const [busy, setBusy] = useState<'engage' | 'disengage' | null>(null)
+  const [busy, setBusy] = useState<'engage' | 'disengage' | 'static-on' | 'static-off' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const sockRef = useRef<{ close: () => void } | null>(null)
 
@@ -89,7 +90,21 @@ export function useTrackingSocket(): UseTrackingSocket {
     }
   }, [post])
 
+  const toggleStatic = useCallback(async () => {
+    const turningOn = mode !== 'static'
+    setBusy(turningOn ? 'static-on' : 'static-off')
+    setActionError(null)
+    try {
+      const body = await post(`/api/tracking/doppler/static/${turningOn ? 'on' : 'off'}`)
+      if (body.mode === 'static' || body.mode === 'disconnected') setMode(body.mode)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }, [mode, post])
+
   const dismissError = useCallback(() => setActionError(null), [])
 
-  return { doppler, mode, error, connected, busy, actionError, engage, disengage, dismissError }
+  return { doppler, mode, error, connected, busy, actionError, engage, disengage, toggleStatic, dismissError }
 }

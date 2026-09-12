@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from mav_gss_lib.platform.tracking import TrackingError
 from mav_gss_lib.server.radio.service import RadioService
 from mav_gss_lib.server.tracking.service import TrackingService
 
@@ -52,6 +53,61 @@ class RadioDopplerLifecycleTests(unittest.TestCase):
 
         self.assertEqual(runtime.tracking.doppler_mode, "disconnected")
         sink.close.assert_called_once()
+
+
+class StaticModeTests(unittest.TestCase):
+    def test_static_mode_parks_at_nominal_without_tle_math(self) -> None:
+        runtime = _runtime()
+        sink = MagicMock()
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: sink)
+
+        mode = runtime.tracking.set_static_mode(True)
+        self.assertEqual(mode, "static")
+        self.assertEqual(runtime.tracking.doppler_mode, "static")
+
+        result = runtime.tracking.doppler()
+        self.assertEqual(result["mode"], "static")
+        self.assertEqual(result["tx_hz"], 437_575_000.0)
+        self.assertEqual(result["tx_tune_hz"], 437_575_000.0)
+        self.assertEqual(result["rx_shift_hz"], 0.0)
+        # Static mode never touches the sink — nothing should have tuned the radio.
+        sink.publish.assert_not_called()
+
+    def test_engage_refuses_while_static(self) -> None:
+        runtime = _runtime()
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+        runtime.tracking.set_static_mode(True)
+
+        with self.assertRaises(TrackingError):
+            runtime.tracking.engage()
+        self.assertEqual(runtime.tracking.doppler_mode, "static")
+
+    def test_static_mode_refuses_while_engaged(self) -> None:
+        runtime = _runtime()
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+        runtime.tracking.engage()
+
+        with self.assertRaises(TrackingError):
+            runtime.tracking.set_static_mode(True)
+        self.assertEqual(runtime.tracking.doppler_mode, "connected")
+
+    def test_static_mode_off_returns_to_disconnected(self) -> None:
+        runtime = _runtime()
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+        runtime.tracking.set_static_mode(True)
+
+        mode = runtime.tracking.set_static_mode(False)
+        self.assertEqual(mode, "disconnected")
+        self.assertEqual(runtime.tracking.doppler_mode, "disconnected")
+
+    def test_static_mode_is_idempotent(self) -> None:
+        runtime = _runtime()
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+
+        self.assertEqual(runtime.tracking.set_static_mode(True), "static")
+        self.assertEqual(runtime.tracking.set_static_mode(True), "static")
+        self.assertEqual(runtime.tracking.set_static_mode(False), "disconnected")
+        self.assertEqual(runtime.tracking.set_static_mode(False), "disconnected")
 
 
 if __name__ == "__main__":

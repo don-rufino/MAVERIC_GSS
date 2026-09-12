@@ -482,7 +482,7 @@ export interface CommandInstance {
 
 // ---- Doppler tracking ----
 
-export type DopplerMode = 'disconnected' | 'connected' | 'sim'
+export type DopplerMode = 'disconnected' | 'connected' | 'sim' | 'static'
 
 export interface DopplerCorrection {
   ts_ms: number

@@ -94,6 +94,30 @@ async def api_tracking_doppler_connection(state: str, request: Request) -> dict[
     return {"connected": connected, "mode": result}
 
 
+@router.post("/api/tracking/doppler/static/{state}", response_model=None)
+async def api_tracking_doppler_static(state: str, request: Request) -> dict[str, Any] | JSONResponse:
+    denied = require_api_token(request)
+    if denied:
+        return denied
+    normalized = state.strip().lower()
+    if normalized in {"on", "enable", "enabled"}:
+        enabled = True
+    elif normalized in {"off", "disable", "disabled"}:
+        enabled = False
+    else:
+        return JSONResponse(status_code=422, content={"error": f"unsupported Static Mode state: {state}"})
+    runtime = get_runtime(request)
+    try:
+        result = runtime.tracking.set_static_mode(enabled)
+    except (TrackingError, OSError, RuntimeError) as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+    # Broadcast unconditionally (even on idempotent no-op) — same reasoning as
+    # the connection endpoint above: a subscriber that missed the transition
+    # catches up immediately rather than waiting on the next tick.
+    await runtime.doppler_broadcaster.publish({"type": "status", **runtime.tracking.status()})
+    return {"static": enabled, "mode": result}
+
+
 @router.post("/api/tracking/tle/fetch", response_model=None)
 async def api_tracking_tle_fetch(request: Request) -> dict[str, Any] | JSONResponse:
     denied = require_api_token(request)

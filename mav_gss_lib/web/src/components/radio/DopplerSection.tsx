@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Satellite } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { colors } from '@/lib/colors'
 import { cn } from '@/lib/utils'
 import type { DopplerCorrection, DopplerMode } from '@/lib/types'
@@ -10,10 +11,11 @@ export interface DopplerSectionProps {
   doppler: DopplerCorrection | null
   mode: DopplerMode
   error: string
-  busy: 'engage' | 'disengage' | null
+  busy: 'engage' | 'disengage' | 'static-on' | 'static-off' | null
   actionError: string | null
   engage: () => Promise<void>
   disengage: () => Promise<void>
+  toggleStatic: () => Promise<void>
   dismissError: () => void
 }
 
@@ -67,12 +69,14 @@ function DataCell({ label, value, tone, className }: { label: string; value: str
 }
 
 export function DopplerSection(props: DopplerSectionProps) {
-  const { doppler, mode, error, busy, actionError, engage, disengage } = props
+  const { doppler, mode, error, busy, actionError, engage, disengage, toggleStatic } = props
   const engaged = mode === 'connected'
+  const staticOn = mode === 'static'
   const tone = error
     ? colors.danger
+    : staticOn ? colors.warning
     : engaged ? colors.success : colors.textMuted
-  const label = error ? 'ERROR' : engaged ? 'ENGAGED' : 'DISENGAGED'
+  const label = error ? 'ERROR' : staticOn ? 'STATIC' : engaged ? 'ENGAGED' : 'DISENGAGED'
 
   const onClick = engaged ? disengage : engage
   const buttonLabel = busy === 'engage' ? 'Engaging…'
@@ -98,12 +102,37 @@ export function DopplerSection(props: DopplerSectionProps) {
         )}
       />
       <div className="flex flex-col gap-2 px-3 py-2">
+        <div
+          className="flex items-start justify-between gap-2.5 rounded-md border px-2.5 py-2"
+          style={{
+            borderColor: staticOn ? `${colors.warning}66` : colors.borderSubtle,
+            backgroundColor: staticOn ? `${colors.warning}14` : colors.bgCard,
+          }}
+        >
+          <div className="min-w-0">
+            <div className="text-xs font-bold" style={{ color: colors.textPrimary }}>Static Mode</div>
+            <div className="mt-0.5 text-[11px] leading-snug" style={{ color: staticOn ? colors.warning : colors.textMuted }}>
+              {engaged
+                ? 'Disengage Doppler to enable.'
+                : 'Hold RX/TX at nominal frequency; stop background Doppler calc.'}
+            </div>
+          </div>
+          <Switch
+            checked={staticOn}
+            onCheckedChange={() => void toggleStatic()}
+            disabled={busy !== null || engaged}
+            aria-label="Static Mode"
+            title={engaged ? 'Disengage Doppler to enable Static Mode' : undefined}
+          />
+        </div>
+
         <Button
           size="sm"
           variant="outline"
           aria-busy={busy !== null}
           onClick={() => void onClick()}
-          disabled={busy !== null}
+          disabled={busy !== null || staticOn}
+          title={staticOn ? 'Turn off Static Mode to engage' : undefined}
           className="h-8 w-full gap-1.5 text-xs font-bold btn-feedback"
           style={{
             color: engaged ? colors.danger : colors.active,
@@ -115,22 +144,29 @@ export function DopplerSection(props: DopplerSectionProps) {
         </Button>
 
         <div className="grid grid-cols-3 gap-x-4 gap-y-1">
-          <DataCell label="Satellite" value={doppler?.satellite ?? '--'} />
-          <DataCell label="Mode" value={mode.toUpperCase()} tone={engaged ? colors.success : colors.textMuted} />
+          <DataCell label="Satellite" value={staticOn ? '--' : (doppler?.satellite ?? '--')} />
+          <DataCell label="Mode" value={mode.toUpperCase()} tone={tone} />
           <DataCell
             label="Range Rate"
-            value={doppler ? `${fmtSigned(doppler.range_rate_mps, 1)} m/s` : '--'}
+            value={!staticOn && doppler ? `${fmtSigned(doppler.range_rate_mps, 1)} m/s` : '--'}
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-          <DataCell label="RX Shift" value={doppler ? `${fmtSigned(doppler.rx_shift_hz, 0)} Hz` : '--'} />
-          <DataCell label="RX Tune"  value={doppler ? `${fmtHz(doppler.rx_tune_hz)} Hz` : '--'} />
-          <DataCell label="TX Shift" value={doppler ? `${fmtSigned(doppler.tx_shift_hz, 0)} Hz` : '--'} />
-          <DataCell label="TX Tune"  value={doppler ? `${fmtHz(doppler.tx_tune_hz)} Hz` : '--'} />
-        </div>
+        {staticOn ? (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <DataCell label="RX Parked At" value={doppler ? `${fmtHz(doppler.rx_hz)} Hz` : '--'} />
+            <DataCell label="TX Parked At" value={doppler ? `${fmtHz(doppler.tx_hz)} Hz` : '--'} />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <DataCell label="RX Shift" value={doppler ? `${fmtSigned(doppler.rx_shift_hz, 0)} Hz` : '--'} />
+            <DataCell label="RX Tune"  value={doppler ? `${fmtHz(doppler.rx_tune_hz)} Hz` : '--'} />
+            <DataCell label="TX Shift" value={doppler ? `${fmtSigned(doppler.tx_shift_hz, 0)} Hz` : '--'} />
+            <DataCell label="TX Tune"  value={doppler ? `${fmtHz(doppler.tx_tune_hz)} Hz` : '--'} />
+          </div>
+        )}
 
-        {doppler && doppler.rx_hz !== doppler.tx_hz ? (
+        {!staticOn && (doppler && doppler.rx_hz !== doppler.tx_hz ? (
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             <DataCell label="RX Signal Loss" value={`${doppler.rx_signal_loss_db.toFixed(1)} dB`} />
             <DataCell label="TX Signal Loss" value={`${doppler.tx_signal_loss_db.toFixed(1)} dB`} />
@@ -144,7 +180,7 @@ export function DopplerSection(props: DopplerSectionProps) {
               tone={colors.textMuted}
             />
           </div>
-        )}
+        ))}
 
         {(error || actionError) && (
           <div

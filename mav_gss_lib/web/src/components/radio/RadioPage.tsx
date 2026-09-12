@@ -339,6 +339,7 @@ export function RadioPage() {
             actionError={tracking.actionError}
             engage={tracking.engage}
             disengage={tracking.disengage}
+            toggleStatic={tracking.toggleStatic}
             dismissError={tracking.dismissError}
           />
 

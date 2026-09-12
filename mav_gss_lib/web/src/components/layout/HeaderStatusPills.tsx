@@ -68,6 +68,14 @@ function dopplerTone(mode: DopplerMode, error: string): PillTone {
       ariaLabel: 'doppler engaged',
     }
   }
+  if (mode === 'static') {
+    return {
+      dot: colors.warning,
+      text: colors.textSecondary,
+      title: 'doppler: static mode',
+      ariaLabel: 'doppler static mode',
+    }
+  }
   return {
     dot: colors.dim,
     text: colors.textMuted,
