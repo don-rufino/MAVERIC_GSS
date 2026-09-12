@@ -26,6 +26,18 @@ function fmtSigned(value: number, digits = 1): string {
   return `${sign}${value.toFixed(digits)}`
 }
 
+const GPREDICT_DEFAULT_HZ = 100_000_000
+
+// GPredict shows a single "Signal loss" figure at 100 MHz whenever a
+// satellite has no .trsp transponder entry (the common case for an
+// unidentified rideshare candidate) instead of the real downlink
+// frequency. Same range, so the two loss figures differ by a fixed
+// 20*log10(f_ratio) — reusing the already-computed loss avoids needing
+// range_km on the wire just for this comparison value.
+function lossAtFreq(actualLossDb: number, actualHz: number, targetHz: number): number {
+  return actualLossDb + 20 * Math.log10(targetHz / actualHz)
+}
+
 function PanelHeader({ icon, title, right }: { icon: ReactNode; title: string; right?: ReactNode }) {
   return (
     <div
@@ -126,6 +138,11 @@ export function DopplerSection(props: DopplerSectionProps) {
         ) : (
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             <DataCell label="Signal Loss" value={doppler ? `${doppler.rx_signal_loss_db.toFixed(1)} dB` : '--'} />
+            <DataCell
+              label="Signal Loss @ 100 MHz"
+              value={doppler ? `${lossAtFreq(doppler.rx_signal_loss_db, doppler.rx_hz, GPREDICT_DEFAULT_HZ).toFixed(1)} dB` : '--'}
+              tone={colors.textMuted}
+            />
           </div>
         )}
 

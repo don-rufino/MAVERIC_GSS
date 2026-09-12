@@ -48,6 +48,12 @@ describe('DopplerSection', () => {
     expect(screen.queryByText('RX Signal Loss')).toBeNull()
   })
 
+  it('shows a reference Signal Loss @ 100 MHz alongside the real one', () => {
+    render(<DopplerSection {...baseProps} />)
+    expect(screen.getByText('Signal Loss @ 100 MHz')).toBeTruthy()
+    expect(screen.getByText('132.5 dB')).toBeTruthy()
+  })
+
   it('splits RX/TX Signal Loss when RX and TX frequencies differ', () => {
     const doppler = {
       ...baseProps.doppler,
