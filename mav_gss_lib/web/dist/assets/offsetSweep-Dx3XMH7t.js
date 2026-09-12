@@ -1,0 +1,1 @@
+var e=new Set([`maveric`]);function t(t){return!!t&&e.has(t)}export{t};
