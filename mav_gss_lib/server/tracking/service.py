@@ -324,10 +324,10 @@ class TrackingService:
         if bool(control.get("link_budget_enabled", False)):
             station = config.selected_station
             result["rx_received_dbw"] = (
-                config.link_budget.maveric_eirp_dbw - rx_signal_loss_db + station.rx_gain_dbi
+                config.link_budget.satellite_eirp_dbw - rx_signal_loss_db + station.rx_gain_dbi
             )
             result["tx_received_dbw"] = (
-                station.tx_eirp_dbw - tx_signal_loss_db + config.link_budget.maveric_rx_gain_dbi
+                station.tx_eirp_dbw - tx_signal_loss_db + config.link_budget.satellite_rx_gain_dbi
             )
         return result
 

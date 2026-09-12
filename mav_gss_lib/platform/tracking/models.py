@@ -66,10 +66,11 @@ class TrackingDisplay:
 class LinkBudget:
     # The tracked satellite's own link-budget figures (dBW/dBi) — mission-
     # scoped like frequencies/TLE, since a different bird has different
-    # transmit EIRP and receive gain. 0.0 until seeded from a real link
-    # budget.
-    maveric_eirp_dbw: float = 0.0
-    maveric_rx_gain_dbi: float = 0.0
+    # transmit EIRP and receive gain. Named generically (not after any one
+    # mission) since each mission's own gss.<mission>.yml carries its own
+    # link_budget block. 0.0 until seeded from a real link budget.
+    satellite_eirp_dbw: float = 0.0
+    satellite_rx_gain_dbi: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

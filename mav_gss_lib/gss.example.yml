@@ -72,11 +72,12 @@ platform:
   #       min_elevation_deg: 5
   #       tx_eirp_dbw: 10.3094      # this station's uplink transmit EIRP
   #       rx_gain_dbi: 40.2         # this station's receive antenna gain
-  #   # MAVERIC's own link-budget figures (mission-scoped, unlike the
-  #   # station hardware above — a different bird has different EIRP/gain).
+  #   # The tracked satellite's own link-budget figures (mission-scoped,
+  #   # unlike the station hardware above — a different bird has different
+  #   # EIRP/gain). Lives in each mission's own gss.<mission>.yml.
   #   link_budget:
-  #     maveric_eirp_dbw: -3.0059      # MAVERIC's downlink transmit EIRP
-  #     maveric_rx_gain_dbi: 0.0       # MAVERIC's receive antenna gain
+  #     satellite_eirp_dbw: -3.0059      # this satellite's downlink transmit EIRP
+  #     satellite_rx_gain_dbi: 0.0       # this satellite's receive antenna gain
 
 mission:
   id: maveric

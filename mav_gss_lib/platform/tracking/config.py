@@ -119,8 +119,8 @@ def default_tracking_config_dict() -> dict[str, Any]:
             "day_night_map": cfg.display.day_night_map,
         },
         "link_budget": {
-            "maveric_eirp_dbw": cfg.link_budget.maveric_eirp_dbw,
-            "maveric_rx_gain_dbi": cfg.link_budget.maveric_rx_gain_dbi,
+            "satellite_eirp_dbw": cfg.link_budget.satellite_eirp_dbw,
+            "satellite_rx_gain_dbi": cfg.link_budget.satellite_rx_gain_dbi,
         },
     }
 
@@ -185,7 +185,7 @@ def normalize_tracking_config(value: Any) -> TrackingConfig:
             day_night_map=_bool(display_raw.get("day_night_map"), defaults.display.day_night_map),
         ),
         link_budget=LinkBudget(
-            maveric_eirp_dbw=_float(link_budget_raw.get("maveric_eirp_dbw"), defaults.link_budget.maveric_eirp_dbw),
-            maveric_rx_gain_dbi=_float(link_budget_raw.get("maveric_rx_gain_dbi"), defaults.link_budget.maveric_rx_gain_dbi),
+            satellite_eirp_dbw=_float(link_budget_raw.get("satellite_eirp_dbw"), defaults.link_budget.satellite_eirp_dbw),
+            satellite_rx_gain_dbi=_float(link_budget_raw.get("satellite_rx_gain_dbi"), defaults.link_budget.satellite_rx_gain_dbi),
         ),
     )

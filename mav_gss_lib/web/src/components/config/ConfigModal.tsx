@@ -132,6 +132,10 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
   const [pendingSwitch, setPendingSwitch] = useState<MissionInfo | null>(null)
   const [switchingTo, setSwitchingTo] = useState<MissionInfo | null>(null)
   const [switchError, setSwitchError] = useState<string | null>(null)
+  // Locked by default each time the modal opens — editing a station's real-world
+  // location is rare and a slip here would silently shift pointing/Doppler
+  // geometry mid-pass, so it needs a deliberate unlock rather than sitting open.
+  const [stationLocationUnlocked, setStationLocationUnlocked] = useState(false)
 
   useEffect(() => {
     hasLoadedConfigModal = true
@@ -557,20 +561,21 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
         }],
       })
     }
+    const missionDisplayName = cfg.mission.name || cfg.mission.id || 'Satellite'
     missionGroups.push({
       title: 'Link budget',
       rows: [
         {
-          id: 'maveric_eirp_dbw', label: 'MAVERIC EIRP (downlink)',
+          id: 'satellite_eirp_dbw', label: `${missionDisplayName} EIRP (downlink)`,
           description: "This satellite's downlink transmit EIRP, from your link budget.",
-          control: { kind: 'number', unit: 'dBW', value: cfg.platform.tracking?.link_budget?.maveric_eirp_dbw ?? 0,
-            onChange: (v) => updateTrackingLinkBudget({ maveric_eirp_dbw: v }) },
+          control: { kind: 'number', unit: 'dBW', value: cfg.platform.tracking?.link_budget?.satellite_eirp_dbw ?? 0,
+            onChange: (v) => updateTrackingLinkBudget({ satellite_eirp_dbw: v }) },
         },
         {
-          id: 'maveric_rx_gain_dbi', label: 'MAVERIC Rx gain (uplink)',
-          description: "This satellite's receive antenna gain. Used with the Station tab's uplink EIRP to compute received power at MAVERIC.",
-          control: { kind: 'number', unit: 'dBi', value: cfg.platform.tracking?.link_budget?.maveric_rx_gain_dbi ?? 0,
-            onChange: (v) => updateTrackingLinkBudget({ maveric_rx_gain_dbi: v }) },
+          id: 'satellite_rx_gain_dbi', label: `${missionDisplayName} Rx gain (uplink)`,
+          description: `This satellite's receive antenna gain. Used with the Station tab's uplink EIRP to compute received power at ${missionDisplayName}.`,
+          control: { kind: 'number', unit: 'dBi', value: cfg.platform.tracking?.link_budget?.satellite_rx_gain_dbi ?? 0,
+            onChange: (v) => updateTrackingLinkBudget({ satellite_rx_gain_dbi: v }) },
         },
       ],
     })
@@ -663,16 +668,27 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       ],
     })
 
+    const selectedStation = cfg.platform.tracking?.stations?.find((s) => s.id === cfg.platform.tracking?.selected_station_id)
+    const stationDisplayName = selectedStation?.name || 'Ground station'
     out.push({
-      id: 'station', title: 'Station', description: 'USC Ground Station hardware — identity and transmit configuration.',
+      id: 'station', title: 'Station', description: `${stationDisplayName} hardware — identity and transmit configuration.`,
       groups: [
         { title: 'Identity', rows: [
-          { id: 'station_id', label: 'Station ID', description: 'From the tracking station catalog.', control: { kind: 'info', value: cfg.platform.tracking?.selected_station_id || '—' } },
-          { id: 'station_name', label: 'Name', control: { kind: 'info', value: cfg.platform.tracking?.stations?.find((s) => s.id === cfg.platform.tracking?.selected_station_id)?.name || '—' } },
+          { id: 'station_name', label: 'Name', control: { kind: 'text', value: selectedStation?.name ?? '', onChange: (v) => updateSelectedStation({ name: v }) } },
+        ]},
+        { title: 'Location', rows: [
+          {
+            id: 'station_location_unlocked', label: 'Edit station location',
+            description: 'Off by default — flipping this open guards against an accidental edit that silently shifts pointing/Doppler geometry mid-pass.',
+            control: { kind: 'toggle', value: stationLocationUnlocked, onChange: setStationLocationUnlocked },
+          },
+          { id: 'lat_deg', label: 'Latitude', control: { kind: 'number', unit: 'deg', disabled: !stationLocationUnlocked, value: selectedStation?.lat_deg ?? 0, onChange: (v) => updateSelectedStation({ lat_deg: v }) } },
+          { id: 'lon_deg', label: 'Longitude', control: { kind: 'number', unit: 'deg', disabled: !stationLocationUnlocked, value: selectedStation?.lon_deg ?? 0, onChange: (v) => updateSelectedStation({ lon_deg: v }) } },
+          { id: 'alt_m', label: 'Altitude', control: { kind: 'number', unit: 'm', disabled: !stationLocationUnlocked, value: selectedStation?.alt_m ?? 0, onChange: (v) => updateSelectedStation({ alt_m: v }) } },
         ]},
         { title: 'Link budget', rows: [
-          { id: 'tx_eirp_dbw', label: 'USC GS EIRP (uplink)', description: "This station's uplink transmit EIRP, from your link budget.", control: { kind: 'number', unit: 'dBW', value: cfg.platform.tracking?.stations?.find((s) => s.id === cfg.platform.tracking?.selected_station_id)?.tx_eirp_dbw ?? 0, onChange: (v) => updateSelectedStation({ tx_eirp_dbw: v }) } },
-          { id: 'rx_gain_dbi', label: 'USC GS Rx gain (downlink)', description: "This station's receive antenna gain. Used with MAVERIC's downlink EIRP to compute received power at USC GS.", control: { kind: 'number', unit: 'dBi', value: cfg.platform.tracking?.stations?.find((s) => s.id === cfg.platform.tracking?.selected_station_id)?.rx_gain_dbi ?? 0, onChange: (v) => updateSelectedStation({ rx_gain_dbi: v }) } },
+          { id: 'tx_eirp_dbw', label: `${stationDisplayName} EIRP (uplink)`, description: "This station's uplink transmit EIRP, from your link budget.", control: { kind: 'number', unit: 'dBW', value: selectedStation?.tx_eirp_dbw ?? 0, onChange: (v) => updateSelectedStation({ tx_eirp_dbw: v }) } },
+          { id: 'rx_gain_dbi', label: `${stationDisplayName} Rx gain (downlink)`, description: `This station's receive antenna gain. Used with ${missionDisplayName}'s downlink EIRP to compute received power at ${stationDisplayName}.`, control: { kind: 'number', unit: 'dBi', value: selectedStation?.rx_gain_dbi ?? 0, onChange: (v) => updateSelectedStation({ rx_gain_dbi: v }) } },
         ]},
       ],
     })
@@ -690,7 +706,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       out.push({ id: 'about', title: 'About', description: 'Session and build details.', groups: [{ title: 'Session', rows }] })
     }
     return out
-  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, missions, switchError, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingControl, updateTrackingFetch, updateTrackingTle])
+  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, missions, switchError, stationLocationUnlocked, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingControl, updateTrackingFetch, updateTrackingTle])
 
   const trimmed = search.trim()
   const contentPanes = trimmed ? panes : panes.filter((p) => p.id === activeCategory)

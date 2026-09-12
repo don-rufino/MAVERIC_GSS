@@ -7,7 +7,7 @@ import { SearchContext, matchesQuery, useFieldVisible } from './search'
 
 export type Control =
   | { kind: 'text'; value: string; onChange: (v: string) => void; stacked?: boolean }
-  | { kind: 'number'; value: number; onChange: (v: number) => void; unit?: string }
+  | { kind: 'number'; value: number; onChange: (v: number) => void; unit?: string; disabled?: boolean }
   | { kind: 'toggle'; value: boolean; onChange: (v: boolean) => void }
   | { kind: 'info'; value: string }
   | { kind: 'tle'; draft: string; onChange: (v: string) => void }
@@ -93,7 +93,16 @@ function ControlView({ control, controlId, labelId, descriptionId }: { control: 
     case 'number':
       return (
         <div className="flex items-center gap-1.5">
-          <GssInput id={controlId} aria-labelledby={labelId} aria-describedby={descriptionId} type="number" className="w-16 text-right" value={control.value} onChange={(e) => control.onChange(Number(e.target.value))} />
+          <GssInput
+            id={controlId}
+            aria-labelledby={labelId}
+            aria-describedby={descriptionId}
+            type="number"
+            disabled={control.disabled}
+            className="w-16 text-right disabled:opacity-40 disabled:cursor-not-allowed"
+            value={control.value}
+            onChange={(e) => control.onChange(Number(e.target.value))}
+          />
           {control.unit && <span className="text-xs" style={{ color: colors.dim }}>{control.unit}</span>}
         </div>
       )

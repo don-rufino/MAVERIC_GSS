@@ -322,8 +322,8 @@ export interface PlatformTrackingConfig {
     day_night_map: boolean
   }
   link_budget?: {
-    maveric_eirp_dbw?: number
-    maveric_rx_gain_dbi?: number
+    satellite_eirp_dbw?: number
+    satellite_rx_gain_dbi?: number
   }
   tle_fetch?: {
     identifier: string
