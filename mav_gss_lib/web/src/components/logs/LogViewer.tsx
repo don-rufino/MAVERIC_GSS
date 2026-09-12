@@ -194,6 +194,9 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
   const actualHz = Number(direction === 'rx' ? t.rx_actual_hz : t.tx_actual_hz)
   const hasActual = Number.isFinite(actualHz)
   const deltaHz = hasActual && Number.isFinite(tuneHz) ? actualHz - tuneHz : NaN
+  const loOffsetHz = Number(direction === 'rx' ? t.rx_lo_offset_hz : t.tx_lo_offset_hz)
+  const dspHz = Number(direction === 'rx' ? t.rx_dsp_hz : t.tx_dsp_hz)
+  const hasOffset = Number.isFinite(loOffsetHz) || Number.isFinite(dspHz)
   const dirColor = direction === 'rx' ? colors.info : colors.label
   const deltaS = match.deltaMs / 1000
   return (
@@ -220,6 +223,11 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
         <TrackingDataCell label="Range" value={Number.isFinite(range) ? `${range.toFixed(0)} km` : '--'} />
         <TrackingDataCell label="Range Rate" value={Number.isFinite(rr) ? `${fmtSigned(rr, 1)} m/s` : '--'} />
       </div>
+      {hasOffset && (
+        <div className="mt-1.5 text-[9px] font-medium uppercase tracking-wide" style={{ color: colors.sep }}>
+          Requested vs. actual tune
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
         <TrackingDataCell label={`${direction.toUpperCase()} Shift`} value={Number.isFinite(shiftHz) ? `${fmtSigned(shiftHz, 0)} Hz` : '--'} tone={dirColor} />
         <TrackingDataCell label={`${direction.toUpperCase()} Tune (requested)`} value={Number.isFinite(tuneHz) ? `${fmtHz(tuneHz)} Hz` : '--'} tone={dirColor} />
@@ -229,6 +237,17 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
           <TrackingDataCell label={`${direction.toUpperCase()} Tune (actual)`} value={`${fmtHz(actualHz)} Hz`} tone={dirColor} />
           <TrackingDataCell label="Δ actual − requested" value={Number.isFinite(deltaHz) ? `${fmtSigned(deltaHz, 1)} Hz` : '--'} />
         </div>
+      )}
+      {hasOffset && (
+        <>
+          <div className="mt-1.5 pt-1.5 text-[9px] font-medium uppercase tracking-wide border-t" style={{ color: colors.sep, borderColor: colors.borderSubtle }}>
+            Radio configuration — why tune &ne; carrier
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
+            <TrackingDataCell label={`${direction.toUpperCase()} Offset`} value={Number.isFinite(loOffsetHz) ? `${fmtHz(loOffsetHz)} Hz` : '--'} tone={dirColor} />
+            <TrackingDataCell label="DSP Offset" value={Number.isFinite(dspHz) ? `${fmtHz(dspHz)} Hz` : '--'} tone={dirColor} />
+          </div>
+        </>
       )}
     </div>
   )

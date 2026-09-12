@@ -23,6 +23,7 @@ import pmt
 import zmq
 
 from mav_gss_lib.platform.tracking.models import DopplerCorrection
+from mav_gss_lib.platform.tracking.propagation import dsp_offset_hz
 
 
 class ZmqDopplerSink:
@@ -93,16 +94,12 @@ def _tune_message(*, direction: Literal["rx", "tx"], lo_hz: float, target_hz: fl
     # Manual-policy tune: gr-uhd combines lo_freq + dsp_freq from one dict
     # into a single tune_request with both policies MANUAL, so the RF
     # synthesizer holds lo_hz while the DSP NCO places target_hz at baseband
-    # center. UHD's NCO sign is direction-dependent (multi_usrp.cpp
-    # RX_SIGN=+1 / TX_SIGN=-1; the tune_request.hpp doc comment claims the
-    # opposite RX sign and is contradicted by the implementation):
-    #   rx: center = lo_freq - dsp_freq  ->  dsp = lo - target
-    #   tx: center = lo_freq + dsp_freq  ->  dsp = target - lo
-    # Explicit chan=0 so the command is unambiguous against any future
-    # multi-channel build of MAV_DUO.
+    # center — sign convention documented on dsp_offset_hz(). Explicit chan=0
+    # so the command is unambiguous against any future multi-channel build
+    # of MAV_DUO.
     lo_hz = float(lo_hz)
     target_hz = float(target_hz)
-    dsp_hz = (lo_hz - target_hz) if direction == "rx" else (target_hz - lo_hz)
+    dsp_hz = dsp_offset_hz(direction=direction, lo_hz=lo_hz, target_hz=target_hz)
     msg = pmt.make_dict()
     msg = pmt.dict_add(msg, pmt.intern("lo_freq"), pmt.from_double(lo_hz))
     msg = pmt.dict_add(msg, pmt.intern("dsp_freq"), pmt.from_double(dsp_hz))

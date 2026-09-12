@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, Literal
 
 import numpy as np
 from skyfield.api import EarthSatellite, load, wgs84
@@ -138,6 +138,22 @@ def doppler_correction(
         tx_shift_hz=tx_shift_hz,
         tx_tune_hz=tx_hz + tx_shift_hz,
     )
+
+
+def dsp_offset_hz(*, direction: Literal["rx", "tx"], lo_hz: float, target_hz: float) -> float:
+    """DSP NCO offset that places *target_hz* at baseband center while the RF
+    LO holds at *lo_hz* — the manual-policy split ZmqDopplerSink sends to
+    gr-uhd so the AD9361 synthesizer never retunes mid-pass. UHD's NCO sign
+    is direction-dependent (multi_usrp.cpp RX_SIGN=+1 / TX_SIGN=-1;
+    tune_request.hpp's doc comment claims the opposite RX sign and is
+    contradicted by the implementation):
+      rx: center = lo_freq - dsp_freq  ->  dsp = lo - target
+      tx: center = lo_freq + dsp_freq  ->  dsp = target - lo
+    Shared by ZmqDopplerSink (the value actually sent to the radio) and
+    TrackingService.doppler() (the same value surfaced for logging/display)
+    so the two can never drift apart.
+    """
+    return (lo_hz - target_hz) if direction == "rx" else (target_hz - lo_hz)
 
 
 def footprint_radius_deg(altitude_km: float, min_elevation_deg: float) -> float:

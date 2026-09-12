@@ -29,7 +29,7 @@ from mav_gss_lib.platform.tracking import (
 from mav_gss_lib.config import get_tracking_control
 from mav_gss_lib.platform.tracking.models import DopplerMode
 from mav_gss_lib.platform.tracking.propagation import (
-    look_angles_at, doppler_correction, satellite_point_at,
+    look_angles_at, doppler_correction, dsp_offset_hz, satellite_point_at,
 )
 
 if TYPE_CHECKING:
@@ -288,6 +288,26 @@ class TrackingService:
         # satellite_point_at() is as cheap as look_angles_at(), same
         # reasoning as the comment above.
         result["altitude_km"] = satellite_point_at(satellite, ts_ms).altitude_km
+        # RX/TX Offset is the fixed RF-LO park position (rx/tx_lo_offset_hz);
+        # DSP Offset is the NCO shift ZmqDopplerSink.publish() derives from it
+        # once engaged. Both are surfaced here too, unconditionally, so the
+        # tracking_sample log/UI can show *why* the requested tune differs
+        # from the parked carrier even while disconnected.
+        control = self._control_config()
+        rx_lo_offset_hz = float(control.get("rx_lo_offset_hz", 0.0))
+        tx_lo_offset_hz = float(control.get("tx_lo_offset_hz", 0.0))
+        result["rx_lo_offset_hz"] = rx_lo_offset_hz
+        result["tx_lo_offset_hz"] = tx_lo_offset_hz
+        result["rx_dsp_hz"] = dsp_offset_hz(
+            direction="rx",
+            lo_hz=correction.rx_hz + rx_lo_offset_hz,
+            target_hz=correction.rx_tune_hz,
+        )
+        result["tx_dsp_hz"] = dsp_offset_hz(
+            direction="tx",
+            lo_hz=correction.tx_hz + tx_lo_offset_hz,
+            target_hz=correction.tx_tune_hz,
+        )
         return result
 
     def status(self) -> dict:

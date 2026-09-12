@@ -275,10 +275,15 @@ def tracking_sample_record(
     *doppler* is the dict TrackingService.doppler() returns — every
     DopplerCorrection field (ts_ms, mode, range_rate_mps, rx/tx_hz,
     rx/tx_shift_hz, rx/tx_tune_hz) plus elevation_deg/azimuth_deg/range_km/
-    altitude_km. range_km is the topocentric line-of-sight distance from
-    the station (what matters for Doppler/pointing); altitude_km is the
-    satellite's height above the ground track (the subsatellite point) —
-    the two are different quantities and only converge near zenith.
+    altitude_km/rx_lo_offset_hz/tx_lo_offset_hz/rx_dsp_hz/tx_dsp_hz.
+    range_km is the topocentric line-of-sight distance from the station
+    (what matters for Doppler/pointing); altitude_km is the satellite's
+    height above the ground track (the subsatellite point) — the two are
+    different quantities and only converge near zenith. rx/tx_lo_offset_hz
+    is the fixed RF-LO park position and rx/tx_dsp_hz the NCO shift derived
+    from it (see propagation.dsp_offset_hz) — together they show why the
+    requested tune differs from the parked carrier, independent of whether
+    tracking is actually engaged.
     *source* distinguishes a background tick sample ("tick") from one taken
     at the exact moment of a downlink decode ("rx_decode") or a TX attempt
     ("tx_attempt"), so post-pass review can tell which rows are guaranteed
@@ -324,5 +329,9 @@ def tracking_sample_record(
             "tx_tune_hz": doppler.get("tx_tune_hz"),
             "rx_actual_hz": actual.get("rx_actual_hz"),
             "tx_actual_hz": actual.get("tx_actual_hz"),
+            "rx_lo_offset_hz": doppler.get("rx_lo_offset_hz"),
+            "tx_lo_offset_hz": doppler.get("tx_lo_offset_hz"),
+            "rx_dsp_hz": doppler.get("rx_dsp_hz"),
+            "tx_dsp_hz": doppler.get("tx_dsp_hz"),
         },
     }
