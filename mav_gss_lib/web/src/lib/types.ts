@@ -496,6 +496,8 @@ export interface DopplerCorrection {
   tx_hz: number
   tx_shift_hz: number
   tx_tune_hz: number
+  rx_signal_loss_db: number
+  tx_signal_loss_db: number
 }
 
 export interface TrackingStatusMessage {

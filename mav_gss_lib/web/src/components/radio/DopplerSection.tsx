@@ -118,6 +118,17 @@ export function DopplerSection(props: DopplerSectionProps) {
           <DataCell label="TX Tune"  value={doppler ? `${fmtHz(doppler.tx_tune_hz)} Hz` : '--'} />
         </div>
 
+        {doppler && doppler.rx_hz !== doppler.tx_hz ? (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <DataCell label="RX Signal Loss" value={`${doppler.rx_signal_loss_db.toFixed(1)} dB`} />
+            <DataCell label="TX Signal Loss" value={`${doppler.tx_signal_loss_db.toFixed(1)} dB`} />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <DataCell label="Signal Loss" value={doppler ? `${doppler.rx_signal_loss_db.toFixed(1)} dB` : '--'} />
+          </div>
+        )}
+
         {(error || actionError) && (
           <div
             className="rounded-md border px-2 py-1.5 text-[11px]"
