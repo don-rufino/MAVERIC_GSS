@@ -197,6 +197,9 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
   const loOffsetHz = Number(direction === 'rx' ? t.rx_lo_offset_hz : t.tx_lo_offset_hz)
   const dspHz = Number(direction === 'rx' ? t.rx_dsp_hz : t.tx_dsp_hz)
   const hasOffset = Number.isFinite(loOffsetHz) || Number.isFinite(dspHz)
+  const signalLossDb = Number(direction === 'rx' ? t.rx_signal_loss_db : t.tx_signal_loss_db)
+  const receivedDbw = Number(direction === 'rx' ? t.rx_received_dbw : t.tx_received_dbw)
+  const hasReceivedPower = Number.isFinite(receivedDbw)
   const dirColor = direction === 'rx' ? colors.info : colors.label
   const deltaS = match.deltaMs / 1000
   return (
@@ -216,12 +219,13 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
           {direction === 'rx' ? 'rx_decode' : 'tx_attempt'} &middot; &Delta;{fmtSigned(deltaS, 2)}s
         </span>
       </div>
-      <div className="grid grid-cols-5 gap-x-3 gap-y-1">
+      <div className="grid grid-cols-6 gap-x-3 gap-y-1">
         <TrackingDataCell label="Elevation" value={Number.isFinite(el) ? `${el.toFixed(1)}°` : '--'} />
         <TrackingDataCell label="Azimuth" value={Number.isFinite(az) ? `${az.toFixed(1)}°` : '--'} />
         <TrackingDataCell label="Altitude" value={Number.isFinite(altitude) ? `${altitude.toFixed(0)} km` : '--'} />
         <TrackingDataCell label="Range" value={Number.isFinite(range) ? `${range.toFixed(0)} km` : '--'} />
         <TrackingDataCell label="Range Rate" value={Number.isFinite(rr) ? `${fmtSigned(rr, 1)} m/s` : '--'} />
+        <TrackingDataCell label="Signal Loss" value={Number.isFinite(signalLossDb) ? `${signalLossDb.toFixed(1)} dB` : '--'} />
       </div>
       {hasOffset && (
         <div className="mt-1.5 text-[9px] font-medium uppercase tracking-wide" style={{ color: colors.sep }}>
@@ -246,6 +250,16 @@ function TrackingSampleCard({ match, direction }: { match: { sample: LogEntry; d
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
             <TrackingDataCell label={`${direction.toUpperCase()} Offset`} value={Number.isFinite(loOffsetHz) ? `${fmtHz(loOffsetHz)} Hz` : '--'} tone={dirColor} />
             <TrackingDataCell label="DSP Offset" value={Number.isFinite(dspHz) ? `${fmtHz(dspHz)} Hz` : '--'} tone={dirColor} />
+          </div>
+        </>
+      )}
+      {hasReceivedPower && (
+        <>
+          <div className="mt-1.5 pt-1.5 text-[9px] font-medium uppercase tracking-wide border-t" style={{ color: colors.sep, borderColor: colors.borderSubtle }}>
+            Link budget
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
+            <TrackingDataCell label="Received Power" value={`${fmtSigned(receivedDbw, 1)} dBW`} tone={dirColor} />
           </div>
         </>
       )}

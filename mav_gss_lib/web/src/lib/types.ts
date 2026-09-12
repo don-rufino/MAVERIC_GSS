@@ -298,6 +298,8 @@ export interface PlatformTrackingStation {
   lon_deg: number
   alt_m: number
   min_elevation_deg: number
+  tx_eirp_dbw?: number
+  rx_gain_dbi?: number
 }
 
 export interface PlatformTrackingConfig {
@@ -319,6 +321,10 @@ export interface PlatformTrackingConfig {
   display: {
     day_night_map: boolean
   }
+  link_budget?: {
+    maveric_eirp_dbw?: number
+    maveric_rx_gain_dbi?: number
+  }
   tle_fetch?: {
     identifier: string
     auto_refresh: boolean
@@ -328,6 +334,7 @@ export interface PlatformTrackingConfig {
   control?: {
     log_cadence?: 'off' | 'tick' | 'tx_throttled'
     log_decimation_s?: number
+    link_budget_enabled?: boolean
   }
 }
 

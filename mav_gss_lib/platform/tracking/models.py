@@ -34,6 +34,11 @@ class TrackingStation:
     lon_deg: float
     alt_m: float
     min_elevation_deg: float
+    # Ground-hardware link-budget figures (dBW/dBi), independent of which
+    # satellite is being tracked — unlike frequencies/TLE this is not
+    # per-mission data. 0.0 until an operator fills in a real link budget.
+    tx_eirp_dbw: float = 0.0
+    rx_gain_dbi: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +63,16 @@ class TrackingDisplay:
 
 
 @dataclass(frozen=True, slots=True)
+class LinkBudget:
+    # The tracked satellite's own link-budget figures (dBW/dBi) — mission-
+    # scoped like frequencies/TLE, since a different bird has different
+    # transmit EIRP and receive gain. 0.0 until seeded from a real link
+    # budget.
+    maveric_eirp_dbw: float = 0.0
+    maveric_rx_gain_dbi: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class TrackingConfig:
     enabled: bool
     selected_station_id: str
@@ -65,6 +80,7 @@ class TrackingConfig:
     tle: TrackingTle
     frequencies: TrackingFrequencies
     display: TrackingDisplay
+    link_budget: LinkBudget = field(default_factory=LinkBudget)
 
     @property
     def selected_station(self) -> TrackingStation:

@@ -8,6 +8,7 @@ from typing import Any
 from .models import (
     SAMPLE_TLE_LINE1,
     SAMPLE_TLE_LINE2,
+    LinkBudget,
     TrackingConfig,
     TrackingDisplay,
     TrackingFrequencies,
@@ -80,6 +81,7 @@ def default_tracking_config() -> TrackingConfig:
         ),
         frequencies=TrackingFrequencies(rx_hz=437_000_000.0, tx_hz=437_000_000.0),
         display=TrackingDisplay(day_night_map=True),
+        link_budget=LinkBudget(),
     )
 
 
@@ -96,6 +98,8 @@ def default_tracking_config_dict() -> dict[str, Any]:
                 "lon_deg": station.lon_deg,
                 "alt_m": station.alt_m,
                 "min_elevation_deg": station.min_elevation_deg,
+                "tx_eirp_dbw": station.tx_eirp_dbw,
+                "rx_gain_dbi": station.rx_gain_dbi,
             }
             for station in cfg.stations
         ],
@@ -114,6 +118,10 @@ def default_tracking_config_dict() -> dict[str, Any]:
         "display": {
             "day_night_map": cfg.display.day_night_map,
         },
+        "link_budget": {
+            "maveric_eirp_dbw": cfg.link_budget.maveric_eirp_dbw,
+            "maveric_rx_gain_dbi": cfg.link_budget.maveric_rx_gain_dbi,
+        },
     }
 
 
@@ -130,6 +138,8 @@ def _station_from_raw(value: Any) -> TrackingStation | None:
         lon_deg=_float(raw.get("lon_deg"), -118.2856, min_value=-180.0, max_value=180.0),
         alt_m=_float(raw.get("alt_m"), 70.0, min_value=-500.0, max_value=9000.0),
         min_elevation_deg=_float(raw.get("min_elevation_deg"), 5.0, min_value=0.0, max_value=45.0),
+        tx_eirp_dbw=_float(raw.get("tx_eirp_dbw"), 0.0),
+        rx_gain_dbi=_float(raw.get("rx_gain_dbi"), 0.0),
     )
 
 
@@ -153,6 +163,7 @@ def normalize_tracking_config(value: Any) -> TrackingConfig:
     tle_raw = _as_mapping(raw.get("tle"))
     frequencies_raw = _as_mapping(raw.get("frequencies"))
     display_raw = _as_mapping(raw.get("display"))
+    link_budget_raw = _as_mapping(raw.get("link_budget"))
 
     return TrackingConfig(
         enabled=_bool(raw.get("enabled"), defaults.enabled),
@@ -172,5 +183,9 @@ def normalize_tracking_config(value: Any) -> TrackingConfig:
         ),
         display=TrackingDisplay(
             day_night_map=_bool(display_raw.get("day_night_map"), defaults.display.day_night_map),
+        ),
+        link_budget=LinkBudget(
+            maveric_eirp_dbw=_float(link_budget_raw.get("maveric_eirp_dbw"), defaults.link_budget.maveric_eirp_dbw),
+            maveric_rx_gain_dbi=_float(link_budget_raw.get("maveric_rx_gain_dbi"), defaults.link_budget.maveric_rx_gain_dbi),
         ),
     )

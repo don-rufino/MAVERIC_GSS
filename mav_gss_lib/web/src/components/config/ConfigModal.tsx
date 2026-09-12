@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { colors } from '@/lib/colors'
 import type { GssConfig, MissionInfo, PlatformTrackingConfig } from '@/lib/types'
-import { X, Settings, Rocket, Radio, Satellite, Info } from 'lucide-react'
+import { X, Settings, Rocket, Radio, Satellite, Info, Antenna } from 'lucide-react'
 import { authFetch } from '@/lib/auth'
 import { parseTleBlock, joinTleBlock } from '@/lib/tle'
 import { waitForMissionThenReload } from '@/lib/restart'
@@ -83,6 +83,7 @@ const RAIL_ITEMS: RailItem[] = [
   { id: 'mission', label: 'Mission', group: 'Mission', Icon: Rocket },
   { id: 'radio', label: 'Radio / RF', group: 'Platform', Icon: Radio },
   { id: 'tracking', label: 'Tracking', group: 'Platform', Icon: Satellite },
+  { id: 'station', label: 'Station', group: 'Platform', Icon: Antenna },
   { id: 'about', label: 'About', group: 'System', Icon: Info },
 ]
 
@@ -377,6 +378,44 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
     })
   }, [])
 
+  const updateTrackingLinkBudget = useCallback((patch: Partial<NonNullable<PlatformTrackingConfig['link_budget']>>) => {
+    setCfg((prev) => {
+      if (!prev) return prev
+      const tracking = prev.platform.tracking
+      const next = {
+        ...prev,
+        platform: {
+          ...prev.platform,
+          tracking: {
+            ...(tracking ?? {}),
+            link_budget: { ...(tracking?.link_budget ?? {}), ...patch },
+          } as PlatformTrackingConfig,
+        },
+      }
+      setDirty(true)
+      return next
+    })
+  }, [])
+
+  const updateSelectedStation = useCallback((patch: Partial<PlatformTrackingConfig['stations'][number]>) => {
+    setCfg((prev) => {
+      if (!prev) return prev
+      const tracking = prev.platform.tracking
+      const stations = tracking?.stations ?? []
+      const selectedId = tracking?.selected_station_id
+      const nextStations = stations.map((s) => (s.id === selectedId ? { ...s, ...patch } : s))
+      const next = {
+        ...prev,
+        platform: {
+          ...prev.platform,
+          tracking: { ...(tracking ?? {}), stations: nextStations } as PlatformTrackingConfig,
+        },
+      }
+      setDirty(true)
+      return next
+    })
+  }, [])
+
   const [fetchMsg, setFetchMsg] = useState<string>('')
   const [fetching, setFetching] = useState(false)
 
@@ -518,6 +557,23 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
         }],
       })
     }
+    missionGroups.push({
+      title: 'Link budget',
+      rows: [
+        {
+          id: 'maveric_eirp_dbw', label: 'MAVERIC EIRP (downlink)',
+          description: "This satellite's downlink transmit EIRP, from your link budget.",
+          control: { kind: 'number', unit: 'dBW', value: cfg.platform.tracking?.link_budget?.maveric_eirp_dbw ?? 0,
+            onChange: (v) => updateTrackingLinkBudget({ maveric_eirp_dbw: v }) },
+        },
+        {
+          id: 'maveric_rx_gain_dbi', label: 'MAVERIC Rx gain (uplink)',
+          description: "This satellite's receive antenna gain. Used with the Station tab's uplink EIRP to compute received power at MAVERIC.",
+          control: { kind: 'number', unit: 'dBi', value: cfg.platform.tracking?.link_budget?.maveric_rx_gain_dbi ?? 0,
+            onChange: (v) => updateTrackingLinkBudget({ maveric_rx_gain_dbi: v }) },
+        },
+      ],
+    })
     const scalars = Object.entries(cfg.mission.config)
       .filter(([key, v]) => !isRecord(v) && key !== 'target_birds')
     if (scalars.length) {
@@ -600,6 +656,23 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
             { value: 'tick', label: 'Full background trace (1 Hz)' },
           ], onChange: (v) => updateTrackingControl({ log_cadence: v as 'off' | 'tick' | 'tx_throttled' }) } },
           { id: 'log_decimation_s', label: 'Background sample interval', description: 'Minimum time between background samples while throttled. Ignored in "Off" and "Full background trace" modes.', control: { kind: 'number', unit: 's', value: cfg.platform.tracking?.control?.log_decimation_s ?? 5, onChange: (v) => updateTrackingControl({ log_decimation_s: v }) } },
+        ]},
+        { title: 'Link budget', rows: [
+          { id: 'link_budget_enabled', label: 'Publish Received Power', description: 'Adds a computed Received Power (EIRP - path loss + Rx gain) to each RX/TX tracking sample, using the EIRP/Rx-gain figures from Mission Settings and the Station tab. Off by default — leave off until those figures are confirmed, since anything logged here is hard to walk back later. Signal Loss (path loss alone) always logs regardless of this setting.', control: { kind: 'toggle', value: cfg.platform.tracking?.control?.link_budget_enabled ?? false, onChange: (v) => updateTrackingControl({ link_budget_enabled: v }) } },
+        ]},
+      ],
+    })
+
+    out.push({
+      id: 'station', title: 'Station', description: 'USC Ground Station hardware — identity and transmit configuration.',
+      groups: [
+        { title: 'Identity', rows: [
+          { id: 'station_id', label: 'Station ID', description: 'From the tracking station catalog.', control: { kind: 'info', value: cfg.platform.tracking?.selected_station_id || '—' } },
+          { id: 'station_name', label: 'Name', control: { kind: 'info', value: cfg.platform.tracking?.stations?.find((s) => s.id === cfg.platform.tracking?.selected_station_id)?.name || '—' } },
+        ]},
+        { title: 'Link budget', rows: [
+          { id: 'tx_eirp_dbw', label: 'USC GS EIRP (uplink)', description: "This station's uplink transmit EIRP, from your link budget.", control: { kind: 'number', unit: 'dBW', value: cfg.platform.tracking?.stations?.find((s) => s.id === cfg.platform.tracking?.selected_station_id)?.tx_eirp_dbw ?? 0, onChange: (v) => updateSelectedStation({ tx_eirp_dbw: v }) } },
+          { id: 'rx_gain_dbi', label: 'USC GS Rx gain (downlink)', description: "This station's receive antenna gain. Used with MAVERIC's downlink EIRP to compute received power at USC GS.", control: { kind: 'number', unit: 'dBi', value: cfg.platform.tracking?.stations?.find((s) => s.id === cfg.platform.tracking?.selected_station_id)?.rx_gain_dbi ?? 0, onChange: (v) => updateSelectedStation({ rx_gain_dbi: v }) } },
         ]},
       ],
     })

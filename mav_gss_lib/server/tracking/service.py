@@ -29,7 +29,8 @@ from mav_gss_lib.platform.tracking import (
 from mav_gss_lib.config import get_tracking_control
 from mav_gss_lib.platform.tracking.models import DopplerMode
 from mav_gss_lib.platform.tracking.propagation import (
-    look_angles_at, doppler_correction, dsp_offset_hz, satellite_point_at,
+    look_angles_at, doppler_correction, dsp_offset_hz,
+    free_space_path_loss_db, satellite_point_at,
 )
 
 if TYPE_CHECKING:
@@ -308,6 +309,26 @@ class TrackingService:
             lo_hz=correction.tx_hz + tx_lo_offset_hz,
             target_hz=correction.tx_tune_hz,
         )
+        # Signal Loss is pure geometry (range + carrier frequency) — the same
+        # figure GPredict calls "Signal loss" — so it's always safe to log,
+        # unlike Received Power below.
+        rx_signal_loss_db = free_space_path_loss_db(look.range_km, correction.rx_hz)
+        tx_signal_loss_db = free_space_path_loss_db(look.range_km, correction.tx_hz)
+        result["rx_signal_loss_db"] = rx_signal_loss_db
+        result["tx_signal_loss_db"] = tx_signal_loss_db
+        # Received Power depends on operator-entered EIRP/Rx-gain link-budget
+        # values (Mission Settings' MAVERIC figures, the Station tab's ground
+        # figures) that start unconfirmed, so it only gets computed — and
+        # therefore only ever reaches the log — once link_budget_enabled is
+        # turned on deliberately.
+        if bool(control.get("link_budget_enabled", False)):
+            station = config.selected_station
+            result["rx_received_dbw"] = (
+                config.link_budget.maveric_eirp_dbw - rx_signal_loss_db + station.rx_gain_dbi
+            )
+            result["tx_received_dbw"] = (
+                station.tx_eirp_dbw - tx_signal_loss_db + config.link_budget.maveric_rx_gain_dbi
+            )
         return result
 
     def status(self) -> dict:

@@ -156,6 +156,17 @@ def dsp_offset_hz(*, direction: Literal["rx", "tx"], lo_hz: float, target_hz: fl
     return (lo_hz - target_hz) if direction == "rx" else (target_hz - lo_hz)
 
 
+def free_space_path_loss_db(range_km: float, freq_hz: float) -> float:
+    """Free-space path loss (dB) for a slant range and carrier frequency —
+    the same purely geometric figure GPredict shows as "Signal loss".
+    Standard form with d in km, f in MHz: 20*log10(d) + 20*log10(f) + 32.44.
+    Independent of AOS/LOS: still well-defined below the horizon, same as
+    GPredict computes it continuously through a pass.
+    """
+    freq_mhz = freq_hz / 1e6
+    return 20 * math.log10(max(range_km, 1e-9)) + 20 * math.log10(max(freq_mhz, 1e-9)) + 32.44
+
+
 def footprint_radius_deg(altitude_km: float, min_elevation_deg: float) -> float:
     orbital_radius_km = EARTH_RADIUS_KM + max(1.0, altitude_km)
     horizon = math.acos(EARTH_RADIUS_KM / orbital_radius_km)

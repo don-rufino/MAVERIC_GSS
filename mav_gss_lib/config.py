@@ -145,6 +145,14 @@ _DEFAULTS = {
             # gaps between packets matter too.
             "log_cadence": "off",
             "log_decimation_s": 5.0,
+            # Gates whether tracking_sample rows carry a computed Received
+            # Power (EIRP - FSPL + Rx gain) alongside the always-on Signal
+            # Loss figure. Off by default: Received Power depends on the
+            # operator-entered EIRP/Rx-gain link-budget values (Mission
+            # Settings + the Station tab), which start unconfirmed — this
+            # keeps unverified numbers out of the log until the operator
+            # turns it on deliberately.
+            "link_budget_enabled": False,
         },
     },
     "general": {

@@ -275,7 +275,8 @@ def tracking_sample_record(
     *doppler* is the dict TrackingService.doppler() returns — every
     DopplerCorrection field (ts_ms, mode, range_rate_mps, rx/tx_hz,
     rx/tx_shift_hz, rx/tx_tune_hz) plus elevation_deg/azimuth_deg/range_km/
-    altitude_km/rx_lo_offset_hz/tx_lo_offset_hz/rx_dsp_hz/tx_dsp_hz.
+    altitude_km/rx_lo_offset_hz/tx_lo_offset_hz/rx_dsp_hz/tx_dsp_hz/
+    rx_signal_loss_db/tx_signal_loss_db/rx_received_dbw/tx_received_dbw.
     range_km is the topocentric line-of-sight distance from the station
     (what matters for Doppler/pointing); altitude_km is the satellite's
     height above the ground track (the subsatellite point) — the two are
@@ -283,7 +284,12 @@ def tracking_sample_record(
     is the fixed RF-LO park position and rx/tx_dsp_hz the NCO shift derived
     from it (see propagation.dsp_offset_hz) — together they show why the
     requested tune differs from the parked carrier, independent of whether
-    tracking is actually engaged.
+    tracking is actually engaged. rx/tx_signal_loss_db is the geometric
+    free-space path loss (see propagation.free_space_path_loss_db), always
+    present; rx/tx_received_dbw is EIRP - path loss + Rx gain using the
+    operator's link-budget config, present only once
+    tracking.control.link_budget_enabled is turned on — see
+    TrackingService.doppler().
     *source* distinguishes a background tick sample ("tick") from one taken
     at the exact moment of a downlink decode ("rx_decode") or a TX attempt
     ("tx_attempt"), so post-pass review can tell which rows are guaranteed
@@ -333,5 +339,13 @@ def tracking_sample_record(
             "tx_lo_offset_hz": doppler.get("tx_lo_offset_hz"),
             "rx_dsp_hz": doppler.get("rx_dsp_hz"),
             "tx_dsp_hz": doppler.get("tx_dsp_hz"),
+            "rx_signal_loss_db": doppler.get("rx_signal_loss_db"),
+            "tx_signal_loss_db": doppler.get("tx_signal_loss_db"),
+            # None unless control.link_budget_enabled is on — see
+            # TrackingService.doppler(). Kept out of the log entirely while
+            # the operator's EIRP/Rx-gain figures are unconfirmed, rather
+            # than logging a value that might get corrected later.
+            "rx_received_dbw": doppler.get("rx_received_dbw"),
+            "tx_received_dbw": doppler.get("tx_received_dbw"),
         },
     }
