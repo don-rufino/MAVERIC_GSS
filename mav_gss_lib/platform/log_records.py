@@ -112,6 +112,7 @@ def tx_command_record(
     frame_label: str = "",
     log_fields: dict | None = None,
     event_id: str | None = None,
+    tx_offset_step_hz: float | None = None,
 ) -> dict[str, Any]:
     """Build one outbound command event record.
 
@@ -128,6 +129,15 @@ def tx_command_record(
 
     Framer log_fields contribute ONLY to mission_block["facts"]. Any
     keys outside "facts" are dropped.
+
+    tx_offset_step_hz is the provisional TX offset-sweep search's step
+    that was live for this send (0.0 when the sweep is off or
+    inapplicable, None for missions/platforms that never compute it —
+    see TxService._current_offset_step_hz). Recorded here so a replayed
+    session shows the exact value, matching the in-memory history entry
+    the live TX panel already carries; older sessions logged before this
+    field existed fall back to a nearest-timestamp tracking_sample match
+    in the log viewer.
     """
     cleaned_params = [
         {k: v for k, v in p.items() if k != "ts_ms"}
@@ -163,6 +173,7 @@ def tx_command_record(
         "wire_len": len(wire),
         "warnings": [],
         "mission": mission_block,
+        "tx_offset_step_hz": tx_offset_step_hz,
     }
 
 

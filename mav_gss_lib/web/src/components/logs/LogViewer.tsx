@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Calendar } from '@/components/ui/calendar'
 import { Separator } from '@/components/ui/separator'
 import { colors } from '@/lib/colors'
+import { isOffsetSweepMission } from '@/lib/offsetSweep'
 import { useLogQuery, type LogEntry } from '@/hooks/useLogQuery'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
@@ -154,6 +155,29 @@ function nearestTrackingSample(
     if (!best || absDelta < best.absDelta) best = { sample: s, deltaMs, absDelta }
   }
   return best ? { sample: best.sample, deltaMs: best.deltaMs } : undefined
+}
+
+// TX offset-sweep step live at send time. Sessions logged after this field
+// was added to tx_command_record carry the exact value; older sessions fall
+// back to the nearest tx_attempt tracking_sample (same match already used
+// for the expanded card) — an estimate, since it's a different log line a
+// few hundred ms apart rather than the sent command's own record.
+function txOffsetHz(
+  e: LogEntry,
+  trackingMatch: { sample: LogEntry; deltaMs: number } | undefined,
+): { hz: number; exact: boolean; deltaMs?: number } | undefined {
+  const persisted = e.tx_offset_step_hz
+  if (typeof persisted === 'number' && Number.isFinite(persisted)) {
+    return { hz: persisted, exact: true }
+  }
+  const block = trackingMatch?.sample.tracking_sample
+  if (block && typeof block === 'object') {
+    const v = (block as Record<string, unknown>).tx_offset_step_hz
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return { hz: v, exact: false, deltaMs: trackingMatch!.deltaMs }
+    }
+  }
+  return undefined
 }
 
 // Mirrors DopplerSection.tsx's formatting so a Doppler value reads the same
@@ -387,6 +411,14 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
     return counts
   }, [sessions])
 
+  // Mirrors the live TX panel's column gating (lib/offsetSweep.ts) — only
+  // missions that opted into the offset-sweep search get the column at
+  // all, rather than a column of dashes for every other mission's sessions.
+  const showOffsetColumn = useMemo(
+    () => entries.some(e => isOffsetSweepMission(e.mission_id as string | undefined)),
+    [entries],
+  )
+
   const sessionDates = useMemo(() => {
     return Object.keys(sessionDateCounts).map(d => new Date(d + 'T00:00:00'))
   }, [sessionDateCounts])
@@ -526,6 +558,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                   <span className="px-2 w-16">kind</span>
                   <span className="px-2 flex-1">label</span>
                   <span className="px-2 w-24">frame</span>
+                  {showOffsetColumn && <span className="px-2 w-20 text-right">offset</span>}
                   <span className="px-2 w-16 text-right">size</span>
                   <span className="px-2 w-16 text-right">inner</span>
                   <span className="px-2 w-16">flags</span>
@@ -574,6 +607,20 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                     const trackingMatch = !isSys && (kind === 'rx_packet' || isTx)
                       ? nearestTrackingSample(trackingSamples, Number(e.ts_ms ?? NaN), isTx ? 'tx_attempt' : 'rx_decode')
                       : undefined
+                    const offset = isTx ? txOffsetHz(e, trackingMatch) : undefined
+                    const offsetLabel = !offset
+                      ? '--'
+                      : offset.hz === 0
+                        ? '0.0 kHz'
+                        : `${offset.hz > 0 ? '+' : ''}${(offset.hz / 1000).toFixed(1)} kHz`
+                    const offsetTone = !offset
+                      ? colors.textDisabled
+                      : offset.hz === 0 ? colors.textMuted : colors.warning
+                    const offsetTitle = !offset
+                      ? undefined
+                      : offset.exact
+                        ? 'recorded at send time'
+                        : `estimated from nearest tracking_sample Δ${(offset.deltaMs! / 1000).toFixed(2)}s`
 
                     return (
                       <ContextMenuRoot key={i}>
@@ -594,6 +641,11 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                               </span>
                               <span className="px-2 flex-1 truncate" style={{ color: colors.label }}>{label || (isUnknown ? '(unknown)' : '')}</span>
                               <span className="px-2 w-24 truncate" style={{ color: colors.dim }}>{frame}</span>
+                              {showOffsetColumn && (
+                                <span className="px-2 w-20 text-right tabular-nums" title={offsetTitle} style={{ color: offsetTone }}>
+                                  {offsetLabel}
+                                </span>
+                              )}
                               <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{displayLen}</span>
                               <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{displayInnerLen}</span>
                               <span className="px-2 w-16 flex items-center gap-1">

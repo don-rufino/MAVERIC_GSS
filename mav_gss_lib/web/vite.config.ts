@@ -9,6 +9,14 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    // Resolves the "@/*" -> "./src/*" mapping from tsconfig.app.json's
+    // compilerOptions.paths natively — Vite doesn't read tsconfig paths
+    // unless this is explicitly turned on. (vitest.config.ts hand-rolls
+    // the same mapping via resolve.alias instead, since Vitest's config
+    // predates this option.)
+    tsconfigPaths: true,
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

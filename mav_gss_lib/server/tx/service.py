@@ -228,6 +228,8 @@ class TxService:
         assert len(framed.wire) > 0, "TX record: framed.wire is empty"
         assert framed.frame_label, "TX record: framed.frame_label is empty"
 
+        offset_step_hz = self._current_offset_step_hz()
+
         if self.log:
             try:
                 record = tx_command_record(
@@ -246,6 +248,7 @@ class TxService:
                     frame_label=framed.frame_label,
                     log_fields=framed.log_fields,
                     event_id=event_id,
+                    tx_offset_step_hz=offset_step_hz,
                 )
                 self.log.write_mission_command(
                     record,
@@ -271,7 +274,7 @@ class TxService:
             "wire_hex": framed.wire.hex(),
             "raw_hex": raw_cmd.hex(),
             "event_id": event_id or "",
-            "tx_offset_step_hz": self._current_offset_step_hz(),
+            "tx_offset_step_hz": offset_step_hz,
         }
         self.history.append(hist_entry)
         if len(self.history) > self.runtime.max_history:
