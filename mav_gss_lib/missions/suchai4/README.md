@@ -65,6 +65,24 @@ project's `gnu-radio/iq_recordings/`.
   (frame padding? a CSP-level CRC we haven't verified?) are worth
   decoding, or genuinely are just frame padding.
 
+## Tracking: suchai4.ksy upstream merge
+
+`suchai4.ksy` isn't merged into upstream `satnogs-decoders` yet. There's
+an open MR for it, checked 2026-09-20:
+
+  gitlab.com/librespacefoundation/satnogs/satnogs-decoders/-/merge_requests/529
+  "Add SUCHAI-4" — author carlgonz (Carlos González), opened 2026-07-08,
+  source spel-uchile/satnogs-decoders:adding-suchai-4 -> master.
+  State: open, no merge conflicts, blocked on unresolved discussion
+  (2 review notes as of the check date, content not pulled).
+
+Re-check this MR if the decode ever stops matching real captures —
+`telemetry.py` was ported from the branch tip at the time of this work,
+and a rebase/force-push or merge-time changes during review could drift
+from what's implemented here. (An earlier MR, !528, same title, was
+opened and closed same-day 2026-07-08 from a differently-named branch
+`add-suchai-4` — superseded by !529, not a live alternative.)
+
 ## Next steps
 
 This organization is pursuing direct collaboration with the Universidad
