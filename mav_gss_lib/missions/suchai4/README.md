@@ -55,10 +55,19 @@ project's `gnu-radio/iq_recordings/`.
 ## What's still unknown
 
 - The satellite's official identity/catalog claim.
-- The telecommand ICD (command IDs, argument encoding, addressing) —
-  needed before any uplink capability can be added. Do not attempt to
-  reverse-engineer or guess at command formats; sending malformed
-  commands to someone else's spacecraft is a real risk, not just a bug.
+- The telecommand ICD itself — command IDs, argument encoding/byte
+  layout, any checksum/CRC scheme on the command body. `suchai4.ksy`
+  only decodes downlink telemetry beacons (every `tm_type` value is a
+  telemetry/file/message/beacon kind); it defines no structure for a
+  command frame, though `tm_type=104` (`suchai_4_message`) hints one
+  exists in their on-air protocol. Do not attempt to reverse-engineer or
+  guess at command formats; sending malformed commands to someone else's
+  spacecraft is a real risk, not just a bug.
+- The CSP destination **port** commands should target. `suchai4.ksy`'s
+  `nodes` enum does give real CSP node IDs (e.g. `dest=1` for
+  `suchai_4_obc`) — see "Next steps" below — but the beacon's `dport=20`
+  is the port telemetry is sent *from*, not confirmed to be the port a
+  command-receiving service listens *on*.
 - Whether `dat_obc_last_reset` and `dat_eps_temp_bat0` mean what their
   `.ksy` doc strings say (see `telemetry.py`).
 - Whether the ~44 trailing bytes past the decoded 164-byte status struct
@@ -92,13 +101,25 @@ de Chile SUCHAI team to obtain a real ICD for uplink command support
 ### To complete the TX (uplink) chain, need from the Chilean team:
 
 - **Telecommand ICD** — command IDs, argument encoding/byte layout, any
-  checksum/CRC scheme on the command body.
-- **Addressing/routing** — CSP node map and destination addresses, if
-  CSP-based like the `ax100_rx` family here.
+  checksum/CRC scheme on the command body. Nothing in `suchai4.ksy`
+  covers this; it's strictly a downlink telemetry decoder.
+- **Command destination port** — `suchai4.ksy`'s `nodes` enum already
+  gives us the CSP node map, so the destination *node* is largely known:
+  `dest=1` obc, `2` eps, `3` payload_bio, `4` payload_adcs, `5` trx, `6`
+  payload_phy, `7` payload_sdr, `29` tnc, `30` ground_station, `31` test.
+  Still need the destination *port* a command service listens on — the
+  beacon's `dport=20` is a downlink service port, not confirmed to be
+  the uplink command port.
 - **Uplink RF parameters** — baud/deviation/coding for the uplink, which
-  may differ from the downlink already captured.
-- **Command verification method** — a telemetry field that echoes the
-  last command, or an operational protocol for confirming uplink success.
+  may differ from the downlink already captured. Nothing in
+  `suchai4.ksy` covers this either — it operates on already-demodulated
+  bytes, not RF/PHY parameters.
+- **Command verification protocol** — likely already covered by fields
+  we already decode: `dat_com_count_tc` / `dat_com_last_tc` (telecommand
+  count and last-received timestamp) and `dat_obc_executed_cmds` /
+  `dat_obc_failed_cmds`. Once a real command is sent, these should show
+  receipt/execution — still need the Chilean team to confirm that's the
+  intended mechanism rather than assuming it from field names alone.
 
 Do not attempt to reverse-engineer or guess at any of the above; sending
 malformed commands to someone else's spacecraft is a real risk, not just
