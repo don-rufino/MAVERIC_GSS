@@ -77,7 +77,11 @@ function systemEventState(e: LogEntry, kind: string): string {
   return ''
 }
 
-function entryLabel(e: LogEntry): string {
+// Reads mission.facts.header.type / mission.facts.beacon.kind — present
+// only for the ax100_rx mission family (suchai4, roads, ...). MAVERIC's
+// header has no "type" key (src/dest/echo/ptype instead), so this is a
+// no-op for it: entryLabel falls through to '', same as before.
+export function entryLabel(e: LogEntry): string {
   const kind = String(e.event_kind ?? '')
   if (isSystemEvent(kind)) {
     const action = systemEventAction(e, kind)
@@ -85,8 +89,21 @@ function entryLabel(e: LogEntry): string {
   }
   const mission = e.mission
   if (mission && typeof mission === 'object') {
-    const missionCmd = (mission as Record<string, unknown>).cmd_id
+    const m = mission as Record<string, unknown>
+    const missionCmd = m.cmd_id
     if (typeof missionCmd === 'string' && missionCmd) return missionCmd
+    const facts = m.facts
+    if (facts && typeof facts === 'object') {
+      const header = (facts as Record<string, unknown>).header
+      const type = header && typeof header === 'object'
+        ? (header as Record<string, unknown>).type : undefined
+      if (typeof type === 'string' && type) {
+        const beacon = (facts as Record<string, unknown>).beacon
+        const beaconKind = beacon && typeof beacon === 'object'
+          ? (beacon as Record<string, unknown>).kind : undefined
+        return typeof beaconKind === 'string' && beaconKind ? `${type} · ${beaconKind}` : type
+      }
+    }
   }
   return ''
 }
