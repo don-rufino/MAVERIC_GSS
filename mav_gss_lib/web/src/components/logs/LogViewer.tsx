@@ -714,10 +714,10 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                     <summary className="text-[11px] cursor-pointer select-none" style={{ color: colors.sep }}>
                                       telemetry ({fragments.length})
                                     </summary>
-                                    <div className="mt-1 grid grid-cols-[auto_auto_1fr_auto] gap-x-3 gap-y-0.5 text-[11px] font-mono">
+                                    <div className="mt-1 grid grid-cols-[38px_100px_152px_auto] gap-x-3 gap-y-0.5 text-[11px] font-mono">
                                       <span className="font-bold uppercase" style={{ color: colors.sep }}>domain</span>
                                       <span className="font-bold uppercase" style={{ color: colors.sep }}>key</span>
-                                      <span className="font-bold uppercase" style={{ color: colors.sep }}>value</span>
+                                      <span className="font-bold uppercase text-center" style={{ color: colors.sep }}>value</span>
                                       <span className="font-bold uppercase" style={{ color: colors.sep }}>unit</span>
                                       {fragments.map((frag, fi) => {
                                         const fullName = String(frag.name ?? '')
@@ -731,10 +731,10 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                           : String(v)
                                         return (
                                           <div key={fi} className="contents">
-                                            <span style={{ color: colors.dim }}>{dom}</span>
-                                            <span style={{ color: colors.label }}>{k}</span>
-                                            <span className="truncate" style={{ color: colors.value }} title={display}>{display}</span>
-                                            <span style={{ color: colors.dim }}>{unit}</span>
+                                            <span className="truncate min-w-0" style={{ color: colors.dim }}>{dom}</span>
+                                            <span className="truncate min-w-0" style={{ color: colors.label }}>{k}</span>
+                                            <span className="truncate min-w-0 text-right" style={{ color: colors.value }} title={display}>{display}</span>
+                                            <span className="truncate min-w-0" style={{ color: colors.dim }}>{unit}</span>
                                           </div>
                                         )
                                       })}
