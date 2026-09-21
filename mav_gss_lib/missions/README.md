@@ -63,6 +63,23 @@ If the bird speaks CSP over an AX100, don't write a new PacketOps — reuse
 `ax100_rx.Ax100RxPacketOps` with an optional per-mission `hk_decoder`, as
 the whole snipe/catsat/suomi100/roads family does.
 
+**Check your mission's real CSP `dest` before trusting the default
+"implausible CSP src/dest" warning.** The shared parser
+(`platform/framing/csp_v1.py::try_parse_csp_v1`, and the little-endian
+variant in this package) flags a frame implausible when `dest > 20` —
+an arbitrary ceiling, not a protocol limit (the field is 5 bits, legal
+range 0-31). It produces false positives for any mission following the
+common libcsp convention of reserving addresses 29-31 for the ground
+segment (TNC/ground-station/test) — confirmed on SUCHAI-4, whose
+`dest=30` on every captured frame maps via its own `suchai4.ksy` `nodes`
+enum to `suchai_4_ground_station`, i.e. *us*, not noise. Don't widen the
+shared default for a new mission without first confirming its real dest
+range against a public `.ksy`/ICD or several of your own captures —
+other missions in this family haven't been re-checked and still rely on
+the default holding. If your mission's dest legitimately exceeds 20,
+override it per-mission: `Ax100RxPacketOps(<id>, max_plausible_dest=31)`
+(see `suchai4/mission.py`) — never edit the shared threshold itself.
+
 ### 3. Author `mission.yml`
 
 The declarative database: parameter types, parameters, containers, and the
@@ -227,6 +244,7 @@ python3 -m unittest tests.test_mission_<id> tests.test_mission_switching tests.t
 ## Checklist
 
 - [ ] Folder name = mission id, lowercase, importable
+- [ ] AX100/CSP mission: real `dest` range confirmed (not assumed `<=20`)
 - [ ] `mission.py` exports `build(ctx) -> MissionSpec`
 - [ ] `spec_root` set (required for server boot)
 - [ ] Defaults seeded via `setdefault` in `build(ctx)`

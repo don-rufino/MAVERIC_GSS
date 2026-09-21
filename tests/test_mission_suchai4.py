@@ -4,11 +4,16 @@ The three fixture frames are real over-the-air captures GT_MAV demodulated
 on 2026-08-28 (NORAD 69911, "Transporter-17 Object AU" — believed
 SUCHAI-4, officially unclaimed). All three decode as a consistent
 big-endian CSP v1 header (prio=2, src=1, dest=30, dport=20), which pins
-this mission's CSP endianness/field values against real data. No public
-housekeeping payload format exists yet, so this does not attempt to pin
-any telemetry field beyond the CSP header — see missions/suchai4/README.md.
+this mission's CSP endianness/field values against real data. They also
+all decode as type-105 status beacons — see missions/suchai4/telemetry.py
+for the field-level golden test and missions/suchai4/README.md for the
+source and validation story.
 """
 
+from datetime import datetime
+from pathlib import Path
+
+from mav_gss_lib.platform import PlatformRuntime
 from mav_gss_lib.platform.loader import discover_missions, load_mission_spec
 
 
@@ -88,3 +93,99 @@ def test_distinct_frames_get_distinct_fingerprints(tmp_path):
         packet = spec.packets.parse(normalized)
         fingerprints.add(packet.payload.fingerprint)
     assert len(fingerprints) == 3
+
+
+def test_golden_frame_no_longer_flagged_implausible(tmp_path):
+    """dest=30 is suchai_4_ground_station (per suchai4.ksy), not noise —
+    regression guard for the mission's max_plausible_dest override."""
+    spec = _spec(tmp_path)
+    normalized = spec.packets.normalize(ASM_GOLAY_META, GOLDEN_FRAME)
+    packet = spec.packets.parse(normalized)
+    assert "implausible CSP src/dest" not in packet.payload.warnings
+
+
+def test_golden_beacon_decodes_end_to_end(tmp_path):
+    """First frame ever decoded from this mission — full parameter table."""
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "suchai4", {},
+    )
+    result = runtime.process_rx(ASM_GOLAY_META, GOLDEN_FRAME)
+    values = {u.name: u.value for u in result.packet.parameters}
+    assert result.container_id == "beacon"
+    assert len(values) == 39
+    assert values["tm.timestamp"] == "2026-07-29T17:10:00+00:00"
+    assert values["obc.rtc_date_time"] == "2026-07-29T17:10:00+00:00"
+    assert values["obc.last_reset"] == 4
+    assert values["obc.reset_counter"] == 78
+    assert values["obc.executed_cmds"] == 852608
+    assert values["obc.failed_cmds"] == 147328
+    assert values["obc.temp_1"] == 18.85  # rendered as an ascii token, 2dp
+    assert values["com.freq"] == 437250000
+    assert values["com.baud"] == 4800
+    assert values["com.last_tc"] == "2026-06-07T17:39:33+00:00"
+    assert values["eps.vbatt"] == 8282
+    assert values["eps.temp_bat0"] == 115
+    assert values["mm.sciencemode"] == "0xffffffff"
+    facts = result.packet.mission["facts"]
+    assert facts["header"]["type"] == "BCN"
+    assert facts["beacon"]["node_name"] == "suchai_4_obc"
+    assert facts["beacon"]["vbat_mv"] == 8282
+    assert result.packet.flags.is_unknown is False
+
+
+def test_second_and_third_frames_show_monotonic_counters(tmp_path):
+    """Independent evidence the decode is right, not coincidence: command
+    counters only increase and the onboard clock advances by exactly the
+    beacon period (120s) between frames captured ~2 minutes apart."""
+    runtime = PlatformRuntime.from_split(
+        {"logs": {"dir": str(tmp_path)}}, "suchai4", {},
+    )
+    counts = []
+    for frame in (GOLDEN_FRAME, FRAME_2, FRAME_3):
+        result = runtime.process_rx(ASM_GOLAY_META, frame)
+        values = {u.name: u.value for u in result.packet.parameters}
+        counts.append((values["tm.timestamp"], values["obc.executed_cmds"]))
+    timestamps = [int(datetime.fromisoformat(ts).timestamp()) for ts, _ in counts]
+    assert timestamps[1] - timestamps[0] == 121
+    assert timestamps[2] - timestamps[1] == 121
+    assert counts[0][1] < counts[1][1] < counts[2][1]
+
+
+def test_suchai4_yml_containers_match_field_table():
+    """beacon is the only container; its entries mirror telemetry.py."""
+    import yaml as _yaml
+
+    from mav_gss_lib.missions.suchai4 import telemetry as st
+
+    yml = Path(__file__).resolve().parent.parent / "mav_gss_lib" / "missions" / "suchai4" / "mission.yml"
+    doc = _yaml.safe_load(yml.read_text(encoding="utf-8"))
+    containers = doc["sequence_containers"]
+    assert list(containers) == ["beacon"]
+    beacon = containers["beacon"]
+    assert beacon["restriction_criteria"]["packet"]["kind"] == "hk"
+    assert tuple(e["name"] for e in beacon["entry_list"]) == st.token_names()
+
+
+def test_short_payload_is_opaque():
+    from mav_gss_lib.missions.suchai4.telemetry import decode_beacon
+
+    # BEACON_SIZE is 164B; the golden payload (208B after the CSP header)
+    # has ~44B of trailing frame padding, so this must cut well below 164
+    # to actually exercise the short-payload path.
+    assert decode_beacon({"flags": 1}, GOLDEN_FRAME[4:100]) is None
+
+
+def test_wrong_tm_type_is_opaque():
+    from mav_gss_lib.missions.suchai4.telemetry import decode_beacon
+
+    payload = bytearray(GOLDEN_FRAME[4:])
+    payload[2] = 0x10  # not 105 (suchai_4_beacon)
+    assert decode_beacon({"flags": 1}, bytes(payload)) is None
+
+
+def test_wrong_node_is_opaque():
+    from mav_gss_lib.missions.suchai4.telemetry import decode_beacon
+
+    payload = bytearray(GOLDEN_FRAME[4:])
+    payload[3] = 30  # not 1 (suchai_4_obc) — e.g. addressed FROM ground
+    assert decode_beacon({"flags": 1}, bytes(payload)) is None

@@ -6,23 +6,181 @@
 # transmitter entry, the closest known predecessor in the same bus
 # family. Not an official catalog claim.
 #
-# Real captures (2026-08-28) decode as a consistent big-endian CSP v1
-# header (prio=2, src=1, dest=30, dport=20 on all three frames) — no
-# public housekeeping payload format, so frames are logged raw with CSP
-# header facts only, same as luojia1/roads/suomi100.
+# Real captures (2026-08-28, 2026-09-04, 2026-09-11) decode as a
+# consistent big-endian CSP v1 header (prio=2, src=1, dest=30, dport=20 on
+# every frame). Type-105 (suchai_4_beacon) status frames from the OBC
+# (node=1) decode via telemetry.py, whose field layout/types/enums come
+# from SPEL/Universidad de Chile's own suchai4.ksy — see telemetry.py's
+# module docstring for the two fields that don't decode at face value
+# (dat_obc_last_reset, dat_eps_temp_bat0) and the onboard-clock-drift
+# caveat. Any other frame type logs raw with CSP header facts only.
 schema_version: 1
 id: suchai4
 name: "SUCHAI-4 (unclaimed)"
 header:
-  version: "1.0.0"
-  date: "2026-09-02"
+  version: "1.1.0"
+  date: "2026-09-20"
   description: "SUCHAI-4 RX-only declarative mission database"
 
-parameter_types: {}
+parameter_types:
+  utc_token:
+    kind: string
+    encoding: ascii_token
+    description: "ISO-8601 UTC timestamp from an onboard unix clock"
+  hex_token:
+    kind: string
+    encoding: ascii_token
+    description: "0x-prefixed hex register value"
+  degc_f:
+    kind: float
+    size_bits: 32
+    unit: "degC"
+    description: "Temperature, float sensor"
+  mv_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mV"
+    description: "Voltage, raw millivolts"
+  ma_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "mA"
+    description: "Current, raw milliamps"
+  hz_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "Hz"
+    description: "Frequency"
+  baud_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "baud"
+    description: "TRX baudrate"
+  s_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "s"
+    description: "Duration or period, seconds"
+  hrs_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    unit: "hrs"
+    description: "Duration, hours"
+  count_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Dimensionless counter"
+  mode_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Mode / status register, raw integer"
+  level_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Discrete level/step register (e.g. TX power 0-3)"
+  raw_i:
+    kind: int
+    size_bits: 32
+    signed: true
+    description: "Raw integer, no confirmed unit/scaling — see telemetry.py"
 
-parameters: {}
+parameters:
+  index:          { type: count_i,  domain: tm,  description: "TM index" }
+  timestamp:      { type: utc_token, domain: tm, description: "TM timestamp" }
+  rtc_date_time:  { type: utc_token, domain: obc, description: "RTC date time" }
+  last_reset:     { type: raw_i,    domain: obc, description: "Last reset (unit unconfirmed — reads 4 on every frame, not a plausible epoch)" }
+  hrs_alive:      { type: hrs_i,    domain: obc, description: "Total hours since deployment" }
+  hrs_wo_reset:   { type: hrs_i,    domain: obc, description: "Hours since last reset" }
+  reset_counter:  { type: count_i,  domain: obc, description: "Reset counter" }
+  executed_cmds:  { type: count_i,  domain: obc, description: "Commands executed" }
+  failed_cmds:    { type: count_i,  domain: obc, description: "Commands executed with error" }
+  temp_1:         { type: degc_f,   domain: obc, description: "OBC temperature" }
+  count_tm:       { type: count_i,  domain: com, description: "Telemetry packets sent" }
+  count_tc:       { type: count_i,  domain: com, description: "Telecommands received" }
+  last_tc:        { type: utc_token, domain: com, description: "Last telecommand timestamp" }
+  freq:           { type: hz_i,     domain: com, description: "TRX frequency" }
+  tx_pwr:         { type: level_i,  domain: com, description: "TX power level (0-3)" }
+  baud:           { type: baud_i,   domain: com, description: "TRX baudrate" }
+  bcn_period:     { type: s_i,      domain: com, description: "Beacon period" }
+  fpl_last:       { type: count_i,  domain: fpl, description: "Last flight-plan command executed" }
+  fpl_queue:      { type: count_i,  domain: fpl, description: "Flight-plan queue length" }
+  fpl_table:      { type: count_i,  domain: fpl, description: "Active flight-plan table" }
+  vbatt:          { type: mv_i,     domain: eps, description: "Battery voltage" }
+  cur_sun:        { type: ma_i,     domain: eps, description: "Input current" }
+  cur_sys:        { type: ma_i,     domain: eps, description: "Output current" }
+  temp_bat0:      { type: raw_i,    domain: eps, description: "EPS temperature (typed u4 in the ksy despite being a temperature — no confirmed scaling, not assumed degC)" }
+  mach_action:    { type: mode_i,   domain: sam, description: "Sampler app mode" }
+  mach_state:     { type: mode_i,   domain: sam, description: "Sampler app state" }
+  mach_left:      { type: count_i,  domain: sam, description: "Sampler app samples left" }
+  mach_step:      { type: s_i,      domain: sam, description: "Sampler app sample step" }
+  mach_payloads:  { type: mode_i,   domain: sam, description: "Sampler app active sensors" }
+  mm_mode:        { type: mode_i,   domain: mm,  description: "Mode manager state" }
+  sciencemode:    { type: hex_token, domain: mm, description: "Mode manager science mode (0xffffffff observed = disabled/unset sentinel)" }
+  vbatt_limit:    { type: mv_i,     domain: mm,  description: "Safe-mode battery voltage limit" }
+  last_tc_limit:  { type: s_i,      domain: mm,  description: "Safe-mode last-TC timeout" }
+  spl_table_0:    { type: count_i,  domain: spl, description: "Science-plan active table" }
+  spl_current_0:  { type: count_i,  domain: spl, description: "Science-plan current index" }
+  spl_exec_0:     { type: count_i,  domain: spl, description: "Science-plan current execution" }
+  spl_recovery:   { type: mode_i,   domain: spl, description: "Science-plan recovery mode" }
+  tle_epoch:      { type: s_i,      domain: ads, description: "Current TLE epoch" }
+  tle_last:       { type: s_i,      domain: ads, description: "Last TLE update timestamp" }
 
-sequence_containers: {}
+sequence_containers:
+  beacon:
+    domain: obc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        kind: hk
+    entry_list:
+      - { name: index }
+      - { name: timestamp }
+      - { name: rtc_date_time }
+      - { name: last_reset }
+      - { name: hrs_alive }
+      - { name: hrs_wo_reset }
+      - { name: reset_counter }
+      - { name: executed_cmds }
+      - { name: failed_cmds }
+      - { name: count_tm }
+      - { name: count_tc }
+      - { name: last_tc }
+      - { name: fpl_last }
+      - { name: fpl_queue }
+      - { name: fpl_table }
+      - { name: freq }
+      - { name: tx_pwr }
+      - { name: baud }
+      - { name: bcn_period }
+      - { name: vbatt }
+      - { name: cur_sun }
+      - { name: cur_sys }
+      - { name: temp_1 }
+      - { name: temp_bat0 }
+      - { name: mach_action }
+      - { name: mach_state }
+      - { name: mach_left }
+      - { name: mach_step }
+      - { name: mach_payloads }
+      - { name: mm_mode }
+      - { name: sciencemode }
+      - { name: vbatt_limit }
+      - { name: last_tc_limit }
+      - { name: spl_table_0 }
+      - { name: spl_current_0 }
+      - { name: spl_exec_0 }
+      - { name: spl_recovery }
+      - { name: tle_epoch }
+      - { name: tle_last }
 
 ui:
   rx_columns:

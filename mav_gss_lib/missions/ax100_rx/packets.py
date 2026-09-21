@@ -92,12 +92,19 @@ class Ax100RxPacketOps:
         hk_decoder: HkDecoder | None = None,
         *,
         csp_endianness: str = "big",
+        max_plausible_dest: int | None = None,
     ) -> None:
         self.mission_id = mission_id
         self.hk_decoder = hk_decoder
         self._parse_csp = (
             _try_parse_csp_v1_le if csp_endianness == "little" else try_parse_csp_v1
         )
+        # Per-mission override of the shared parser's dest<=20 plausibility
+        # heuristic. Some missions legitimately use dest values above 20
+        # (e.g. the common libcsp convention of reserving 29-31 for the
+        # ground segment) — leave None to keep the shared default for every
+        # mission that hasn't independently confirmed its own dest range.
+        self.max_plausible_dest = max_plausible_dest
 
     def normalize(self, meta: dict[str, Any], raw: bytes) -> NormalizedPacket:
         return NormalizedPacket(
@@ -121,6 +128,8 @@ class Ax100RxPacketOps:
             else:
                 payload.csp = csp
                 payload.kind = "telemetry"
+                if self.max_plausible_dest is not None:
+                    plausible = csp["src"] <= 20 and csp["dest"] <= self.max_plausible_dest
                 if not plausible:
                     payload.warnings.append("implausible CSP src/dest")
                 if self.hk_decoder is not None:
