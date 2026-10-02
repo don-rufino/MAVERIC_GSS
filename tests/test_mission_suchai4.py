@@ -58,7 +58,10 @@ def _spec(tmp_path):
     )
 
 
-def test_spec_is_rx_only_with_spec_root(tmp_path):
+def test_spec_is_rx_only_with_spec_root(tmp_path, monkeypatch):
+    # Uplink is an optional machine-local module; pin the tracked RX-only shape.
+    from mav_gss_lib.missions.suchai4 import mission as suchai4_mission
+    monkeypatch.setattr(suchai4_mission, "_load_uplink", lambda: None)
     spec = _spec(tmp_path)
     assert spec.id == "suchai4"
     assert spec.commands is None

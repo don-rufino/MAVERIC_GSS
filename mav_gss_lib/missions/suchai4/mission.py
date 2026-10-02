@@ -19,13 +19,20 @@ parser's dest<=20 plausibility heuristic doesn't know about that
 convention and isn't being widened mission-wide (other AX100 missions
 haven't independently confirmed their own dest range), so this mission
 overrides it locally via max_plausible_dest.
+
+Uplink is optional: when the machine has the gitignored uplink module,
+build() enables commands and the operator-editable `csp` config block;
+otherwise the mission stays RX-only.
 """
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
-from mav_gss_lib.platform import MissionContext, MissionSpec
+from mav_gss_lib.platform import MissionConfigSpec, MissionContext, MissionSpec
 
 from mav_gss_lib.missions.ax100_rx import (
     Ax100RxPacketOps,
@@ -50,10 +57,30 @@ TARGET = Ax100Target(
 )
 
 
+def _load_uplink() -> ModuleType | None:
+    """Import the gitignored uplink module if this machine has it.
+
+    find_spec (not try/except ImportError) so a broken uplink.py fails
+    loudly instead of silently degrading to RX-only.
+    """
+    name = f"{__package__}.uplink"
+    if importlib.util.find_spec(name) is None:
+        return None
+    return importlib.import_module(name)
+
+
 def build(ctx: MissionContext) -> MissionSpec:
+    commands = config = None
+    uplink = _load_uplink()
+    if uplink is not None:
+        uplink.seed_csp_defaults(ctx.mission_config)
+        commands = uplink.Suchai4CommandOps(ctx.mission_config)
+        config = MissionConfigSpec(editable_paths={"csp.*"})
     return build_ax100_mission(
         ctx, TARGET, MISSION_YML_PATH,
         Ax100RxPacketOps(
             TARGET.mission_id, hk_decoder=decode_beacon, max_plausible_dest=31
         ),
+        commands=commands,
+        config=config,
     )

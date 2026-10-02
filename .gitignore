@@ -37,6 +37,9 @@ generated_commands/
 mav_gss_lib/missions/maveric/commands.yml
 mav_gss_lib/missions/maveric/mission.yml
 mav_gss_lib/missions/maveric/mission.yml.bak.*
+# SUCHAI-4 uplink — private, copied manually between GSS machines
+mav_gss_lib/missions/suchai4/uplink.py
+tests/test_mission_suchai4_uplink.py
 
 # === Operator-Local Config ===
 # Main station config — operator ZMQ addresses, local paths

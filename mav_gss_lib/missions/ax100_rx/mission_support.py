@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mav_gss_lib.platform import MissionConfigSpec, MissionContext, MissionSpec
+from mav_gss_lib.platform import (
+    CommandOps,
+    MissionConfigSpec,
+    MissionContext,
+    MissionSpec,
+)
 from mav_gss_lib.platform.spec import parse_yaml
 
 from mav_gss_lib.missions.ax100_rx.packets import Ax100RxPacketOps
@@ -140,14 +145,22 @@ def build_ax100_mission(
     target: Ax100Target,
     yml_path: Path,
     packet_ops: Ax100RxPacketOps,
+    *,
+    commands: CommandOps | None = None,
+    config: MissionConfigSpec | None = None,
 ) -> MissionSpec:
-    """Assemble the RX-only MissionSpec for one AX100 Mode 5 target."""
+    """Assemble the MissionSpec for one AX100 Mode 5 target.
+
+    RX-only unless the mission passes `commands` (and the `config` spec
+    that makes its uplink sections operator-editable).
+    """
     seed_ax100_defaults(ctx.mission_config, ctx.platform_config, target)
     mission = parse_yaml(yml_path, plugins={})
     return MissionSpec(
         id=target.mission_id,
         name=ctx.mission_config.get("mission_name") or target.mission_name,
         packets=packet_ops,
+        commands=commands,
         spec_root=mission,
-        config=MissionConfigSpec(),
+        config=config or MissionConfigSpec(),
     )
