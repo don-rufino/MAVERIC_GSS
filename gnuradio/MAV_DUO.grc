@@ -99,8 +99,10 @@ blocks:
 - name: baud
   id: variable
   parameters:
-    comment: ''
-    value: '9600'
+    comment: "Uplink baud from the mission decoder database: its first AX100\nASM+Golay transmitter (9600 MAVERIC, 4800 SUCHAI-4), else 9600.\nMirrors tx_baudrate() in decoder_profiles.py."
+    value: next((int(t['baudrate']) for t in ((__import__('yaml').safe_load(open(decoder_yml).read())
+      or {}).get('transmitters') or {}).values() if isinstance(t, dict) and t.get('framing')
+      == 'AX100 ASM+Golay'), 9600) if __import__('os').path.isfile(decoder_yml) else 9600
   states:
     bus_sink: false
     bus_source: false

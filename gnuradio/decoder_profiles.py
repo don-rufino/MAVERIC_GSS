@@ -8,6 +8,9 @@ from typing import Mapping
 
 
 SYNCWORD_OPTIONS = "--syncword_threshold 6"
+# The GSS uplink chain always ends in AX100 Mode 5 ASM+Golay framing.
+UPLINK_FRAMING = "AX100 ASM+Golay"
+DEFAULT_TX_BAUD = 9600
 
 
 def resolve_mav_duo_decoder(
@@ -55,3 +58,23 @@ def decoder_options(decoder_yml: str | os.PathLike[str]) -> str:
         ):
             return SYNCWORD_OPTIONS
     return ""
+
+
+def tx_baudrate(decoder_yml: str | os.PathLike[str]) -> int:
+    """Return the TX modulator baud for the selected mission profile.
+
+    The uplink rate is the first transmitter whose framing is the AX100
+    ASM+Golay chain the GSS frames. Profiles without one (pure AX.25,
+    Astrocast FX.25) never uplink and keep DEFAULT_TX_BAUD.
+    """
+    import yaml
+
+    try:
+        profile = yaml.safe_load(Path(decoder_yml).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return DEFAULT_TX_BAUD
+    transmitters = profile.get("transmitters") if isinstance(profile, dict) else None
+    for transmitter in (transmitters or {}).values():
+        if isinstance(transmitter, dict) and transmitter.get("framing") == UPLINK_FRAMING:
+            return int(transmitter["baudrate"])
+    return DEFAULT_TX_BAUD

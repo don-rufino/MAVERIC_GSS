@@ -43,7 +43,7 @@ import json
 import struct
 import traceback
 import numpy as np
-from decoder_profiles import decoder_options, resolve_mav_duo_decoder
+from decoder_profiles import decoder_options, resolve_mav_duo_decoder, tx_baudrate
 
 
 def _decoder_yml():
@@ -71,6 +71,16 @@ def _decoder_options(decoder_yml):
     flowgraph start.
     """
     return decoder_options(decoder_yml)
+
+
+def _tx_baud(decoder_yml):
+    """Uplink baud from the mission's decoder database (its AX100 ASM+Golay
+    transmitter), so the modulator follows the active mission. With modindex
+    fixed at h=1/1.5, deviation follows too: 3200 Hz at 9600, 1600 Hz at 4800.
+    """
+    baud = tx_baudrate(decoder_yml)
+    print(f"MAV_DUO TX baud: {baud}", flush=True)
+    return baud
 
 
 def snipfcn_layout_stretch_snippet(self):
@@ -951,7 +961,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.disp_decim = disp_decim = max(1, min(20, int((samp_rate / (2 * rx_decim)) // rx_bw)))
         self.rf_gain = rf_gain = 50
         self.modindex = modindex = 1/1.5
-        self.baud = baud = 9600
+        self.baud = baud = _tx_baud(decoder_yml)
 
         ##################################################
         # Blocks

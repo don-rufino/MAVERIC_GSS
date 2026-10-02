@@ -192,6 +192,30 @@ def test_decoder_options_match_deframer_family():
     assert decoder_options(DECODERS / "SHARJAHSAT_DECODER.yml") == ""
 
 
+def test_tx_baud_follows_mission_profile():
+    from gnuradio.decoder_profiles import tx_baudrate
+
+    assert tx_baudrate(DECODERS / "MAVERIC_DECODER.yml") == 9600
+    assert tx_baudrate(DECODERS / "SUCHAI4_DECODER.yml") == 4800
+    # No AX100 ASM+Golay transmitter -> never uplinks, keeps the default.
+    assert tx_baudrate(DECODERS / "SHARJAHSAT_DECODER.yml") == 9600
+    assert tx_baudrate(DECODERS / "ASTROCAST_DECODER.yml") == 9600
+    assert tx_baudrate(DECODERS / "MISSING_DECODER.yml") == 9600
+
+
+@pytest.mark.parametrize("path", sorted(DECODERS.glob("*_DECODER.yml")), ids=lambda p: p.name)
+def test_grc_tx_baud_mirrors_flowgraph(path):
+    """MAV_DUO.grc's inline baud expression must agree with tx_baudrate(),
+    and every rate must give an integer samples-per-symbol at 2.4 Msps."""
+    from gnuradio.decoder_profiles import tx_baudrate
+
+    grc = yaml.safe_load((GNURADIO / "MAV_DUO.grc").read_text(encoding="utf-8"))
+    block = next(b for b in grc["blocks"] if b["name"] == "baud")
+    grc_baud = eval(block["parameters"]["value"], {"decoder_yml": str(path)})
+    assert grc_baud == tx_baudrate(path)
+    assert 2_400_000 % grc_baud == 0
+
+
 def test_public_maveric_beacon_decoder_matches_flight_profile():
     directory = PUBLIC / "MAVERIC_beacon_decoder"
     doc = yaml.safe_load(
