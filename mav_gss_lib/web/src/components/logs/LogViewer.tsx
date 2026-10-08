@@ -15,6 +15,9 @@ import {
   ContextMenuItem,
 } from '@/components/shared/overlays/ContextMenu'
 import { LogFilterBar } from './LogFilterBar'
+import { SignalCard } from '@/components/rx/SignalCard'
+import { useConfig } from '@/state/sessionHooks'
+import type { SignalMeasurement } from '@/lib/types'
 
 interface LogViewerProps {
   open: boolean
@@ -353,6 +356,8 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
     fetchEntries,
     reset,
   } = useLogQuery()
+  const { config } = useConfig()
+  const requiredEbn0Db = config?.platform?.tracking?.link_budget?.required_ebn0_db
 
   useEffect(() => { hasLoadedLogViewer = true }, [])
 
@@ -677,6 +682,9 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                               <div className="px-6 py-2 space-y-1.5" style={{ backgroundColor: colors.bgApp }}>
                                 {trackingMatch && (
                                   <TrackingSampleCard match={trackingMatch} direction={isTx ? 'tx' : 'rx'} />
+                                )}
+                                {kind === 'rx_packet' && typeof e.signal === 'object' && e.signal !== null && (
+                                  <SignalCard signal={e.signal as SignalMeasurement} requiredEbn0Db={requiredEbn0Db} />
                                 )}
                                 {warnings.length > 0 && (
                                   <div className="flex items-center gap-1 flex-wrap">

@@ -181,6 +181,7 @@ export function RxPanel({
           packet={selectedPacket}
           parameters={selectedParameters}
           isLive={isLive}
+          requiredEbn0Db={config?.platform?.tracking?.link_budget?.required_ebn0_db}
           detailHeight={detailHeight}
           detailOpen={detailOpen}
           isDraggingState={isDraggingState}

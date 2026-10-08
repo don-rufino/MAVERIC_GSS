@@ -71,6 +71,9 @@ class LinkBudget:
     # link_budget block. 0.0 until seeded from a real link budget.
     satellite_eirp_dbw: float = 0.0
     satellite_rx_gain_dbi: float = 0.0
+    # Eb/N0 the downlink demodulator needs; the RX Signal card reports each
+    # beacon's measured Eb/N0 against it. 0.0 = not set (no margin shown).
+    required_ebn0_db: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

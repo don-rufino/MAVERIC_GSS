@@ -10,14 +10,16 @@ from mav_gss_lib.platform.json_safety import json_safe
 
 def packet_summary(packet: PacketEnvelope, event_id: str | None = None) -> dict[str, Any]:
     flags = packet.flags
-    return {
+    transport_meta = dict(packet.transport_meta)
+    signal = transport_meta.pop("signal", None)
+    summary = {
         "event_id": event_id or packet.event_id,
         "num": packet.seq,
         "frame": packet.frame_type,
         "size": len(packet.raw),
         "raw_hex": packet.raw.hex(),
         "received_at_ms": packet.received_at_ms,
-        "transport_meta": dict(packet.transport_meta),
+        "transport_meta": transport_meta,
         "mission": dict(packet.mission),
         "warnings": list(packet.warnings),
         "is_echo": flags.is_uplink_echo,
@@ -30,6 +32,9 @@ def packet_summary(packet: PacketEnvelope, event_id: str | None = None) -> dict[
             "integrity_ok": flags.integrity_ok,
         },
     }
+    if isinstance(signal, dict):
+        summary["signal"] = signal
+    return summary
 
 
 def parameter_values(packet: PacketEnvelope) -> list[dict[str, Any]]:

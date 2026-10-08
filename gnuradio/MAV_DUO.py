@@ -130,9 +130,19 @@ class _PttGate(gr.basic_block):
         self.burst_gain = burst_gain
         self.idle_gain = idle_gain
         self._lock = threading.Lock()
+        # Called with (key_time, until) wall times so RX instrumentation can
+        # ignore what the receiver hears while the station transmits.
+        self.tx_listeners = []
         self.message_port_register_in(pmt.intern("pdu_in"))
         self.message_port_register_out(pmt.intern("pdu_out"))
         self.set_msg_handler(pmt.intern("pdu_in"), self._handle)
+
+    def _notify_tx(self, key_time, until):
+        for listener in self.tx_listeners:
+            try:
+                listener(key_time, until)
+            except Exception:
+                pass
 
     def _line(self, live):
         # Flip the complementary pair to live/idle; enables (outside the mask) untouched.
@@ -151,9 +161,11 @@ class _PttGate(gr.basic_block):
         # exits), and the finally guarantees the switch cannot stay latched
         # on TX with the gain up.
         with self._lock:
+            key_time = time.time()
             try:
                 air_s = self._air_seconds(msg)
                 gain_db = float(self.burst_gain())
+                self._notify_tx(key_time, key_time + self.lead_s + air_s + self.tail_s)
                 self._line(True)                                   # live: GPIO0 HIGH, GPIO2 LOW
                 print(f"[PTT] TX key  -> GPIO0 HIGH / GPIO2 LOW, lead {self.lead_s:.1f}s", flush=True)
                 time.sleep(self.lead_s)                            # cold-switch settle, pre-RF
@@ -168,6 +180,7 @@ class _PttGate(gr.basic_block):
                     pass
             finally:
                 self._safe_idle()
+                self._notify_tx(key_time, time.time())
 
     def _safe_idle(self):
         # Restore idle even mid-failure, in leak-safe order: gain to idle
@@ -311,6 +324,77 @@ class _WaterfallLogger(gr.sync_block):
             traceback.print_exc()
             print(f"waterfall_logger: render failed; kept {self._dat_path}", flush=True)
         return True
+
+
+class _SignalMeter(gr.sync_block):
+    """Per-beacon signal measurement on the RX display tap.
+
+    Sits between the gr-satellites decoder and the ZMQ publisher. Keeps a
+    rolling spectrum history of the display stream (the stream the Qt
+    spectrum plot shows) and, for every decoded frame, measures the burst
+    that produced it: peak, noise floor, peak SNR, -3 dB edges and tone
+    width, C/N0 and Eb/N0, plus the averaged spectrum slice (math in
+    signal_meter.py). The result rides in the frame metadata as `gss_signal`
+    (UTF-8 JSON in a u8vector; a pmt symbol would be interned forever).
+    The PTT gate reports transmit windows through note_tx so the uplink is
+    never measured as a beacon or folded into the floor. Every failure path
+    prints and forwards the frame unmeasured: measurement must never cost a
+    decoded frame.
+    """
+
+    def __init__(self, samp_rate=200_000.0, baud=9600):
+        gr.sync_block.__init__(self, name="signal_meter",
+                               in_sig=[np.complex64], out_sig=None)
+        self.message_port_register_in(pmt.intern("pdu_in"))
+        self.message_port_register_out(pmt.intern("pdu_out"))
+        self.set_msg_handler(pmt.intern("pdu_in"), self._handle_pdu)
+        self._baud = float(baud)
+        self._meter = None
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            if script_dir not in sys.path:
+                sys.path.insert(0, script_dir)
+            import signal_meter
+            self._meter = signal_meter.SignalMeter(samp_rate)
+        except Exception:
+            traceback.print_exc()
+            print("signal_meter: init failed; beacon measurements disabled", flush=True)
+
+    def note_tx(self, key_time, until):
+        if self._meter is not None:
+            self._meter.note_tx(key_time, until)
+
+    def work(self, input_items, output_items):
+        n_in = len(input_items[0])
+        if self._meter is None:
+            return n_in
+        try:
+            self._meter.push(input_items[0], time.time())
+        except Exception:
+            traceback.print_exc()
+            print("signal_meter: spectrum capture failed; measurements disabled for this run", flush=True)
+            self._meter = None
+        return n_in
+
+    def _handle_pdu(self, msg):
+        out = msg
+        try:
+            if self._meter is not None and pmt.is_pair(msg):
+                payload_len = pmt.length(pmt.cdr(msg))
+                result = self._meter.measure(payload_len * 8.0 / self._baud,
+                                             self._baud, time.time())
+                if result is not None:
+                    meta = pmt.car(msg)
+                    if not pmt.is_dict(meta):
+                        meta = pmt.make_dict()
+                    blob = json.dumps(result, separators=(",", ":")).encode("utf-8")
+                    meta = pmt.dict_add(meta, pmt.intern("gss_signal"),
+                                        pmt.init_u8vector(len(blob), list(blob)))
+                    out = pmt.cons(meta, pmt.cdr(msg))
+        except Exception:
+            traceback.print_exc()
+            print("signal_meter: measurement failed; frame forwarded unmeasured", flush=True)
+        self.message_port_pub(pmt.intern("pdu_out"), out)
 
 
 class _IqRecorder(gr.sync_block):
@@ -1283,6 +1367,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         # recorders, and the waterfall logger stay on the full 200 ksps tap.
         self.blocks_keep_one_in_n_0 = blocks.keep_one_in_n(gr.sizeof_gr_complex*1, disp_decim)
         self.waterfall_logger = _WaterfallLogger(samp_rate=((samp_rate/rx_decim)/disp_decim))
+        self.signal_meter = _SignalMeter(samp_rate=((samp_rate/rx_decim)/disp_decim), baud=baud)
+        self.ptt_gate.tx_listeners.append(self.signal_meter.note_tx)
         self.iq_recorder = _IqRecorder(
             samp_rate=(int(samp_rate/rx_decim)),
             extra_meta={'maveric:decoder_yml': os.path.basename(decoder_yml),
@@ -1311,7 +1397,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         # Connections
         ##################################################
         self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.satellites_hexdump_sink_0, 'in'))
-        self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
+        self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.signal_meter, 'pdu_in'))
+        self.msg_connect((self.signal_meter, 'pdu_out'), (self.zeromq_pub_msg_sink_0, 'in'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.ptt_gate, 'pdu_in'))
         self.msg_connect((self.ptt_gate, 'pdu_out'), (self.pdu_pdu_to_tagged_stream_0, 'pdus'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.satellites_hexdump_sink_0_0, 'in'))
@@ -1331,6 +1418,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.connect((self.fir_filter_xxx_1, 0), (self.blocks_keep_one_in_n_0, 0))
         self.connect((self.fir_filter_xxx_1, 0), (self.satellites_satellite_decoder_0, 0))
         self.connect((self.blocks_keep_one_in_n_0, 0), (self.waterfall_logger, 0))
+        self.connect((self.blocks_keep_one_in_n_0, 0), (self.signal_meter, 0))
         self.connect((self.pdu_pdu_to_tagged_stream_0, 0), (self.digital_gfsk_mod_0, 0))
         self.connect((self.uhd_usrp_source_0, 0), (self.fir_filter_xxx_1, 0))
         self.connect((self.uhd_usrp_source_0, 0), (self.iq_raw_recorder, 0))

@@ -578,6 +578,12 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
           control: { kind: 'number', unit: 'dBi', value: cfg.platform.tracking?.link_budget?.satellite_rx_gain_dbi ?? 0,
             onChange: (v) => updateTrackingLinkBudget({ satellite_rx_gain_dbi: v }) },
         },
+        {
+          id: 'required_ebn0_db', label: 'Required Eb/N0 (downlink)',
+          description: 'Eb/N0 the downlink demodulator needs, from your link budget. The RX Signal card shows each beacon\'s measured margin above it. 0 hides the margin.',
+          control: { kind: 'number', unit: 'dB', value: cfg.platform.tracking?.link_budget?.required_ebn0_db ?? 0,
+            onChange: (v) => updateTrackingLinkBudget({ required_ebn0_db: v }) },
+        },
       ],
     })
     const scalars = Object.entries(cfg.mission.config)

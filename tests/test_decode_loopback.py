@@ -350,8 +350,19 @@ class FlowgraphParamGuards(unittest.TestCase):
         )
         self.assertCountEqual(
             routes,
-            ["satellites_hexdump_sink_0", "zeromq_pub_msg_sink_0"],
+            ["satellites_hexdump_sink_0"],
         )
+        # Frames reach ZMQ through the per-beacon signal meter (which forwards
+        # every frame, measured or not) and nothing else.
+        self.assertIn(
+            "self.msg_connect((self.satellites_satellite_decoder_0, 'out'), "
+            "(self.signal_meter, 'pdu_in'))", py)
+        self.assertIn(
+            "self.msg_connect((self.signal_meter, 'pdu_out'), "
+            "(self.zeromq_pub_msg_sink_0, 'in'))", py)
+        self.assertIn(
+            "self.connect((self.blocks_keep_one_in_n_0, 0), (self.signal_meter, 0))", py)
+        self.assertIn("self.ptt_gate.tx_listeners.append(self.signal_meter.note_tx)", py)
 
         grc = yaml.safe_load((GNURADIO / "MAV_DUO.grc").read_text(
             encoding="utf-8"
@@ -366,8 +377,16 @@ class FlowgraphParamGuards(unittest.TestCase):
             ["satellites_satellite_decoder_0", "out",
              "satellites_hexdump_sink_0", "in"],
             ["satellites_satellite_decoder_0", "out",
-             "zeromq_pub_msg_sink_0", "in"],
+             "epy_block_signal_meter", "pdu_in"],
         ])
+        self.assertIn(["epy_block_signal_meter", "pdu_out",
+                       "zeromq_pub_msg_sink_0", "in"], grc["connections"])
+        self.assertIn(["blocks_keep_one_in_n_0", "0",
+                       "epy_block_signal_meter", "0"], grc["connections"])
+        source = {b["name"]: b for b in grc["blocks"]}[
+            "epy_block_signal_meter"]["parameters"]["_source_code"]
+        compile(source, "epy_block_signal_meter", "exec")
+        self.assertIn("gss_signal", source)
 
     def test_stream_instrumentation_mirrored_in_py_and_grc(self):
         # Pre-FIR health probe + raw 1 Msps recorder + env RX gain must stay

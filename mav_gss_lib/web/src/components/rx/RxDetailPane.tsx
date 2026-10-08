@@ -6,6 +6,7 @@ import {
   ContextMenuItem,
 } from '@/components/shared/overlays/ContextMenu'
 import { PacketDetail } from './PacketDetail'
+import { SignalCard } from './SignalCard'
 import { useRxDisplayToggles } from '@/state/rxHooks'
 import {
   integrityBlocks,
@@ -63,6 +64,7 @@ interface RxDetailPaneProps {
   packet: RxPacket
   parameters: ParamUpdate[]
   isLive: boolean
+  requiredEbn0Db?: number
   detailHeight: number
   detailOpen: boolean
   isDraggingState: boolean
@@ -72,10 +74,14 @@ interface RxDetailPaneProps {
 }
 
 export function RxDetailPane({
-  packet, parameters, isLive, detailHeight, detailOpen, isDraggingState,
+  packet, parameters, isLive, requiredEbn0Db,
+  detailHeight, detailOpen, isDraggingState,
   onClose, onStartDragResize, onResizeKey,
 }: RxDetailPaneProps) {
   const { showHex, showFrame, showWrapper } = useRxDisplayToggles()
+  const signalCard = packet.signal
+    ? <SignalCard signal={packet.signal} requiredEbn0Db={requiredEbn0Db} />
+    : null
 
   const copyDetails = useCallback(() => {
     navigator.clipboard.writeText(formatPacketText(packet, parameters))
@@ -135,7 +141,7 @@ export function RxDetailPane({
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.1, ease: 'easeOut' }}
                 >
-                  <PacketDetail packet={packet} parameters={parameters} showHex={showHex} showWrapper={showWrapper} showFrame={showFrame} />
+                  <PacketDetail packet={packet} parameters={parameters} showHex={showHex} showWrapper={showWrapper} showFrame={showFrame} signalCard={signalCard} />
                 </motion.div>
               </AnimatePresence>
             </div>

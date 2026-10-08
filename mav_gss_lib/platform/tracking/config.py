@@ -121,6 +121,7 @@ def default_tracking_config_dict() -> dict[str, Any]:
         "link_budget": {
             "satellite_eirp_dbw": cfg.link_budget.satellite_eirp_dbw,
             "satellite_rx_gain_dbi": cfg.link_budget.satellite_rx_gain_dbi,
+            "required_ebn0_db": cfg.link_budget.required_ebn0_db,
         },
     }
 
@@ -187,5 +188,6 @@ def normalize_tracking_config(value: Any) -> TrackingConfig:
         link_budget=LinkBudget(
             satellite_eirp_dbw=_float(link_budget_raw.get("satellite_eirp_dbw"), defaults.link_budget.satellite_eirp_dbw),
             satellite_rx_gain_dbi=_float(link_budget_raw.get("satellite_rx_gain_dbi"), defaults.link_budget.satellite_rx_gain_dbi),
+            required_ebn0_db=_float(link_budget_raw.get("required_ebn0_db"), defaults.link_budget.required_ebn0_db),
         ),
     )

@@ -13,6 +13,8 @@ interface PacketDetailProps {
   showHex: boolean
   showWrapper: boolean
   showFrame: boolean
+  /** Per-beacon Signal card (rendered by the caller, which knows the pass). */
+  signalCard?: React.ReactNode
 }
 
 function F({ icon: Icon, label, value, color, tooltip }: { icon?: React.ElementType; label: string; value: string; color?: string; tooltip?: string }) {
@@ -33,7 +35,7 @@ function F({ icon: Icon, label, value, color, tooltip }: { icon?: React.ElementT
   )
 }
 
-export function PacketDetail({ packet: p, parameters, showHex, showWrapper, showFrame }: PacketDetailProps) {
+export function PacketDetail({ packet: p, parameters, showHex, showWrapper, showFrame, signalCard }: PacketDetailProps) {
   const detailBlocks = missionDetailBlocks(p)
   const paramBlocks = parameterBlocks(parameters)
   const pBlocks = protocolBlocks(p)
@@ -65,6 +67,8 @@ export function PacketDetail({ packet: p, parameters, showHex, showWrapper, show
           ))}
         </div>
       )}
+
+      {signalCard && <div className="font-sans pt-1">{signalCard}</div>}
 
       {showWrapper && (
         <>

@@ -10,6 +10,7 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from datetime import datetime
@@ -97,7 +98,23 @@ def receive_pdu(
 
     if meta is None:
         meta = {}
+    _decode_signal(meta)
     return meta, raw
+
+
+def _decode_signal(meta: dict[str, Any]) -> None:
+    """Turn MAV_DUO's per-beacon measurement (`gss_signal`, UTF-8 JSON in a
+    u8vector) into a plain dict at meta["signal"]. A malformed blob is
+    dropped: a measurement must never cost a decoded frame."""
+    blob = meta.pop("gss_signal", None)
+    if blob is None:
+        return
+    try:
+        signal = json.loads(bytes(bytearray(blob)).decode("utf-8"))
+    except (TypeError, ValueError):
+        return
+    if isinstance(signal, dict):
+        meta["signal"] = signal
 
 
 def send_pdu(sock: zmq.Socket, payload: bytes) -> bool:

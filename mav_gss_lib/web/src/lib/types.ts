@@ -16,6 +16,45 @@ export interface RxPacket {
   is_unknown: boolean
   flags?: RxFlags
   _rendering?: RenderingData
+  /** Per-beacon spectrum measurement from the flowgraph's signal meter. */
+  signal?: SignalMeasurement
+}
+
+/** MAV_DUO signal meter result (gnuradio/signal_meter.py, schema v1). */
+export interface SignalMeasurement {
+  v: number
+  status: 'ok' | 'during_tx'
+  peak_dbfs?: number
+  peak_offset_hz?: number
+  floor_dbfs?: number
+  snr_peak_db?: number
+  /** peak - 3 dB - floor: the SNR operators usually report. */
+  snr_3db_db?: number
+  edges_3db_hz?: [number, number]
+  bw_3db_hz?: number
+  tone_3db_hz?: number
+  center_offset_hz?: number
+  maxhold?: {
+    peak_dbfs: number
+    floor_dbfs: number
+    snr_peak_db: number
+    snr_3db_db?: number
+    floor_ffts: number
+    burst_ffts: number
+  }
+  cn0_dbhz?: number | null
+  ebn0_db?: number | null
+  baud?: number
+  floor_method?: 'pre_burst' | 'pre_burst_earlier' | 'beside_signal'
+  floor_tx_affected?: boolean
+  burst_s?: number
+  burst_end_ms?: number
+  rbw_hz?: number
+  enbw_hz?: number
+  fft?: number
+  window?: string
+  span_hz?: number
+  spectrum?: { f0_hz: number; df_hz: number; db10: number[] }
 }
 
 export interface MissionFacts {
@@ -327,6 +366,7 @@ export interface PlatformTrackingConfig {
   link_budget?: {
     satellite_eirp_dbw?: number
     satellite_rx_gain_dbi?: number
+    required_ebn0_db?: number
   }
   tle_fetch?: {
     identifier: string

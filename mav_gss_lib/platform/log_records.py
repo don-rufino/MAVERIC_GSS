@@ -39,9 +39,13 @@ def rx_packet_record(
     operator: str = "",
     station: str = "",
 ) -> dict[str, Any]:
-    """Build one inbound packet event record."""
+    """Build one inbound packet event record.
+
+    ``signal`` (per-beacon spectrum measurement from the flowgraph) is
+    present only when the radio supplied one.
+    """
     event_id = event_id or new_event_id()
-    return {
+    record = {
         "event_id": event_id,
         "event_kind": "rx_packet",
         "session_id": session_id,
@@ -62,6 +66,10 @@ def rx_packet_record(
         "warnings": list(packet.warnings),
         "mission": dict(packet.mission or {}),
     }
+    signal = packet.transport_meta.get("signal")
+    if isinstance(signal, dict):
+        record["signal"] = signal
+    return record
 
 
 def parameter_records(
