@@ -61,6 +61,11 @@ EXPECTED = {
     "SUCHAI4_DECODER.yml": {
         (4800, 1600, M5, 437_250_000),
     },
+    # stock branch keeps gr-satellites valid; frames come from the GSS burst
+    # decoder (gss_burst_decoder: scionx)
+    "SCIONX_DECODER.yml": {
+        (9600, 2400, "AX.25", 437_500_000),
+    },
 }
 
 MISSION_PROFILE = {
@@ -76,6 +81,7 @@ MISSION_PROFILE = {
     "sharjahsat": "SHARJAHSAT_DECODER.yml",
     "astrocast": "ASTROCAST_DECODER.yml",
     "suchai4": "SUCHAI4_DECODER.yml",
+    "scionx": "SCIONX_DECODER.yml",
 }
 
 
@@ -245,3 +251,11 @@ def test_public_maveric_beacon_zip_matches_tracked_package():
             assert name in archived
             assert archive.read(name) == path.read_bytes()
         assert not any("__pycache__" in name for name in archived)
+
+
+def test_only_scionx_requests_the_gss_burst_decoder():
+    from gnuradio.decoder_profiles import burst_decoder
+
+    requested = {name: burst_decoder(DECODERS / name) for name in EXPECTED}
+    assert requested.pop("SCIONX_DECODER.yml") == "scionx"
+    assert set(requested.values()) == {None}

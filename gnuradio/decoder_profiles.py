@@ -78,3 +78,20 @@ def tx_baudrate(decoder_yml: str | os.PathLike[str]) -> int:
         if isinstance(transmitter, dict) and transmitter.get("framing") == UPLINK_FRAMING:
             return int(transmitter["baudrate"])
     return DEFAULT_TX_BAUD
+
+
+def burst_decoder(decoder_yml: str | os.PathLike[str]) -> str | None:
+    """GSS burst decoder requested by the profile (`gss_burst_decoder:`).
+
+    Some satellites cannot be deframed by stock gr-satellites (SCION-X: plain
+    NRZ AX.25, late key-up). Their profile names a GSS burst decoder that
+    MAV_DUO runs on the channel alongside gr-satellites. None when absent.
+    """
+    import yaml
+
+    try:
+        profile = yaml.safe_load(Path(decoder_yml).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    name = profile.get("gss_burst_decoder") if isinstance(profile, dict) else None
+    return str(name).strip().lower() or None if name else None

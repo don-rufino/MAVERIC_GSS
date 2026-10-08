@@ -6,7 +6,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ..contract.mission import MissionSpec
@@ -68,10 +68,20 @@ class RxPipeline:
                 )
                 packet.parameters = ()
         else:
-            packet.parameters = ()
+            packet.parameters = _mission_param_updates(packet)
 
         return RxResult(
             ingest=ingest,
             packet=packet,
             container_id=matched_container_id,
         )
+
+
+def _mission_param_updates(packet) -> tuple:
+    """Ready ParamUpdates from a mission payload that cannot be walked
+    declaratively (e.g. frames that lost their start, so fields are not at
+    fixed positions). Updates without a timestamp get the packet's receive
+    time."""
+    updates = getattr(packet.mission_payload, "param_updates", None) or ()
+    return tuple(u if u.ts_ms else replace(u, ts_ms=packet.received_at_ms)
+                 for u in updates)

@@ -1156,12 +1156,18 @@ blocks:
               try:
                   if self._meter is not None and pmt.is_pair(msg):
                       payload_len = pmt.length(pmt.cdr(msg))
+                      meta = pmt.car(msg)
+                      if not pmt.is_dict(meta):
+                          meta = pmt.make_dict()
+                      # A burst decoder that decodes after the fact (SCION-X) says
+                      # when its burst ended; measure that burst, not "just now".
+                      now = time.time()
+                      burst_end = pmt.dict_ref(meta, pmt.intern("gss_burst_end"), pmt.PMT_NIL)
+                      if pmt.is_real(burst_end):
+                          now = pmt.to_double(burst_end) + 0.1
                       result = self._meter.measure(payload_len * 8.0 / self._baud,
-                                                   self._baud, time.time())
+                                                   self._baud, now)
                       if result is not None:
-                          meta = pmt.car(msg)
-                          if not pmt.is_dict(meta):
-                              meta = pmt.make_dict()
                           blob = json.dumps(result, separators=(",", ":")).encode("utf-8")
                           meta = pmt.dict_add(meta, pmt.intern("gss_signal"),
                                               pmt.init_u8vector(len(blob), list(blob)))

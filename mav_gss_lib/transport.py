@@ -98,23 +98,32 @@ def receive_pdu(
 
     if meta is None:
         meta = {}
-    _decode_signal(meta)
+    _decode_gss_blobs(meta)
     return meta, raw
 
 
-def _decode_signal(meta: dict[str, Any]) -> None:
-    """Turn MAV_DUO's per-beacon measurement (`gss_signal`, UTF-8 JSON in a
-    u8vector) into a plain dict at meta["signal"]. A malformed blob is
-    dropped: a measurement must never cost a decoded frame."""
-    blob = meta.pop("gss_signal", None)
-    if blob is None:
-        return
-    try:
-        signal = json.loads(bytes(bytearray(blob)).decode("utf-8"))
-    except (TypeError, ValueError):
-        return
-    if isinstance(signal, dict):
-        meta["signal"] = signal
+# MAV_DUO blocks attach UTF-8 JSON as u8vectors under these keys
+# (pmt.to_python yields numpy arrays, which are not JSON-safe downstream).
+GSS_JSON_KEYS = {
+    "gss_signal": "signal",     # _SignalMeter: per-beacon spectrum measurement
+    "gss_burst": "burst",       # _ScionxBurstDecoder: decode outcome
+}
+
+
+def _decode_gss_blobs(meta: dict[str, Any]) -> None:
+    """Turn MAV_DUO's JSON blobs into plain dicts (meta["gss_signal"] ->
+    meta["signal"], ...). A malformed blob is dropped: instrumentation must
+    never cost a decoded frame."""
+    for key, name in GSS_JSON_KEYS.items():
+        blob = meta.pop(key, None)
+        if blob is None:
+            continue
+        try:
+            value = json.loads(bytes(bytearray(blob)).decode("utf-8"))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(value, dict):
+            meta[name] = value
 
 
 def send_pdu(sock: zmq.Socket, payload: bytes) -> bool:

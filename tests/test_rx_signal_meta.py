@@ -18,7 +18,7 @@ from mav_gss_lib.platform import MissionSpec
 from mav_gss_lib.platform.contract.packets import PacketEnvelope, PacketFlags
 from mav_gss_lib.platform.log_records import rx_packet_record
 from mav_gss_lib.server.rx.events import packet_summary
-from mav_gss_lib.transport import _decode_signal
+from mav_gss_lib.transport import _decode_gss_blobs
 
 SIGNAL = {"v": 1, "status": "ok", "peak_dbfs": -75.3, "floor_dbfs": -107.7,
           "snr_peak_db": 32.4, "edges_3db_hz": [-3027, 2051],
@@ -37,12 +37,20 @@ class SignalMetaTests(unittest.TestCase):
     def test_u8vector_json_becomes_signal_dict(self):
         blob = np.frombuffer(json.dumps(SIGNAL).encode(), dtype=np.uint8)  # what pmt.to_python yields
         meta = {"transmitter": "9k6 FSK", "gss_signal": blob}
-        _decode_signal(meta)
+        _decode_gss_blobs(meta)
         self.assertEqual(meta, {"transmitter": "9k6 FSK", "signal": SIGNAL})
+
+    def test_burst_decode_blob_becomes_burst_dict(self):
+        info = {"v": 1, "status": "unverified", "start_byte": 101}
+        meta = {"gss_burst": np.frombuffer(json.dumps(info).encode(), dtype=np.uint8),
+                "gss_burst_end": 1790000000.25}
+        _decode_gss_blobs(meta)
+        self.assertEqual(meta, {"burst": info, "gss_burst_end": 1790000000.25})
+        json.dumps(meta)                                         # WS/log safe
 
     def test_malformed_blob_is_dropped_not_raised(self):
         meta = {"gss_signal": np.frombuffer(b"{not json", dtype=np.uint8)}
-        _decode_signal(meta)
+        _decode_gss_blobs(meta)
         self.assertEqual(meta, {})
 
     def test_log_record_carries_signal_only_when_present(self):

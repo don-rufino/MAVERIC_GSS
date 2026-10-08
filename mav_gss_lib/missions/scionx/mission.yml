@@ -1,0 +1,25 @@
+# SCION-X (INSPIRESat-6) mission database (RX-only).
+#
+# 9k6 2-FSK plain-NRZ AX.25 UI beacons BN0SCX -> BN0CU at 437.500 MHz
+# (NORAD 69880), decoded by MAV_DUO's GSS burst decoder
+# (gnuradio/scionx_burst.py; stock gr-satellites cannot deframe them).
+# Telemetry fields are not declared here: the team-supplied beacon layout
+# lives in the local, gitignored beacon_fields.json and the mission codec
+# emits values directly (frames usually lose their first 50-100 bytes, so
+# fields have no fixed position for a declarative container).
+schema_version: 1
+id: scionx
+name: "SCION-X"
+header:
+  version: "1.0.0"
+  date: "2026-10-08"
+  description: "SCION-X RX-only mission database"
+
+ui:
+  rx_columns:
+    - { id: type,  label: type,   width: 52,  path: header.type, badge: true,
+        value_icons: { BCN: telemetry, BURST: unknown }, default_icon: unknown }
+    - { id: check, label: check,  width: 96,  path: header.check }
+    - { id: bytes, label: bytes,  width: 72,  path: header.bytes }
+    - { id: fields, label: fields, width: 64, align: right, path: header.fields }
+    - { id: src,   label: src,    width: 64,  path: header.src }

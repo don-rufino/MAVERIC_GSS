@@ -1,0 +1,30 @@
+# =============================================================================
+#  SCION-X (INSPIRESat-6) Satellite Definition for gr-satellites + GSS
+# =============================================================================
+#
+#  Selected by MAV_DUO automatically when GSS_MISSION=scionx.
+#
+#  SCION-X (NORAD 69880) sends 9k6 2-FSK AX.25 UI beacons at 437.500 MHz,
+#  but in plain NRZ (no NRZI, no G3RUH) and usually with a late key-up that
+#  never radiates the opening flags. Stock gr-satellites cannot deframe
+#  that, so `gss_burst_decoder: scionx` tells MAV_DUO to run the GSS burst
+#  decoder (gnuradio/scionx_burst.py) on the channel instead. The standard
+#  transmitter below keeps gr-satellites' plumbing valid; it does not decode
+#  SCION-X frames, and anything it emits is ordinary AX.25.
+
+name: SCION-X
+norad: 69880
+gss_burst_decoder: scionx
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  9k6 FSK AX.25 downlink:
+    frequency: 437.500e+6
+    modulation: FSK
+    baudrate: 9600
+    deviation: 2400
+    framing: AX.25
+    data:
+      - *tlm

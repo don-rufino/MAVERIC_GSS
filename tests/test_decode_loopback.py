@@ -388,6 +388,19 @@ class FlowgraphParamGuards(unittest.TestCase):
         compile(source, "epy_block_signal_meter", "exec")
         self.assertIn("gss_signal", source)
 
+    def test_scionx_burst_decoder_is_profile_gated_and_feeds_the_meter(self):
+        # Python-only (like the PTT gate): enabled solely by the decoder
+        # profile, tapping the 200 ksps channel and publishing through the
+        # signal meter so SCION-X frames get measured like any other.
+        py = (GNURADIO / "MAV_DUO.py").read_text(encoding="utf-8")
+        self.assertIn("class _ScionxBurstDecoder", py)
+        self.assertIn("if burst_decoder(decoder_yml) == 'scionx':", py)
+        self.assertIn(
+            "self.connect((self.fir_filter_xxx_1, 0), (self.scionx_burst, 0))", py)
+        self.assertIn(
+            "self.msg_connect((self.scionx_burst, 'pdu_out'), (self.signal_meter, 'pdu_in'))", py)
+        self.assertIn('pmt.intern("gss_burst_end")', py)
+
     def test_stream_instrumentation_mirrored_in_py_and_grc(self):
         # Pre-FIR health probe + raw 1 Msps recorder + env RX gain must stay
         # present in BOTH hand-edited files (the .grc is never regenerated).

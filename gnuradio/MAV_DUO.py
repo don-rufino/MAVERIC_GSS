@@ -35,6 +35,7 @@ import functools
 import satellites.components.datasinks
 import satellites.core
 import sip
+import queue
 import threading
 from datetime import datetime, timezone
 import pmt
@@ -43,7 +44,7 @@ import json
 import struct
 import traceback
 import numpy as np
-from decoder_profiles import decoder_options, resolve_mav_duo_decoder, tx_baudrate
+from decoder_profiles import burst_decoder, decoder_options, resolve_mav_duo_decoder, tx_baudrate
 
 
 def _decoder_yml():
@@ -381,12 +382,18 @@ class _SignalMeter(gr.sync_block):
         try:
             if self._meter is not None and pmt.is_pair(msg):
                 payload_len = pmt.length(pmt.cdr(msg))
+                meta = pmt.car(msg)
+                if not pmt.is_dict(meta):
+                    meta = pmt.make_dict()
+                # A burst decoder that decodes after the fact (SCION-X) says
+                # when its burst ended; measure that burst, not "just now".
+                now = time.time()
+                burst_end = pmt.dict_ref(meta, pmt.intern("gss_burst_end"), pmt.PMT_NIL)
+                if pmt.is_real(burst_end):
+                    now = pmt.to_double(burst_end) + 0.1
                 result = self._meter.measure(payload_len * 8.0 / self._baud,
-                                             self._baud, time.time())
+                                             self._baud, now)
                 if result is not None:
-                    meta = pmt.car(msg)
-                    if not pmt.is_dict(meta):
-                        meta = pmt.make_dict()
                     blob = json.dumps(result, separators=(",", ":")).encode("utf-8")
                     meta = pmt.dict_add(meta, pmt.intern("gss_signal"),
                                         pmt.init_u8vector(len(blob), list(blob)))
@@ -395,6 +402,105 @@ class _SignalMeter(gr.sync_block):
             traceback.print_exc()
             print("signal_meter: measurement failed; frame forwarded unmeasured", flush=True)
         self.message_port_pub(pmt.intern("pdu_out"), out)
+
+
+class _ScionxBurstDecoder(gr.sync_block):
+    """SCION-X burst decoder on the 200 ksps channel (profile-enabled).
+
+    Stock gr-satellites cannot deframe SCION-X (plain-NRZ AX.25, opening
+    flags usually never radiated), so SCIONX_DECODER.yml sets
+    `gss_burst_decoder: scionx` and MAV_DUO adds this block. work() only
+    collects bursts (cheap); a worker thread runs scionx_burst.decode_segment
+    — the same code as the offline replay — so decoding never stalls the
+    radio. Every SCION-X-like burst becomes one PDU to the signal meter:
+    the decoded frame bytes (from `start_byte`), or an empty payload when
+    nothing decoded, with `gss_burst` (UTF-8 JSON in a u8vector: status,
+    start byte, CRC, stuffing choice, demod stats) and `gss_burst_end`
+    (wall time) so the meter measures this burst however long decoding took.
+    Bursts that are not ~9600 bit/s FSK of beacon length are ignored.
+    """
+
+    MIN_BURST_S = 0.1
+    MAX_BURST_S = 0.8
+
+    def __init__(self, samp_rate=200_000.0, fields_path=""):
+        gr.sync_block.__init__(self, name="scionx_burst_decoder",
+                               in_sig=[np.complex64], out_sig=None)
+        self.message_port_register_out(pmt.intern("pdu_out"))
+        self._fs = float(samp_rate)
+        self._mod = None
+        self._collector = None
+        self._scorer = None
+        self._jobs = queue.Queue(maxsize=8)
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            if script_dir not in sys.path:
+                sys.path.insert(0, script_dir)
+            import scionx_burst
+            self._mod = scionx_burst
+            self._collector = scionx_burst.BurstCollector(self._fs)
+            self._scorer = scionx_burst.FieldScorer.from_json(fields_path) if fields_path else None
+            print("scionx_burst: decoder armed; field map "
+                  + ("loaded" if self._scorer else "not found (no plausibility scoring)"), flush=True)
+            threading.Thread(target=self._worker, daemon=True, name="scionx-burst").start()
+        except Exception:
+            traceback.print_exc()
+            print("scionx_burst: init failed; SCION-X decoding disabled", flush=True)
+            self._collector = None
+
+    def work(self, input_items, output_items):
+        n_in = len(input_items[0])
+        if self._collector is None:
+            return n_in
+        try:
+            now = time.time()
+            for seg, seg_start, burst_end in self._collector.push(input_items[0]):
+                end_wall = now - (self._collector.total - burst_end) / self._fs
+                try:
+                    self._jobs.put_nowait((seg, end_wall))
+                except queue.Full:
+                    print("scionx_burst: decoder busy; burst dropped (still in IQ recording)", flush=True)
+        except Exception:
+            traceback.print_exc()
+            print("scionx_burst: burst capture failed; SCION-X decoding disabled for this run", flush=True)
+            self._collector = None
+        return n_in
+
+    def _worker(self):
+        while True:
+            seg, end_wall = self._jobs.get()
+            try:
+                self._decode(seg, end_wall)
+            except Exception:
+                traceback.print_exc()
+                print("scionx_burst: decode failed for one burst", flush=True)
+
+    def _decode(self, seg, end_wall):
+        fs = self._fs
+        pad_end = len(seg) - int(self._collector.PAD_S * fs)
+        for a, b, result in self._mod.decode_segment(seg, fs, self._scorer):
+            dur = (b - a) / fs
+            beacon_like = (self.MIN_BURST_S <= dur <= self.MAX_BURST_S
+                           and abs(result.bit_rate - self._mod.BAUD) < 0.01 * self._mod.BAUD
+                           and result.transitions >= 40)
+            if result.status == "undecoded" and not beacon_like:
+                continue
+            info = result.meta()
+            info["burst_s"] = round(dur, 3)
+            burst_end = end_wall - (pad_end - b) / fs
+            blob = json.dumps(info, separators=(",", ":")).encode("utf-8")
+            meta = pmt.make_dict()
+            meta = pmt.dict_add(meta, pmt.intern("transmitter"),
+                                pmt.intern("SCION-X 9k6 NRZ (GSS burst decoder)"))
+            meta = pmt.dict_add(meta, pmt.intern("gss_burst"),
+                                pmt.init_u8vector(len(blob), list(blob)))
+            meta = pmt.dict_add(meta, pmt.intern("gss_burst_end"), pmt.from_double(burst_end))
+            payload = bytes(result.frame)
+            self.message_port_pub(pmt.intern("pdu_out"),
+                                  pmt.cons(meta, pmt.init_u8vector(len(payload), list(payload))))
+            print(f"scionx_burst: {result.status} burst {dur:.3f} s, "
+                  f"{len(payload)} B from byte {result.start_byte}"
+                  f"{' (ambiguous)' if result.ambiguous else ''}", flush=True)
 
 
 class _IqRecorder(gr.sync_block):
@@ -1369,6 +1475,15 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.waterfall_logger = _WaterfallLogger(samp_rate=((samp_rate/rx_decim)/disp_decim))
         self.signal_meter = _SignalMeter(samp_rate=((samp_rate/rx_decim)/disp_decim), baud=baud)
         self.ptt_gate.tx_listeners.append(self.signal_meter.note_tx)
+        # Profile-enabled GSS burst decoder for satellites stock gr-satellites
+        # cannot deframe (SCIONX_DECODER.yml: gss_burst_decoder: scionx).
+        # Python-only, like the PTT gate: the .grc carries no copy.
+        self.scionx_burst = None
+        if burst_decoder(decoder_yml) == 'scionx':
+            self.scionx_burst = _ScionxBurstDecoder(
+                samp_rate=(int(samp_rate/rx_decim)),
+                fields_path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                         'mav_gss_lib', 'missions', 'scionx', 'beacon_fields.json'))
         self.iq_recorder = _IqRecorder(
             samp_rate=(int(samp_rate/rx_decim)),
             extra_meta={'maveric:decoder_yml': os.path.basename(decoder_yml),
@@ -1419,6 +1534,9 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.connect((self.fir_filter_xxx_1, 0), (self.satellites_satellite_decoder_0, 0))
         self.connect((self.blocks_keep_one_in_n_0, 0), (self.waterfall_logger, 0))
         self.connect((self.blocks_keep_one_in_n_0, 0), (self.signal_meter, 0))
+        if self.scionx_burst is not None:
+            self.connect((self.fir_filter_xxx_1, 0), (self.scionx_burst, 0))
+            self.msg_connect((self.scionx_burst, 'pdu_out'), (self.signal_meter, 'pdu_in'))
         self.connect((self.pdu_pdu_to_tagged_stream_0, 0), (self.digital_gfsk_mod_0, 0))
         self.connect((self.uhd_usrp_source_0, 0), (self.fir_filter_xxx_1, 0))
         self.connect((self.uhd_usrp_source_0, 0), (self.iq_raw_recorder, 0))
