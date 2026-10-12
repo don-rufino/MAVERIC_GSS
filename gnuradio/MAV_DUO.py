@@ -338,7 +338,10 @@ class _SignalMeter(gr.sync_block):
     signal_meter.py). The result rides in the frame metadata as `gss_signal`
     (UTF-8 JSON in a u8vector; a pmt symbol would be interned forever).
     The PTT gate reports transmit windows through note_tx so the uplink is
-    never measured as a beacon or folded into the floor. Every failure path
+    never measured as a beacon or folded into the floor. RX retunes (Doppler
+    commands on `command`, GUI changes through note_tune) are recorded so
+    each measurement also carries the tuned frequency over the burst and the
+    beacon's offset from the nominal GSS_RX_FREQ_HZ. Every failure path
     prints and forwards the frame unmeasured: measurement must never cost a
     decoded frame.
     """
@@ -348,7 +351,9 @@ class _SignalMeter(gr.sync_block):
                                in_sig=[np.complex64], out_sig=None)
         self.message_port_register_in(pmt.intern("pdu_in"))
         self.message_port_register_out(pmt.intern("pdu_out"))
+        self.message_port_register_in(pmt.intern("command"))
         self.set_msg_handler(pmt.intern("pdu_in"), self._handle_pdu)
+        self.set_msg_handler(pmt.intern("command"), self._handle_tune_command)
         self._baud = float(baud)
         self._meter = None
         try:
@@ -356,7 +361,9 @@ class _SignalMeter(gr.sync_block):
             if script_dir not in sys.path:
                 sys.path.insert(0, script_dir)
             import signal_meter
-            self._meter = signal_meter.SignalMeter(samp_rate)
+            raw_nominal = os.environ.get("GSS_RX_FREQ_HZ", "")
+            self._meter = signal_meter.SignalMeter(
+                samp_rate, nominal_hz=float(raw_nominal) if raw_nominal else None)
         except Exception:
             traceback.print_exc()
             print("signal_meter: init failed; beacon measurements disabled", flush=True)
@@ -364,6 +371,28 @@ class _SignalMeter(gr.sync_block):
     def note_tx(self, key_time, until):
         if self._meter is not None:
             self._meter.note_tx(key_time, until)
+
+    def note_tune(self, frequency_hz, source="manual"):
+        if self._meter is not None:
+            self._meter.note_tune(time.time(), frequency_hz, source)
+
+    def _handle_tune_command(self, message):
+        # Same parsing as _IqRecorder: a UHD RX tune is lo_freq - dsp_freq.
+        try:
+            if not pmt.is_dict(message):
+                return
+
+            def number(key):
+                value = pmt.dict_ref(message, pmt.intern(key), pmt.PMT_NIL)
+                return None if pmt.eq(value, pmt.PMT_NIL) else float(pmt.to_python(value))
+
+            lo_hz, dsp_hz, frequency_hz = number("lo_freq"), number("dsp_freq"), number("freq")
+            if lo_hz is not None and dsp_hz is not None:
+                frequency_hz = lo_hz - dsp_hz
+            if frequency_hz is not None:
+                self.note_tune(frequency_hz, source="doppler")
+        except Exception:
+            traceback.print_exc()
 
     def work(self, input_items, output_items):
         n_in = len(input_items[0])
@@ -1519,6 +1548,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.satellites_hexdump_sink_0_0, 'in'))
         self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.uhd_usrp_source_0, 'command'))
         self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.iq_recorder, 'command'))
+        self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.signal_meter, 'command'))
         self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.iq_raw_recorder, 'command'))
         self.msg_connect((self.zeromq_sub_msg_source_txcmd, 'out'), (self.uhd_usrp_sink_0, 'command'))
         self.msg_connect((self.uhd_usrp_sink_0, 'async_msgs'), (self.tx_async_monitor, 'async'))
@@ -1655,6 +1685,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
     def set_rx_freq(self, rx_freq):
         self.rx_freq = rx_freq
         self.uhd_usrp_source_0.set_center_freq(uhd.tune_request(self.rx_freq, self.rx_lo_offset), 0)
+        if getattr(self, "signal_meter", None) is not None:
+            self.signal_meter.note_tune(self.rx_freq)
         for recorder in (getattr(self, "iq_recorder", None),
                          getattr(self, "iq_raw_recorder", None)):
             if recorder is not None:

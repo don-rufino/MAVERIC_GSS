@@ -1,7 +1,8 @@
 import { ChevronRight, ClipboardCopy, Braces, Binary } from 'lucide-react'
 import { colors } from '@/lib/colors'
-import { col, buildRxRow, composeRxColumns } from '@/lib/columns'
+import { col, buildRxRow, composeRxColumns, columnWidthClass, columnWidthStyle, columnAlignClass } from '@/lib/columns'
 import { CellValue } from '@/components/shared/rendering'
+import { NominalOffsetValue } from '@/components/shared/atoms/NominalOffsetValue'
 import { packetDisplayLabel, packetPayloadText } from '@/lib/rxPacket'
 import {
   ContextMenuRoot,
@@ -48,7 +49,11 @@ export function PacketRow({ packet: p, parameters = [], selected, showFrame, sho
               />
             </span>
           )}
-          {effectiveColumns.map(c => (
+          {effectiveColumns.map(c => c.kind === 'rx_offset' ? (
+            <span key={c.id} className={`py-1 px-1 ${columnWidthClass(c)} ${columnAlignClass(c)}`} style={columnWidthStyle(c)}>
+              <NominalOffsetValue signal={p.signal} />
+            </span>
+          ) : (
             <CellValue key={c.id} col={c} row={row}
               showFrame={showFrame} showEcho={showEcho} />
           ))}

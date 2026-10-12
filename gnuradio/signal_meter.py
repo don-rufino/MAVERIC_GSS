@@ -21,6 +21,10 @@ buffering delay), averages them, and reads:
                   the same rows, matching a max-hold spectrum display read
                   with a cursor (noise max-hold rises with the number of
                   FFTs held, so that count is reported too)
+  tune            when the nominal RX frequency is known: the tuned
+                  frequency averaged over the burst (Doppler retunes land
+                  through note_tune), the received center (tuned + center
+                  offset) and its offset from nominal
 
 Rows recorded while the station transmits (reported by the PTT gate through
 note_tx) are never used, so an uplink just before a beacon cannot inflate the
@@ -44,6 +48,7 @@ FLOOR_MAX_REACH_S = 5.0     # how far back to look for clean rows
 TX_GUARD_BEFORE_S = 0.3     # row timestamps lag the antenna by buffering
 TX_GUARD_AFTER_S = 0.8      # ... and the receiver needs time to recover
 SCHEMA_VERSION = 1
+DOPPLER_MIN_SHIFT_HZ = 1.0  # a Doppler "retune" that sits on nominal is a park
 
 
 def _blackman_harris(n: int) -> np.ndarray:
@@ -62,8 +67,9 @@ class SignalMeter:
     """Rolling spectrum history plus the per-frame measurement."""
 
     def __init__(self, samp_rate: float, fft_size: int = FFT_SIZE,
-                 history_s: float = HISTORY_S) -> None:
+                 history_s: float = HISTORY_S, nominal_hz: float | None = None) -> None:
         self.fs = float(samp_rate)
+        self.nominal_hz = float(nominal_hz) if nominal_hz else None
         self.n = int(fft_size)
         self.win = _blackman_harris(self.n).astype(np.float32)
         self.norm = float(np.sum(self.win)) ** 2
@@ -75,6 +81,8 @@ class SignalMeter:
         self._rows: deque[tuple[float, np.ndarray]] = deque(maxlen=max_rows)
         self._buf = np.empty(0, dtype=np.complex64)
         self._tx: deque[list[float]] = deque(maxlen=64)
+        # (wall time, tuned Hz, source) — source "doppler" or "manual"
+        self._tunes: deque[tuple[float, float, str]] = deque(maxlen=4 * int(history_s + 4))
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------ ingest
@@ -103,6 +111,42 @@ class SignalMeter:
                     window[1] = max(window[1], end)
                     return
             self._tx.append([start, end])
+
+    def note_tune(self, t: float, frequency_hz: float, source: str = "doppler") -> None:
+        """Record that the receiver was retuned to `frequency_hz` at wall time `t`."""
+        with self._lock:
+            self._tunes.append((float(t), float(frequency_hz), source))
+
+    def _tune_over(self, t0: float, t1: float) -> dict | None:
+        """Tuned frequency over [t0, t1]: time-weighted mean, change across the
+        window, and whether a Doppler retune away from nominal was live."""
+        if self.nominal_hz is None:
+            return None
+        with self._lock:
+            tunes = list(self._tunes)
+        # (start, Hz, source) segments; before the first retune: nominal
+        segments = [(float("-inf"), self.nominal_hz, "nominal")]
+        for t, hz, source in tunes:
+            if t <= t0:
+                segments = [(t, hz, source)]
+            elif t < t1:
+                segments.append((t, hz, source))
+        acc = 0.0
+        doppler = False
+        for i, (start, hz, source) in enumerate(segments):
+            a = max(start, t0)
+            b = segments[i + 1][0] if i + 1 < len(segments) else t1
+            acc += hz * max(0.0, b - a)
+            if source == "doppler" and abs(hz - self.nominal_hz) >= DOPPLER_MIN_SHIFT_HZ:
+                doppler = True
+        span = t1 - t0
+        tuned = acc / span if span > 0 else segments[-1][1]
+        return {
+            "nominal_hz": round(self.nominal_hz, 1),
+            "tuned_hz": round(float(tuned), 1),
+            "tuned_change_hz": round(float(segments[-1][1] - segments[0][1]), 1),
+            "doppler": doppler,
+        }
 
     # ------------------------------------------------------------ measure
 
@@ -248,6 +292,12 @@ class SignalMeter:
                 "db10": spectrum.tolist(),
             },
         }
+        tune = self._tune_over(t0, t1)
+        if tune is not None:
+            received = tune["tuned_hz"] + out["center_offset_hz"]
+            out["tune"] = tune
+            out["received_center_hz"] = round(received, 1)
+            out["nominal_offset_hz"] = round(received - tune["nominal_hz"])
         return out
 
 

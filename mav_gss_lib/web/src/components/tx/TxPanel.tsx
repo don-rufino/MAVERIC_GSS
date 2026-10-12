@@ -70,7 +70,7 @@ export function TxPanel({
   const missionTxColumns = ctxDefs?.tx ?? []
   const txColumns = useMemo(() => {
     if (!isOffsetSweepMission(missionId)) return missionTxColumns
-    const offsetCol: ColumnDef = { id: 'tx_offset', label: 'Offset', kind: 'tx_offset', width: 64, align: 'right' }
+    const offsetCol: ColumnDef = { id: 'tx_offset', label: 'Δf sweep', kind: 'tx_offset', width: 64, align: 'right' }
     const rightIdx = missionTxColumns.findIndex(c => c.align === 'right')
     return rightIdx < 0
       ? [...missionTxColumns, offsetCol]

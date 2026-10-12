@@ -9,6 +9,9 @@ import { Calendar } from '@/components/ui/calendar'
 import { Separator } from '@/components/ui/separator'
 import { colors } from '@/lib/colors'
 import { isOffsetSweepMission } from '@/lib/offsetSweep'
+import { formatKhzOffset, hasNominalOffset, SWEEP_STEP_NOTE } from '@/lib/frequencyOffset'
+import { BreakdownTooltip } from '@/components/shared/atoms/BreakdownTooltip'
+import { NominalOffsetValue } from '@/components/shared/atoms/NominalOffsetValue'
 import { useLogQuery, type LogEntry } from '@/hooks/useLogQuery'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
@@ -440,6 +443,12 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
     () => entries.some(e => isOffsetSweepMission(e.mission_id as string | undefined)),
     [entries],
   )
+  // Beacon offset from nominal: only sessions whose beacons carry the
+  // signal meter's tune block (older logs would be a column of dashes).
+  const showNominalOffsetColumn = useMemo(
+    () => entries.some(e => e.event_kind === 'rx_packet' && hasNominalOffset(e.signal as SignalMeasurement | undefined)),
+    [entries],
+  )
 
   const sessionDates = useMemo(() => {
     return Object.keys(sessionDateCounts).map(d => new Date(d + 'T00:00:00'))
@@ -580,7 +589,8 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                   <span className="px-2 w-16">kind</span>
                   <span className="px-2 flex-1">label</span>
                   <span className="px-2 w-24">frame</span>
-                  {showOffsetColumn && <span className="px-2 w-20 text-right">offset</span>}
+                  {showNominalOffsetColumn && <span className="px-2 w-20 text-right">Δf nom</span>}
+                  {showOffsetColumn && <span className="px-2 w-20 text-right">Δf sweep</span>}
                   <span className="px-2 w-16 text-right">size</span>
                   <span className="px-2 w-16 text-right">inner</span>
                   <span className="px-2 w-16">flags</span>
@@ -630,11 +640,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                       ? nearestTrackingSample(trackingSamples, Number(e.ts_ms ?? NaN), isTx ? 'tx_attempt' : 'rx_decode')
                       : undefined
                     const offset = isTx ? txOffsetHz(e, trackingMatch) : undefined
-                    const offsetLabel = !offset
-                      ? '--'
-                      : offset.hz === 0
-                        ? '0.0 kHz'
-                        : `${offset.hz > 0 ? '+' : ''}${(offset.hz / 1000).toFixed(1)} kHz`
+                    const offsetLabel = offset ? formatKhzOffset(offset.hz) : '--'
                     const offsetTone = !offset
                       ? colors.textDisabled
                       : offset.hz === 0 ? colors.textMuted : colors.warning
@@ -663,9 +669,21 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                               </span>
                               <span className="px-2 flex-1 truncate" style={{ color: colors.label }}>{label || (isUnknown ? '(unknown)' : '')}</span>
                               <span className="px-2 w-24 truncate" style={{ color: colors.dim }}>{frame}</span>
+                              {showNominalOffsetColumn && (
+                                <span className="px-2 w-20 text-right">
+                                  {kind === 'rx_packet' ? <NominalOffsetValue signal={e.signal as SignalMeasurement | undefined} /> : null}
+                                </span>
+                              )}
                               {showOffsetColumn && (
-                                <span className="px-2 w-20 text-right tabular-nums" title={offsetTitle} style={{ color: offsetTone }}>
-                                  {offsetLabel}
+                                <span className="px-2 w-20 text-right tabular-nums" style={{ color: offsetTone }}>
+                                  {offset ? (
+                                    <BreakdownTooltip
+                                      rows={[{ label: 'Sweep step', value: `${offset.hz > 0 ? '+' : ''}${Math.round(offset.hz)} Hz` }]}
+                                      note={`${SWEEP_STEP_NOTE} · ${offsetTitle}`}
+                                    >
+                                      {offsetLabel}
+                                    </BreakdownTooltip>
+                                  ) : offsetLabel}
                                 </span>
                               )}
                               <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{displayLen}</span>

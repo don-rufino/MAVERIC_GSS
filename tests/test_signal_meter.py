@@ -51,10 +51,13 @@ def _scene(ebn0_db: float, *, quiet_s: float = 3.0, burst_bits: int = 3000,
 
 
 def _run(x: np.ndarray, *, t0: float = 1000.0, pdu_delay_s: float = 0.2,
-         end_s: float, air_s: float, tx: tuple[float, float] | None = None):
-    meter = SignalMeter(FS)
+         end_s: float, air_s: float, tx: tuple[float, float] | None = None,
+         nominal_hz: float | None = None, tunes=()):
+    meter = SignalMeter(FS, nominal_hz=nominal_hz)
     if tx:
         meter.note_tx(t0 + tx[0], t0 + tx[1])
+    for rel_t, hz, source in tunes:
+        meter.note_tune(t0 + rel_t, hz, source)
     stop = int((end_s + pdu_delay_s) * FS)
     for i in range(0, stop, 4096):
         j = min(stop, i + 4096)
@@ -126,6 +129,40 @@ class SignalMeterTests(unittest.TestCase):
     def test_no_history_returns_none(self):
         self.assertIsNone(SignalMeter(FS).measure(0.2, BAUD, 1000.0))
 
+    def test_no_nominal_means_no_tune_block(self):
+        x, _, end_s = _scene(20.0)
+        _, r = _run(x, end_s=end_s, air_s=0.2)
+        self.assertNotIn("tune", r)
+        self.assertNotIn("nominal_offset_hz", r)
+
+    def test_tuned_frequency_is_averaged_over_the_burst(self):
+        # Doppler holds +8000 Hz until a step to +7940 Hz exactly halfway
+        # through the burst, so the burst sees +7970 Hz on average
+        nominal = 437_500_000.0
+        x, _, end_s = _scene(20.0, burst_bits=3000)
+        _, probe = _run(x, end_s=end_s, air_s=0.2)
+        t1 = probe["burst_end_ms"] / 1000 - 1000.0
+        mid = t1 - probe["burst_s"] / 2
+        _, r = _run(x, end_s=end_s, air_s=0.2, nominal_hz=nominal,
+                    tunes=[(0.5, nominal + 8000, "doppler"), (mid, nominal + 7940, "doppler")])
+        tune = r["tune"]
+        self.assertEqual(tune["nominal_hz"], nominal)
+        self.assertAlmostEqual(tune["tuned_hz"], nominal + 7970, delta=1.0)
+        self.assertEqual(tune["tuned_change_hz"], -60.0)
+        self.assertTrue(tune["doppler"])
+        self.assertEqual(r["received_center_hz"], round(tune["tuned_hz"] + r["center_offset_hz"], 1))
+        self.assertEqual(r["nominal_offset_hz"], round(r["received_center_hz"] - nominal))
+
+    def test_parked_on_nominal_is_not_doppler(self):
+        # disengaging parks the radio on nominal through the same command path
+        nominal = 437_500_000.0
+        x, _, end_s = _scene(20.0)
+        _, r = _run(x, end_s=end_s, air_s=0.2, nominal_hz=nominal,
+                    tunes=[(0.2, nominal + 5000, "doppler"), (1.0, nominal, "doppler")])
+        self.assertEqual(r["tune"]["tuned_hz"], nominal)
+        self.assertFalse(r["tune"]["doppler"])
+        self.assertEqual(r["nominal_offset_hz"], r["center_offset_hz"])
+
 
 REPLAY = (Path(__file__).resolve().parent.parent / "logs" / "iq"
           / "iq_maveric_20260923T063435Z.sigmf-data")
@@ -159,6 +196,30 @@ class RecordedPassReplayTests(unittest.TestCase):
             # every beacon is the same 274-byte frame plus flags: 0.389 s on
             # air (the decoder cut the weak third burst short at 0.304 s)
             self.assertAlmostEqual(r["burst_s"], 0.389, delta=0.02)
+
+    def test_offset_from_nominal_with_recorded_doppler(self):
+        # the recording's own Doppler commands, replayed as tune events:
+        # residual -488 Hz on every beacon while Doppler swings ~18 kHz
+        import json
+        caps = json.loads(REPLAY.with_suffix(".sigmf-meta").read_text())["captures"]
+        tunes = [(c["core:sample_start"] / 200_000.0, c["core:frequency"])
+                 for c in caps if c.get("maveric:event") == "doppler_command"]
+        expected_offsets = [7771, -5585, -10152]      # Hz from 437.500 MHz
+        fs, disp = 200_000.0, 2
+        x = np.memmap(REPLAY, dtype=np.complex64, mode="r")
+        for (start, end, *_), offset in zip(self.EXPECTED, expected_offsets):
+            meter = SignalMeter(fs / disp, nominal_hz=437_500_000.0)
+            stop = int((end + 0.15) * fs)
+            for t, hz in tunes:                      # live, only the past has arrived
+                if t <= stop / fs:
+                    meter.note_tune(t, hz, "doppler")
+            for i in range(int((start - 6) * fs), stop, 8192):
+                j = min(stop, i + 8192)
+                meter.push(np.asarray(x[i:j:disp]), j / fs)
+            r = meter.measure(274 * 8 / 9600, 9600, stop / fs)
+            self.assertEqual(r["center_offset_hz"], -488)
+            self.assertTrue(r["tune"]["doppler"])
+            self.assertAlmostEqual(r["nominal_offset_hz"], offset, delta=2)
 
 
 if __name__ == "__main__":

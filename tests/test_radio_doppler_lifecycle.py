@@ -204,6 +204,20 @@ class OffsetSweepTests(unittest.TestCase):
 
         self.assertEqual(runtime.tracking.advance_offset_sweep(), 0.0)
 
+    def test_disengaged_doppler_reports_no_step_and_holds_the_sweep(self) -> None:
+        # Disengaged, nothing is published and the radio stays on nominal:
+        # a step must not be logged as sent, nor consumed from the sequence.
+        runtime = _runtime()
+        _with_offset_sweep_control(runtime, offset_sweep_base_hz=50.0)
+        runtime.tracking = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+        runtime.tracking.set_offset_sweep_enabled(True)
+
+        self.assertEqual(runtime.tracking.doppler()["tx_offset_step_hz"], 0.0)
+        self.assertEqual(runtime.tracking.advance_offset_sweep(), 0.0)
+
+        runtime.tracking.engage()
+        self.assertEqual(runtime.tracking.doppler()["tx_offset_step_hz"], 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()

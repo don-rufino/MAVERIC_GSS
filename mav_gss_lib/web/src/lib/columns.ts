@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import type { ColumnDef, RenderCell, RxPacket, TxQueueCmd, TxHistoryItem } from '@/lib/types'
 import { frameColor } from '@/lib/colors'
 import { packetFlags, rxTime } from '@/lib/rxPacket'
+import { formatKhzOffset } from '@/lib/frequencyOffset'
 
 // Tailwind width tokens for platform-shell UI scaffolding (RX expand
 // chevron + TX queue drag/number/action gutters). Mission-authored
@@ -28,6 +29,13 @@ const PLATFORM_RX_SHELL_PRE: ReadonlyArray<readonly [ColumnDef, (p: RxPacket) =>
 ]
 
 const PLATFORM_RX_SHELL_POST: ReadonlyArray<readonly [ColumnDef, (p: RxPacket) => RenderCell]> = [
+  // Beacon offset from nominal (signal meter). PacketRow renders it with its
+  // hover breakdown; the plain cell here serves any other consumer.
+  [{ id: 'nominal_offset', label: 'Δf nom', width: 64, align: 'right', kind: 'rx_offset' },
+    (p) => ({
+      value: typeof p.signal?.nominal_offset_hz === 'number' ? formatKhzOffset(p.signal.nominal_offset_hz) : '--',
+      monospace: true, tabular: true,
+    })],
   [{ id: 'flags', label: '',     width: 72, align: 'right' },
     (p) => ({ value: packetFlags(p) })],
   [{ id: 'size',  label: 'size', width: 40, align: 'right' },

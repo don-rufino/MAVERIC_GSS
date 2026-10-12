@@ -1,6 +1,10 @@
+import { useState } from 'react'
 import { colors } from '@/lib/colors'
 import { MARGIN_LABEL, floorNote, isMeasured, marginTone, signed } from '@/lib/signal'
+import { formatMhz, hasNominalOffset } from '@/lib/frequencyOffset'
 import type { SignalMeasurement } from '@/lib/types'
+
+type SpectrumAxis = 'tuned' | 'nominal'
 
 interface SignalCardProps {
   /** This packet's own beacon measurement. */
@@ -16,11 +20,15 @@ const R = 10
 const T = 12
 const B = 34
 
-function Spectrum({ s }: { s: SignalMeasurement }) {
+function Spectrum({ s, axis }: { s: SignalMeasurement; axis: SpectrumAxis }) {
   const spec = s.spectrum!
   const n = spec.db10.length
-  const fAt = (k: number) => spec.f0_hz + k * spec.df_hz
-  const x0 = spec.f0_hz
+  const tune = hasNominalOffset(s) ? s.tune! : null
+  const doppler = tune ? tune.tuned_hz - tune.nominal_hz : 0
+  // "from nominal" slides the same trace by the Doppler correction
+  const shift = axis === 'nominal' && tune ? doppler : 0
+  const fAt = (k: number) => spec.f0_hz + k * spec.df_hz + shift
+  const x0 = fAt(0)
   const x1 = fAt(n - 1)
   const dbs = spec.db10.map(v => v / 10)
   const peak = s.peak_dbfs!
@@ -29,8 +37,11 @@ function Spectrum({ s }: { s: SignalMeasurement }) {
   const y1 = Math.ceil((Math.max(peak, ...dbs) + 5) / 10) * 10
   const X = (f: number) => L + (f - x0) / (x1 - x0) * (W - L - R)
   const Y = (d: number) => T + (y1 - Math.max(y0, Math.min(y1, d))) / (y1 - y0) * (H - T - B)
-  const [lo, hi] = s.edges_3db_hz!
+  const [lo, hi] = s.edges_3db_hz!.map(f => f + shift)
   const level = peak - 3
+  const receivedX = tune ? X(s.center_offset_hz! + shift) : null
+  const nominalF = -doppler + shift
+  const nominalX = tune && nominalF >= x0 && nominalF <= x1 ? X(nominalF) : null
   const step = (x1 - x0) > 30_000 ? 10_000 : 5_000
   const xTicks: number[] = []
   for (let f = Math.ceil(x0 / step) * step; f <= x1; f += step) xTicks.push(f)
@@ -57,7 +68,9 @@ function Spectrum({ s }: { s: SignalMeasurement }) {
           </text>
         </g>
       ))}
-      <text x={(L + W - R) / 2} y={H - 4} fill={colors.textMuted} fontSize={11} textAnchor="middle">offset from tuned center (Hz)</text>
+      <text x={(L + W - R) / 2} y={H - 4} fill={colors.textMuted} fontSize={11} textAnchor="middle">
+        {axis === 'nominal' && tune ? `offset from nominal ${formatMhz(tune.nominal_hz).slice(0, 7)} MHz (Hz)` : 'offset from tuned center (Hz)'}
+      </text>
       <text x={12} y={(T + H - B) / 2} fill={colors.textMuted} fontSize={11} textAnchor="middle"
         transform={`rotate(-90 12 ${(T + H - B) / 2})`}>dBFS / bin</text>
       <rect x={X(lo)} y={T} width={Math.max(1, X(hi) - X(lo))} height={H - B - T} fill={colors.warning} fillOpacity={0.06} />
@@ -67,6 +80,16 @@ function Spectrum({ s }: { s: SignalMeasurement }) {
       {[lo, hi].map((f, i) => (
         <line key={i} x1={X(f)} x2={X(f)} y1={Y(level)} y2={H - B} stroke={colors.warning} strokeDasharray="2 3" />
       ))}
+      {receivedX !== null && (
+        <line x1={receivedX} x2={receivedX} y1={T} y2={H - B} stroke={colors.textPrimary} strokeDasharray="1 3" strokeWidth={1.2} />
+      )}
+      {nominalX !== null && (
+        <g>
+          <line x1={nominalX} x2={nominalX} y1={T} y2={H - B} stroke={colors.info} strokeDasharray="5 4" strokeWidth={1.5} />
+          <text x={nominalX + (nominalX < W / 2 ? 6 : -6)} y={T + 14} fill={colors.info} fontSize={11} fontFamily={mono}
+            textAnchor={nominalX < W / 2 ? 'start' : 'end'}>nominal</text>
+        </g>
+      )}
       <circle cx={X(fAt(pk))} cy={Y(dbs[pk])} r={4} fill={colors.success} stroke={colors.bgApp} strokeWidth={1.5} />
       <text x={X(fAt(pk)) + 8} y={Y(dbs[pk]) + 4} fill={colors.textPrimary} fontSize={11} fontFamily={mono}>{peak.toFixed(1)}</text>
       <text x={W - R - 4} y={Y(floor) - 6} fill={colors.textMuted} fontSize={11} fontFamily={mono} textAnchor="end">
@@ -85,9 +108,20 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
+function SubRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <>
+      <dt className="pl-3.5" style={{ color: colors.textMuted }}>
+        <span className="font-mono" style={{ color: colors.textDisabled }}>└ </span>{label}
+      </dt>
+      <dd className="m-0 font-mono tabular-nums text-right" style={{ color: colors.textPrimary }}>{children}</dd>
+    </>
+  )
+}
+
 const Sep = () => <div className="col-span-2 my-1 border-t" style={{ borderColor: colors.borderSubtle }} />
 
-function Tag({ tone, children, title }: { tone: 'success' | 'warning' | 'danger'; children: React.ReactNode; title?: string }) {
+function Tag({ tone, children, title }: { tone: 'success' | 'warning' | 'danger' | 'info'; children: React.ReactNode; title?: string }) {
   const c = colors[tone]
   return (
     <span title={title} className="font-mono text-[11px] font-medium px-1.5 rounded-sm border whitespace-nowrap"
@@ -111,7 +145,26 @@ function Values({ s, requiredEbn0Db }: { s: SignalMeasurement; requiredEbn0Db?: 
       <Row label="−3 dB edges">{signed(s.edges_3db_hz![0])} … {signed(s.edges_3db_hz![1])} Hz</Row>
       <Row label="−3 dB bandwidth">{s.bw_3db_hz} Hz</Row>
       <Row label="Strongest tone">{s.tone_3db_hz} Hz</Row>
-      <Row label="Center offset">{signed(s.center_offset_hz!)} Hz</Row>
+      {hasNominalOffset(s) ? (
+        <>
+          <Sep />
+          <Row label="Nominal">{formatMhz(s.tune!.nominal_hz)} MHz</Row>
+          <Row label="Tuned">
+            <span className="inline-flex items-center justify-end gap-1.5 flex-wrap">
+              {s.tune!.doppler && <Tag tone="info" title="Doppler correction was engaged during this beacon">DOPPLER</Tag>}
+              {formatMhz(s.tune!.tuned_hz)} MHz
+            </span>
+          </Row>
+          <Row label="Received center">{formatMhz(s.received_center_hz!)} MHz</Row>
+          <Row label="Offset from nominal"><span className="font-semibold">{signed(s.nominal_offset_hz!)} Hz</span></Row>
+          <SubRow label="Doppler correction">
+            {s.tune!.doppler ? `${signed(s.tune!.tuned_hz - s.tune!.nominal_hz)} Hz` : 'off'}
+          </SubRow>
+          <SubRow label="Residual (vs tuned)">{signed(s.center_offset_hz!)} Hz</SubRow>
+        </>
+      ) : (
+        <Row label="Residual (vs tuned)">{signed(s.center_offset_hz!)} Hz</Row>
+      )}
       {hold && (
         <>
           <Sep />
@@ -139,9 +192,86 @@ function Values({ s, requiredEbn0Db }: { s: SignalMeasurement; requiredEbn0Db?: 
   )
 }
 
+const STRIP_W = 900
+const STRIP_SIDE = 30
+const STRIP_AXIS_Y = 46
+
+/** Nominal (○), tuned (■) and received (◆) on one frequency scale: the
+ *  blue run is the Doppler correction, the light run the residual. The
+ *  scale stays ±12 kHz unless a value falls outside it, so strips from
+ *  different beacons compare by eye. */
+function LandedStrip({ s }: { s: SignalMeasurement }) {
+  const tune = s.tune!
+  const doppler = tune.tuned_hz - tune.nominal_hz
+  const offset = s.nominal_offset_hz!
+  const span = Math.max(12_000, Math.ceil(Math.max(Math.abs(doppler), Math.abs(offset)) / 4_000) * 4_000)
+  const X = (hz: number) => STRIP_SIDE + (hz + span) / (2 * span) * (STRIP_W - 2 * STRIP_SIDE)
+  const ticks: number[] = []
+  for (let k = -span; k <= span; k += span / 3) ticks.push(k)
+  const mono = 'JetBrains Mono, ui-monospace, monospace'
+  const y = STRIP_AXIS_Y
+  const xn = X(0)
+  const xt = X(doppler)
+  const xr = X(offset)
+  const leftward = doppler < 0
+  const toward = leftward ? 'start' : 'end'
+  const kLabel = (hz: number) => hz === 0 ? '0' : `${signed(hz / 1000)}k`
+  return (
+    <svg viewBox={`0 0 ${STRIP_W} 96`} className="block w-full h-auto" role="img"
+      aria-label={`Nominal, tuned ${signed(doppler)} Hz and received ${signed(offset)} Hz on one scale`}>
+      <line x1={STRIP_SIDE} x2={STRIP_W - STRIP_SIDE} y1={y} y2={y} stroke={colors.borderStrong} />
+      {ticks.map(k => (
+        <g key={k}>
+          <line x1={X(k)} x2={X(k)} y1={y - 4} y2={y + 4} stroke={colors.borderStrong} />
+          <text x={X(k)} y={y + 20} fill={colors.textDisabled} fontSize={11} fontFamily={mono} textAnchor="middle">{kLabel(k)}</text>
+        </g>
+      ))}
+      <text x={STRIP_W - STRIP_SIDE} y={y + 36} fill={colors.textMuted} fontSize={11} textAnchor="end">
+        Hz from nominal {formatMhz(tune.nominal_hz).slice(0, 7)} MHz
+      </text>
+      <line x1={xn} x2={xt} y1={y} y2={y} stroke={colors.info} strokeWidth={3} strokeOpacity={0.55} />
+      <line x1={xt} x2={xr} y1={y} y2={y} stroke={colors.textPrimary} strokeWidth={3} />
+      <circle cx={xn} cy={y} r={5} fill={colors.bgApp} stroke={colors.info} strokeWidth={2} />
+      <rect x={xt - 4} y={y - 4} width={8} height={8} fill={colors.info} />
+      <path d={`M${xr} ${y - 6} L${xr + 6} ${y} L${xr} ${y + 6} L${xr - 6} ${y} Z`} fill={colors.textPrimary} />
+      <text x={xn + (leftward ? 6 : -6)} y={y - 14} fill={colors.info} fontSize={11} fontFamily={mono} textAnchor={toward}>○ nominal</text>
+      {tune.doppler && (
+        <text x={xt + (leftward ? 4 : -4)} y={y - 30} fill={colors.info} fontSize={11} fontFamily={mono} textAnchor={toward}>
+          ■ tuned {signed(doppler)}
+        </text>
+      )}
+      <text x={xr + (leftward ? -8 : 8)} y={y - 14} fill={colors.textPrimary} fontSize={11} fontFamily={mono}
+        textAnchor={leftward ? 'end' : 'start'}>◆ received {signed(offset)}</text>
+    </svg>
+  )
+}
+
+function AxisToggle({ axis, onChange }: { axis: SpectrumAxis; onChange: (axis: SpectrumAxis) => void }) {
+  const options: [SpectrumAxis, string][] = [['tuned', 'from tuned'], ['nominal', 'from nominal']]
+  return (
+    <span className="inline-flex rounded-sm border overflow-hidden" role="group" aria-label="Spectrum x-axis"
+      style={{ borderColor: colors.borderStrong }}>
+      {options.map(([value, label]) => (
+        <button key={value} type="button" aria-pressed={axis === value} onClick={() => onChange(value)}
+          className="font-mono text-[11px] px-2 py-0.5 cursor-pointer border-r last:border-r-0"
+          style={{
+            borderColor: colors.borderStrong,
+            color: axis === value ? colors.textPrimary : colors.textMuted,
+            backgroundColor: axis === value ? colors.borderSubtle : 'transparent',
+            boxShadow: axis === value ? `inset 0 -2px 0 ${colors.active}` : undefined,
+          }}>
+          {label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
 export function SignalCard({ signal, requiredEbn0Db }: SignalCardProps) {
   const measured = isMeasured(signal)
   const note = measured ? floorNote(signal) : null
+  const located = measured && hasNominalOffset(signal)
+  const [axis, setAxis] = useState<SpectrumAxis>('tuned')
 
   return (
     <div className="@container rounded border overflow-hidden" style={{ borderColor: colors.borderStrong, backgroundColor: colors.bgPanel }}>
@@ -151,19 +281,32 @@ export function SignalCard({ signal, requiredEbn0Db }: SignalCardProps) {
           <span className="text-xs font-semibold uppercase tracking-[0.06em]" style={{ color: colors.textMuted }}>Signal</span>
           {note && <Tag tone="warning" title={note.detail}>{note.label}</Tag>}
         </span>
+        {located && <span className="ml-auto"><AxisToggle axis={axis} onChange={setAxis} /></span>}
       </div>
       {measured ? (
         <div className="grid grid-cols-1 @[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="min-w-0 pt-2.5 pr-1.5 pb-1.5 border-b @[640px]:border-b-0 @[640px]:border-r"
             style={{ borderColor: colors.borderSubtle }}>
-            <Spectrum s={signal} />
+            <Spectrum s={signal} axis={axis} />
             <div className="flex flex-wrap gap-x-3.5 gap-y-1.5 px-3.5 pt-1.5 pb-2.5 text-[11.5px]" style={{ color: colors.textMuted }}>
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2" style={{ borderColor: colors.active }} />Spectrum (burst average)</span>
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2 border-dashed" style={{ borderColor: colors.neutral }} />Noise floor</span>
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2" style={{ borderColor: colors.warning }} />−3 dB level and edges</span>
+              {located && (
+                <>
+                  <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2 border-dashed" style={{ borderColor: colors.info }} />Nominal</span>
+                  <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2 border-dotted" style={{ borderColor: colors.textPrimary }} />Received center</span>
+                </>
+              )}
             </div>
           </div>
           <Values s={signal} requiredEbn0Db={requiredEbn0Db} />
+          {located && (
+            <div className="@[640px]:col-span-2 grid gap-2 p-3.5 border-t" style={{ borderColor: colors.borderSubtle }}>
+              <span className="text-xs font-semibold uppercase tracking-[0.06em]" style={{ color: colors.textMuted }}>Where this beacon landed</span>
+              <LandedStrip s={signal} />
+            </div>
+          )}
         </div>
       ) : (
         <p className="m-0 px-3.5 py-3 text-xs" style={{ color: colors.textMuted }}>

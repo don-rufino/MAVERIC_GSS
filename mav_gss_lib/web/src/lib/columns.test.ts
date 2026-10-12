@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildRxRow, buildTxRow } from '@/lib/columns'
+import { buildRxRow, buildTxRow, composeRxColumns } from '@/lib/columns'
 import type { ColumnDef, RxPacket, TxQueueCmd } from '@/lib/types'
 
 const cmdColumn: ColumnDef = { id: 'cmd', label: 'cmd', kind: 'cmd_id' }
@@ -38,5 +38,15 @@ describe('buildRxRow / buildTxRow with kind: cmd_id', () => {
     delete (pkt.mission as { cmd_id?: string }).cmd_id
     const row = buildRxRow(pkt, [cmdColumn])
     expect(row.cmd.value).toBe('--')
+  })
+})
+
+describe('RX Δf nom column', () => {
+  it('sits with the platform columns, before the flags', () => {
+    const ids = composeRxColumns([]).map(c => c.id)
+    expect(ids.indexOf('nominal_offset')).toBe(ids.indexOf('flags') - 1)
+    const col = composeRxColumns([]).find(c => c.id === 'nominal_offset')!
+    expect(col.label).toBe('Δf nom')
+    expect(col.kind).toBe('rx_offset')
   })
 })

@@ -55,6 +55,21 @@ export interface SignalMeasurement {
   window?: string
   span_hz?: number
   spectrum?: { f0_hz: number; df_hz: number; db10: number[] }
+  /** Tuned frequency over the burst; present when the flowgraph knew the
+   *  nominal RX frequency. */
+  tune?: {
+    nominal_hz: number
+    /** Time-weighted over the burst. */
+    tuned_hz: number
+    /** Last minus first tune inside the burst (a Doppler step mid-burst). */
+    tuned_change_hz: number
+    /** A Doppler retune away from nominal was live. */
+    doppler: boolean
+  }
+  /** tuned_hz + center_offset_hz */
+  received_center_hz?: number
+  /** received_center_hz - nominal_hz */
+  nominal_offset_hz?: number
 }
 
 export interface MissionFacts {
@@ -95,7 +110,7 @@ export interface ColumnDef {
   flex?: boolean
   toggle?: string
   path?: string
-  kind?: 'value' | 'verifiers' | 'cmd_id' | 'tx_offset'
+  kind?: 'value' | 'verifiers' | 'cmd_id' | 'tx_offset' | 'rx_offset'
   badge?: boolean
   truncate?: boolean
   value_icons?: Record<string, string>

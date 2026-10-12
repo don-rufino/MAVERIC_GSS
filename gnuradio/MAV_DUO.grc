@@ -1099,8 +1099,9 @@ blocks:
       Rolling display-tap spectrum; for each decoded frame from gr-satellites it
       measures the burst (peak, floor, -3 dB, C/N0, Eb/N0, max hold; math in
       signal_meter.py) and adds it to the frame metadata as gss_signal before
-      the ZMQ publisher. The PTT gate exists only in MAV_DUO.py, so this mirror
-      receives no transmit windows.
+      the ZMQ publisher, with the tuned frequency over the burst (RX tune
+      commands on `command`) and the offset from nominal GSS_RX_FREQ_HZ. The PTT
+      gate exists only in MAV_DUO.py, so this mirror receives no transmit windows.
       """
 
       import json
@@ -1122,7 +1123,9 @@ blocks:
                                      in_sig=[np.complex64], out_sig=None)
               self.message_port_register_in(pmt.intern("pdu_in"))
               self.message_port_register_out(pmt.intern("pdu_out"))
+              self.message_port_register_in(pmt.intern("command"))
               self.set_msg_handler(pmt.intern("pdu_in"), self._handle_pdu)
+              self.set_msg_handler(pmt.intern("command"), self._handle_tune_command)
               self._baud = float(baud)
               self._meter = None
               try:
@@ -1130,7 +1133,9 @@ blocks:
                   if script_dir not in sys.path:
                       sys.path.insert(0, script_dir)
                   import signal_meter
-                  self._meter = signal_meter.SignalMeter(samp_rate)
+                  raw_nominal = os.environ.get("GSS_RX_FREQ_HZ", "")
+                  self._meter = signal_meter.SignalMeter(
+                      samp_rate, nominal_hz=float(raw_nominal) if raw_nominal else None)
               except Exception:
                   traceback.print_exc()
                   print("signal_meter: init failed; beacon measurements disabled", flush=True)
@@ -1138,6 +1143,28 @@ blocks:
           def note_tx(self, key_time, until):
               if self._meter is not None:
                   self._meter.note_tx(key_time, until)
+
+          def note_tune(self, frequency_hz, source="manual"):
+              if self._meter is not None:
+                  self._meter.note_tune(time.time(), frequency_hz, source)
+
+          def _handle_tune_command(self, message):
+              # Same parsing as the IQ recorder: a UHD RX tune is lo_freq - dsp_freq.
+              try:
+                  if not pmt.is_dict(message):
+                      return
+
+                  def number(key):
+                      value = pmt.dict_ref(message, pmt.intern(key), pmt.PMT_NIL)
+                      return None if pmt.eq(value, pmt.PMT_NIL) else float(pmt.to_python(value))
+
+                  lo_hz, dsp_hz, frequency_hz = number("lo_freq"), number("dsp_freq"), number("freq")
+                  if lo_hz is not None and dsp_hz is not None:
+                      frequency_hz = lo_hz - dsp_hz
+                  if frequency_hz is not None:
+                      self.note_tune(frequency_hz, source="doppler")
+              except Exception:
+                  traceback.print_exc()
 
           def work(self, input_items, output_items):
               n_in = len(input_items[0])
@@ -1187,7 +1214,7 @@ blocks:
     samp_rate: (samp_rate/rx_decim)/disp_decim
   states:
     _io_cache: ('Measure each decoded beacon; tag its PDU with gss_signal.', 'blk', [('samp_rate',
-      '200000.0'), ('baud', '9600')], [('0', 'complex', 1), ('pdu_in', 'message', 1)],
+      '200000.0'), ('baud', '9600')], [('0', 'complex', 1), ('command', 'message', 1), ('pdu_in', 'message', 1)],
       [('pdu_out', 'message', 1)], 'Measure each decoded beacon; tag its PDU with gss_signal.',
       [])
     bus_sink: false
@@ -2821,6 +2848,7 @@ connections:
 - [zeromq_sub_msg_source_0, out, satellites_hexdump_sink_0_0, in]
 - [zeromq_sub_msg_source_rxcmd, out, uhd_usrp_source_0, command]
 - [zeromq_sub_msg_source_rxcmd, out, epy_block_iq, command]
+- [zeromq_sub_msg_source_rxcmd, out, epy_block_signal_meter, command]
 - [zeromq_sub_msg_source_rxcmd, out, epy_block_iq_raw, command]
 - [zeromq_sub_msg_source_txcmd, out, uhd_usrp_sink_0, command]
 

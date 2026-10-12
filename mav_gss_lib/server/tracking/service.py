@@ -225,16 +225,15 @@ class TrackingService:
         offset rather than waiting for the next background tick — the step
         must reach the radio before the command it accompanies goes out, and
         the 1 Hz tick cadence alone can't guarantee that ordering. No-op
-        (returns 0.0) when the sweep isn't enabled. A no-op while Static Mode
-        is active too: static mode intentionally has no active publish path
-        (see ``set_static_mode``), so an offset here wouldn't reach the radio
-        — combining the two isn't supported yet.
+        (returns 0.0) when the sweep isn't enabled, or whenever Doppler isn't
+        engaged (disengaged or Static Mode): nothing is published then, so a
+        step couldn't reach the radio, and the sweep holds its place instead
+        of skipping steps that were never transmitted.
         """
-        if self._offset_sweep is None:
+        if self._offset_sweep is None or self._doppler_mode != "connected":
             return 0.0
         offset_hz = self._offset_sweep.advance()
-        if self._doppler_mode == "connected":
-            self.doppler()
+        self.doppler()
         return offset_hz
 
     def _nominal_park_correction(self, *, mode: DopplerMode = "disconnected") -> DopplerCorrection:
@@ -362,8 +361,12 @@ class TrackingService:
         )
         # Applied to `correction` itself — not just the result dict below —
         # so the offset actually reaches the radio via `_publish()`, not
-        # only the display/log. TX-only: RX is untouched.
-        offset_hz = self._offset_sweep.current_offset_hz if self._offset_sweep is not None else 0.0
+        # only the display/log. TX-only: RX is untouched. Only while Doppler
+        # is engaged: otherwise nothing is published, the radio stays on
+        # nominal, and reporting a step would log an offset never sent.
+        offset_hz = (self._offset_sweep.current_offset_hz
+                     if self._offset_sweep is not None and self._doppler_mode == "connected"
+                     else 0.0)
         if offset_hz:
             correction = dataclasses.replace(
                 correction,
