@@ -52,6 +52,7 @@ FRAME_BYTES = 274                      # 16 header + 256 info + 2 FCS
 FRAME_BITS = FRAME_BYTES * 8
 INFO_OFFSET = 16                       # field-map offsets count from the APID here
 FLAG = np.array([0, 1, 1, 1, 1, 1, 1, 0], dtype=np.uint8)
+TEMP_RANGE_C = (-55, 124)              # team beacon sheet: EPS temperatures "from -55 to 124 °C"
 SLIP_MIN_RUN = 64                      # zero runs this long may have lost bits on air
 SLIP_MAX_PER_RUN = 2                   # most 0s seen dropped from one run
 DETECT_CUTOFF_HZ = 15000.0             # +-10 kHz Doppler + +-2.4 kHz deviation + margin
@@ -196,8 +197,10 @@ class FieldScorer:
 
     INA3221 registers (EPS voltages/currents other than the fuel gauge) have
     bits [2:0] == 0; bus voltages stay <= 26 V and powered rails within 15 %
-    of nominal; currents <= 5 A; the 2S pack reads 5-9 V on the gauge; SOC
-    0-100 %; int8 temperatures -40..+85 C.
+    of nominal; currents <= 5 A; SOC 0-100 %; int8 temperatures within the
+    sensor range the team's beacon sheet documents (TEMP_RANGE_C). These are
+    integrity checks (could the sensor produce this value?), not operating
+    limits: the fuel gauge voltage has no documented range and is not checked.
     """
 
     def __init__(self, fields: list[BeaconField]) -> None:
@@ -234,13 +237,11 @@ class FieldScorer:
                 c = u >> 3
                 c = c - 0x2000 if c & 0x1000 else c
                 bad += abs(c * 4e-3) > 5.0
-            elif "(Gauge)" in n and "Voltage" in n:
-                bad += not 5.0 <= u / 1000 <= 9.0
             elif "SOC" in n:
                 bad += u / 100 > 100.0
             elif "Temperature" in n and f.size == 1:
                 t = int.from_bytes(raw, f.byteorder, signed=True)
-                bad += not -40 <= t <= 85
+                bad += not TEMP_RANGE_C[0] <= t <= TEMP_RANGE_C[1]
         return ina, bad
 
 

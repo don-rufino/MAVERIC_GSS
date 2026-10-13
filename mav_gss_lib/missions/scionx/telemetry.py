@@ -6,14 +6,16 @@ out of the repository: it is read at runtime from ``beacon_fields.json``
 mission still receives and logs every frame, it just extracts no values.
 
 Frames usually arrive without their start (late key-up), so values are
-produced only for fields whose bytes were all received. Conversions and
-plausibility limits are the ones validated against N6RFM's report:
+produced only for fields whose bytes were all received. Conversions are the
+ones validated against N6RFM's report. Plausibility flags only values the
+hardware cannot produce (integrity, not operating limits):
 
   EPS bus voltages/currents (INA3221): value >> 3, 8 mV / 4 mA per LSB,
       low three bits must be zero; bus <= 26 V, powered rails within 15 %
       of the nominal in their name (3V3 -> 3.3 V), |I| <= 5 A
-  fuel gauge: mV / mA; the 2S pack reads 5-9 V; SOC in 0.01 %
-  one-byte temperatures: signed degC in -40..+85
+  fuel gauge: mV / mA, no documented range (not checked); SOC in 0.01 %, <= 100
+  one-byte temperatures: signed degC within the team sheet's sensor range,
+      "from -55 to 124 °C"
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from mav_gss_lib.platform.contract.parameters import ParamUpdate
 FIELDS_PATH = Path(__file__).resolve().parent / "beacon_fields.json"
 INFO_OFFSET = 16                       # field offsets count from the APID (frame byte 16)
 FRAME_BYTES = 274
+TEMP_RANGE_C = (-55, 124)              # team beacon sheet: EPS temperatures "from -55 to 124 °C"
 
 _RAIL_RE = re.compile(r"(\d+(?:\.\d+)?)V(\d)?\b")
 _DOMAINS = (
@@ -134,15 +137,14 @@ def convert(f: BeaconField, raw: bytes) -> tuple[Any, str, bool]:
         a = round(c * 0.004, 3)
         return a, "A", not (u & 0x07) and abs(a) <= 5.0
     if "(Gauge)" in n and "Voltage" in n:
-        v = round(u / 1000, 3)
-        return v, "V", 5.0 <= v <= 9.0
+        return round(u / 1000, 3), "V", True
     if "(Gauge)" in n and "Current" in n:
         return round(int.from_bytes(raw, f.byteorder, signed=True) / 1000, 3), "A", True
     if "SOC" in n:
         return round(u / 100, 2), "%", u / 100 <= 100.0
     if "Temperature" in n and f.size == 1:
         t = int.from_bytes(raw, f.byteorder, signed=True)
-        return t, "degC", -40 <= t <= 85
+        return t, "degC", TEMP_RANGE_C[0] <= t <= TEMP_RANGE_C[1]
     signed = not f.ctype.startswith("u")
     return int.from_bytes(raw, f.byteorder, signed=signed), "", True
 

@@ -191,3 +191,11 @@ def test_eps_channels_stay_in_the_eps_group():
     names = telemetry.param_names((f_rail, f_radio))
     assert names[f_rail].startswith("eps.")
     assert names[f_radio].startswith("uhf.")
+
+
+def test_plausibility_follows_the_documented_sensor_range_not_operating_assumptions():
+    temp = telemetry.BeaconField("EPS_SP3 Temperature", "EPS_SP3_Temp", "int8_t", 1, 0, "Big")
+    gauge = telemetry.BeaconField("EPS_main_Battery Voltage (Gauge)", "EPS_MainBattery_V", "uint16_t", 2, 1, "Little")
+    assert telemetry.convert(temp, bytes([(-42) & 0xFF])) == (-42, "degC", True)    # eclipse panel
+    assert telemetry.convert(temp, bytes([(-56) & 0xFF]))[2] is False               # below sensor range
+    assert telemetry.convert(gauge, (3231).to_bytes(2, "little")) == (3.231, "V", True)

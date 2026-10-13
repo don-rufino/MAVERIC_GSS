@@ -206,6 +206,16 @@ class FieldScorerTests(unittest.TestCase):
         self.assertEqual(ina, 1)
         self.assertEqual(implausible, 2)
 
+    def test_scorer_accepts_what_the_sensors_can_report(self):
+        # documented sensor range is -55..124 degC; the gauge has no range
+        fields = [sb.BeaconField("EPS_PANEL0 Temperature", "int8_t", 1, 0),
+                  sb.BeaconField("EPS_main_Battery Voltage (Gauge)", "uint16_t", 2, 1)]
+        scorer = sb.FieldScorer(fields)
+        cold_eclipse = {16: (-42) & 0xFF, 17: 0x9F, 18: 0x0C}    # -42 degC, gauge 3.231 V
+        self.assertEqual(scorer(cold_eclipse), (0, 0))
+        self.assertEqual(scorer({16: (-55) & 0xFF, 17: 0x9F, 18: 0x0C}), (0, 0))
+        self.assertEqual(scorer({16: (-56) & 0xFF, 17: 0x9F, 18: 0x0C}), (0, 1))
+
     def test_missing_field_map_means_no_scorer(self):
         self.assertIsNone(sb.FieldScorer.from_json(ROOT / "no" / "such.json"))
 
