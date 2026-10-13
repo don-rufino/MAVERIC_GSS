@@ -19,6 +19,11 @@ Transmitter departures handled here:
     ground-test frame; such frames are CRC-unverifiable.
   * skipped stuffing bits (a 0 after five 1s that is data): every stuffing
     choice is scored (CRC when complete, field plausibility otherwise).
+  * dropped bits in long zero runs: the transmitter sometimes radiates one
+    or two 0s fewer than the frame holds inside a long run of 0s (measured
+    on the edges: 417.985 bit periods where the frame has 419). One or two
+    0s put back into each long run are scored alongside the stuffing
+    choices; a candidate needing them wins only on strictly better evidence.
 
 Clock: one fixed bit clock per burst. The period is found by searching for
 the value that phase-aligns the most transitions (immune to the long
@@ -47,6 +52,8 @@ FRAME_BYTES = 274                      # 16 header + 256 info + 2 FCS
 FRAME_BITS = FRAME_BYTES * 8
 INFO_OFFSET = 16                       # field-map offsets count from the APID here
 FLAG = np.array([0, 1, 1, 1, 1, 1, 1, 0], dtype=np.uint8)
+SLIP_MIN_RUN = 64                      # zero runs this long may have lost bits on air
+SLIP_MAX_PER_RUN = 2                   # most 0s seen dropped from one run
 DETECT_CUTOFF_HZ = 15000.0             # +-10 kHz Doppler + +-2.4 kHz deviation + margin
 
 # Team ground-test frame (published with the SCION-X decode writeup), 272
@@ -119,8 +126,26 @@ def destuff(bits: np.ndarray) -> tuple[np.ndarray, list[int]]:
     return np.array(out, dtype=np.uint8), sites
 
 
+def zero_run_sites(bits: np.ndarray) -> list[int]:
+    """Start of every run of >= SLIP_MIN_RUN 0s, listed SLIP_MAX_PER_RUN
+    times: each entry is one dropped 0 that may be put back (anywhere in a
+    run of 0s is the same place)."""
+    edges = np.flatnonzero(np.diff(np.concatenate(([1], bits, [1])).astype(np.int8)))
+    starts, ends = edges[0::2], edges[1::2]
+    return [int(a) for a, b in zip(starts, ends) if b - a >= SLIP_MIN_RUN
+            for _ in range(SLIP_MAX_PER_RUN)]
+
+
+def insertion_sites(bits: np.ndarray) -> tuple[np.ndarray, list[int], int]:
+    """Destuff, then list every place a 0 may be put back: the removed
+    stuffing 0s first (indices < n_stuffing), then dropped-bit sites."""
+    data, sites = destuff(bits)
+    return data, sites + zero_run_sites(data), len(sites)
+
+
 def reinsert(bits: np.ndarray, sites: list[int], keep: tuple[int, ...]) -> np.ndarray:
-    """Put back the 0s at the chosen destuff sites (treat them as data)."""
+    """Put back 0s at the chosen sites (stuffing 0s kept as data, or 0s the
+    transmitter dropped)."""
     out = bits
     for pos in sorted((sites[k] for k in keep), reverse=True):
         out = np.insert(out, pos, 0)
@@ -379,17 +404,31 @@ def demod_burst(x: np.ndarray, fs: float, a: int, b: int, snr: float) -> Burst:
 class Candidate:
     frame: bytes                 # bytes from start_byte .. 273
     start_byte: int
-    keep: tuple[int, ...]
+    keep: tuple[int, ...]        # put-back sites (see insertion_sites)
     crc: str                     # "pass" | "pass after N bit flip(s) ..." | "fail" | "unverifiable"
     ina_violations: int
     ref_match: float
     static_match: int = 0        # received bytes equal to the reference frame
     implausible: int = 0         # physically impossible field values
     anchor: str = "reference"    # what fixed the frame position
+    n_stuffing: int = 0          # keep indices below this are stuffing sites
+    restored_zeros_at: tuple[int, ...] = ()   # frame bytes of dropped 0s put back
+    restored_run_bits: int = 0   # summed length of the zero runs they went into
 
     @property
     def crc_passed(self) -> bool:
         return self.crc.startswith("pass")
+
+    @property
+    def stuffing_keep(self) -> tuple[int, ...]:
+        return tuple(k for k in self.keep if k < self.n_stuffing)
+
+    def rank(self) -> tuple:
+        """Sort key: CRC, then plausibility, then fewest dropped 0s assumed,
+        then the longest runs for them (a bit lost at random in time more
+        likely falls in a longer run), then static reference bytes."""
+        return (not self.crc_passed, self.implausible + self.ina_violations,
+                len(self.restored_zeros_at), -self.restored_run_bits, -self.static_match)
 
 
 def align_to_reference(data_bits: np.ndarray) -> tuple[int, float]:
@@ -410,27 +449,41 @@ def align_to_reference(data_bits: np.ndarray) -> tuple[int, float]:
     return best
 
 
-def _complete_frame(raw: np.ndarray, max_keep: int):
-    """Destuff a flag-to-flag span; yield (frame bytes, keep) for every
-    stuffing choice that yields exactly FRAME_BITS."""
-    data, sites = destuff(raw)
+def _complete_frame(raw: np.ndarray, max_keep: int, slips: bool = True):
+    """Destuff a flag-to-flag span; yield (frame bytes, keep, sites,
+    n_stuffing) for every choice of put-back 0s that yields exactly
+    FRAME_BITS. slips=False limits the choice to stuffing sites."""
+    data, sites, n_stuffing = insertion_sites(raw)
+    if not slips:
+        sites = sites[:n_stuffing]
     missing = FRAME_BITS - len(data)
     if not 0 <= missing <= max_keep:
         return
     for keep in itertools.combinations(range(len(sites)), missing):
-        yield bits_to_bytes(reinsert(data, sites, keep)), keep
+        yield bits_to_bytes(reinsert(data, sites, keep)), keep, sites, n_stuffing
+
+
+def restored_bytes(sites: list[int], keep: tuple[int, ...], n_stuffing: int,
+                   start_bit: int) -> tuple[int, ...]:
+    """Frame byte of each dropped 0 put back by `keep` (stuffing sites
+    excluded); start_bit is the frame bit of the first destuffed bit."""
+    chosen = sorted(sites[k] for k in keep)
+    return tuple((start_bit + sites[k] + chosen.index(sites[k])) // 8
+                 for k in sorted(keep) if k >= n_stuffing)
 
 
 def repair(raw: np.ndarray, conf: np.ndarray, max_keep: int, weakest=18, max_flips=3):
     """Flip up to max_flips of the `weakest` least-confident raw bits until
-    the CRC passes. Returns (frame, keep, flipped positions, patterns tried)."""
+    the CRC passes. Returns (frame, keep, flipped positions, patterns tried).
+    Stuffing choices only: more choices per flip pattern would raise the
+    odds of a false CRC pass."""
     order = np.argsort(conf)[:weakest]
     tried = 0
     for k in range(1, max_flips + 1):
         for combo in itertools.combinations(order, k):
             trial = raw.copy()
             trial[list(combo)] ^= 1
-            for frame, keep in _complete_frame(trial, max_keep):
+            for frame, keep, _, _ in _complete_frame(trial, max_keep, slips=False):
                 tried += 1
                 if crc_ok(frame):
                     return frame, keep, sorted(int(c) for c in combo), tried
@@ -472,16 +525,17 @@ def frame_candidates(bits: np.ndarray, scorer=None, max_keep=3,
         if t1_ < body_end and t1_ - t0_ >= 8 and 0.9 * FRAME_BITS < body_end - (t1_ + 8) < 1.25 * FRAME_BITS:
             body_start = t1_ + 8
     raw = bits[body_start:body_end]
-    data, sites = destuff(raw)
+    data, sites, n_stuffing = insertion_sites(raw)
     opened = body_start > 0
     if opened and conf is not None:
-        direct = [(f, k) for f, k in _complete_frame(raw, max_keep) if crc_ok(f)]
+        direct = [f for f, *_ in _complete_frame(raw, max_keep) if crc_ok(f)]
         if not direct:
             fixed = repair(raw, conf[body_start:body_end], max_keep)
             if fixed:
                 frame, keep, flipped, tried = fixed
                 return [Candidate(frame, 0, keep, f"pass after {len(flipped)} bit flip(s) "
-                                  f"(of {tried} patterns tried)", 0, 1.0, 0, 0, "opening flags")]
+                                  f"(of {tried} patterns tried)", 0, 1.0, 0, 0, "opening flags",
+                                  n_stuffing=max(keep, default=-1) + 1)]
 
     if opened:
         start_bit, score = 0, 1.0
@@ -493,17 +547,21 @@ def frame_candidates(bits: np.ndarray, scorer=None, max_keep=3,
         # opening train was not real (or the length is corrupt): treat as headerless
         return frame_candidates(bits[body_start:], scorer, max_keep,
                                 None if conf is None else conf[body_start:])
+    # aligning against the reference is costly per trial: headerless frames
+    # try stuffing choices there; the closing-flag count-back below also
+    # tries dropped 0s
+    pool = len(sites) if opened else n_stuffing
     if missing < 0 or missing > max_keep:
         keeps = [()]
     else:
-        keeps = list(itertools.combinations(range(len(sites)), missing))
+        keeps = list(itertools.combinations(range(pool), missing))
     trials = [(keep, "opening flags" if opened else "reference") for keep in keeps]
     if not opened and close[1] - close[0] >= 24:
         # A late enough key-up leaves no static reference bytes on air, so
         # align_to_reference has nothing to lock to. A real closing train
         # (>= 4 flags) still marks the frame end: count back from it for
-        # every plausible stuffing choice (a skipped stuffing bit shifts
-        # everything before it by one bit).
+        # every plausible choice of put-back 0s (a skipped stuffing bit or a
+        # dropped 0 shifts everything before it by one bit).
         trials += [(keep, "closing flags") for k in range(max_keep + 1)
                    for keep in itertools.combinations(range(len(sites)), k)]
     cands: list[Candidate] = []
@@ -532,16 +590,21 @@ def frame_candidates(bits: np.ndarray, scorer=None, max_keep=3,
         else:
             crc = "unverifiable"
         static = sum(1 for i, v in received.items() if i < 272 and v == REFERENCE[i] and v != 0)
+        restored = restored_bytes(sites, keep, n_stuffing, start_bit)
+        run_bits = sum(int(np.argmax(np.append(data[sites[k]:], 1))) for k in keep if k >= n_stuffing)
         same = next((c for c in cands if c.start_byte == first_byte and c.frame == frame), None)
         if same is not None:
             # both anchors put the frame in the same place: one candidate,
             # stronger evidence
             if anchor not in same.anchor:
                 same.anchor += f" + {anchor}"
+            if (len(restored), -run_bits) < (len(same.restored_zeros_at), -same.restored_run_bits):
+                same.keep, same.restored_zeros_at, same.restored_run_bits = keep, restored, run_bits
             continue
         ina, bad = scorer(received)
-        cands.append(Candidate(frame, first_byte, keep, crc, ina, score, static, bad, anchor))
-    cands.sort(key=lambda c: (not c.crc_passed, c.implausible + c.ina_violations, -c.static_match))
+        cands.append(Candidate(frame, first_byte, keep, crc, ina, score, static, bad, anchor,
+                               n_stuffing, restored, run_bits))
+    cands.sort(key=Candidate.rank)
     return cands
 
 
@@ -558,6 +621,7 @@ class BurstDecode:
     crc: str = ""
     polarity: int = 1
     keep: tuple[int, ...] = ()
+    restored_zeros_at: tuple[int, ...] = ()
     anchor: str = ""
     ambiguous: bool = False
     implausible: int = 0
@@ -577,6 +641,7 @@ class BurstDecode:
         return {
             "v": 1, "status": self.status, "start_byte": self.start_byte, "crc": self.crc,
             "polarity": self.polarity, "kept_stuffing_sites": list(self.keep),
+            "restored_zeros_at_bytes": list(self.restored_zeros_at),
             "anchor": self.anchor, "ambiguous": self.ambiguous,
             "implausible": self.implausible, "ina_violations": self.ina_violations,
             "static_ref_bytes": self.static_match, "snr_db": round(self.snr_db, 1),
@@ -603,15 +668,16 @@ def decode_burst(x: np.ndarray, fs: float, a: int, b: int, snr: float,
                 results.append((pol, c))
     if not results:
         return BurstDecode(status="undecoded", **stats)
-    results.sort(key=lambda pc: (not pc[1].crc_passed, pc[1].implausible + pc[1].ina_violations,
-                                 -pc[1].static_match))
+    results.sort(key=lambda pc: pc[1].rank())
     pol, top = results[0]
     ties = [c for _, c in results if c.crc == top.crc
             and c.implausible + c.ina_violations == top.implausible + top.ina_violations
+            and len(c.restored_zeros_at) == len(top.restored_zeros_at)
             and c.static_match == top.static_match]
     return BurstDecode(
         status="crc_pass" if top.crc_passed else "unverified",
-        frame=top.frame, start_byte=top.start_byte, crc=top.crc, polarity=pol, keep=top.keep,
+        frame=top.frame, start_byte=top.start_byte, crc=top.crc, polarity=pol, keep=top.stuffing_keep,
+        restored_zeros_at=top.restored_zeros_at,
         anchor=top.anchor, ambiguous=len(ties) > 1, implausible=top.implausible,
         ina_violations=top.ina_violations, static_match=top.static_match, **stats)
 

@@ -140,7 +140,8 @@ def _facts(payload: ScionxPayload) -> dict[str, Any]:
     if payload.fields_total:
         header["fields"] = f"{payload.fields_received}/{payload.fields_total}"
     decode = {k: payload.burst[k] for k in (
-        "crc", "anchor", "ambiguous", "kept_stuffing_sites", "polarity", "snr_db",
+        "crc", "anchor", "ambiguous", "kept_stuffing_sites", "restored_zeros_at_bytes",
+        "polarity", "snr_db",
         "bit_rate", "transitions", "marginal_bits", "burst_s") if k in payload.burst}
     facts: dict[str, Any] = {"header": header}
     if decode:

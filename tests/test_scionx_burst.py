@@ -26,6 +26,7 @@ FS = 200_000.0
 FIELDS = ROOT / "mav_gss_lib" / "missions" / "scionx" / "beacon_fields.json"
 N6RFM = ROOT / "scripts" / "scionx_phase0" / "data" / "scionX_50000SPS_437500000Hz_2026_09_28_T15-04-31Z_snip.iq"
 GS_0923 = ROOT / "logs" / "iq" / "iq_maveric_20260923T063435Z.sigmf-data"
+GS_1013 = ROOT / "logs" / "iq" / "iq_scionx_20261013T062944Z.sigmf-data"
 
 
 def _stuff(bits, skip_at=None):
@@ -40,9 +41,13 @@ def _stuff(bits, skip_at=None):
     return np.array(out, dtype=np.uint8)
 
 
-def _frame_bits(*, drop_bytes=0, skip_stuffing=False):
+def _frame_bits(*, drop_bytes=0, skip_stuffing=False, drop_zero_at_byte=None):
     frame = sb.REFERENCE + sb.crc16_x25(sb.REFERENCE).to_bytes(2, "little")
     bits = sb.bytes_to_bits(frame)
+    if drop_zero_at_byte is not None:            # the satellite's bug: a 0 lost from a long zero run
+        i = drop_zero_at_byte * 8
+        assert not bits[i:i + sb.SLIP_MIN_RUN].any(), "not inside a long zero run"
+        bits = np.delete(bits, i)
     skip = None
     if skip_stuffing:                            # the satellite's bug: first eligible site left unstuffed
         ones = 0
@@ -98,6 +103,15 @@ class SyntheticBurstTests(unittest.TestCase):
         self.assertEqual(r.frame, frame)
         self.assertEqual(r.frame[:16], sb.HEADER)
         self.assertAlmostEqual(r.bit_rate, 9600, delta=5)
+        self.assertEqual(r.restored_zeros_at, ())
+
+    def test_dropped_zero_in_long_run_complete_frame_passes_crc(self):
+        bits, frame, _ = _frame_bits(drop_zero_at_byte=230)
+        r = _decode_only_burst(_capture(bits))
+        self.assertEqual(r.status, "crc_pass")
+        self.assertEqual(r.frame, frame)
+        self.assertEqual(len(r.restored_zeros_at), 1)
+        self.assertTrue(205 <= r.restored_zeros_at[0] <= 230, r.restored_zeros_at)
 
     def test_late_key_up_recovers_the_received_tail(self):
         bits, frame, _ = _frame_bits(drop_bytes=48)
@@ -255,8 +269,37 @@ class GroundStationReplayTests(unittest.TestCase):
         # 06:38:58: clean; the 3.3 V rail reads 3.296 V like N6RFM's
         self.assertEqual(_value(first, _rail(3.3)) >> 3, 412)
         self.assertFalse(first.ambiguous)
-        # 06:42:29: tail one bit off after ~byte 196; must be flagged
+        # 06:42:29: one 0 dropped from the run before the FCS; put back it
+        # reads like 06:38:58. Still a tie on plausibility with the shorter
+        # run before byte 219 (an unpowered rail), so it stays flagged.
+        self.assertEqual(second.restored_zeros_at, (219,))
+        self.assertEqual(_value(second, _rail(3.3)) >> 3, 412)
         self.assertTrue(second.ambiguous)
+
+
+@unittest.skipIf(sb is None or not GS_1013.is_file(), "local 2026-10-13 SCION-X capture not present")
+class GroundStation1013ReplayTests(unittest.TestCase):
+    def test_both_beacons_read_nominal_rails(self):
+        # the two bursts at 213.4 s and 433.5 s (the whole pass holds no
+        # others); slices keep the suite's memory to one full capture
+        capture = np.memmap(GS_1013, dtype=np.complex64, mode="r")
+        scorer = sb.FieldScorer.from_json(FIELDS)
+        decoded = []
+        for t in (213.4, 433.5):
+            x = np.asarray(capture[int((t - 1) * FS):int((t + 2) * FS)])
+            (a, b, snr), = sb.find_bursts(x, FS)
+            decoded.append(sb.decode_burst(x, FS, a, b, snr, scorer))
+        first, second = decoded
+        self.assertEqual((first.start_byte, second.start_byte), (118, 119))
+        if scorer is None:
+            return
+        # 06:33:19 lost one 0 before the FCS (418 bit periods where the
+        # frame has 419); 06:37:01 is clean
+        self.assertEqual(first.restored_zeros_at, (219,))
+        self.assertEqual(second.restored_zeros_at, ())
+        for r in (first, second):
+            self.assertEqual(_value(r, _rail(3.3)) >> 3, 412)
+            self.assertIn(_value(r, _rail(7.0)) >> 3, (870, 871))
 
 
 if __name__ == "__main__":
