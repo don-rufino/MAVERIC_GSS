@@ -20,6 +20,18 @@ export interface RxPacket {
   signal?: SignalMeasurement
 }
 
+/** Bandwidth where the spectrum first drops below peak - N dB, walking
+ *  outward from the peak; not measured when that line sits too close to
+ *  the noise floor. */
+export interface BandwidthLevel {
+  status: 'ok' | 'near_floor'
+  line_above_floor_db: number
+  edges_hz?: [number, number]
+  bw_hz?: number
+  /** The level reached the edge of the measured band, so the width is a lower bound. */
+  band_limited?: boolean
+}
+
 /** MAV_DUO signal meter result (gnuradio/signal_meter.py, schema v1). */
 export interface SignalMeasurement {
   v: number
@@ -33,6 +45,8 @@ export interface SignalMeasurement {
   edges_3db_hz?: [number, number]
   bw_3db_hz?: number
   tone_3db_hz?: number
+  /** Keyed by dB below peak ("10", "20"); absent on beacons logged before it existed. */
+  bw_levels?: Record<string, BandwidthLevel>
   center_offset_hz?: number
   maxhold?: {
     peak_dbfs: number

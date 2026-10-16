@@ -101,6 +101,81 @@ class SignalMeterTests(unittest.TestCase):
         self.assertEqual(len(spec["db10"]), sum(1 for _ in spec["db10"]))
         self.assertLess(spec["f0_hz"], lo)
 
+    def test_bandwidth_below_peak_nests_around_the_3db_edges(self):
+        widths = []
+        for ebn0 in (30.0, 40.0):
+            x, _, end_s = _scene(ebn0)
+            _, r = _run(x, end_s=end_s, air_s=0.2)
+            l10, l20 = r["bw_levels"]["10"], r["bw_levels"]["20"]
+            for level, lv in ((10, l10), (20, l20)):
+                self.assertEqual(lv["status"], "ok")
+                self.assertFalse(lv["band_limited"])
+                self.assertAlmostEqual(lv["line_above_floor_db"], r["snr_peak_db"] - level, delta=0.11)
+            lo3, hi3 = r["edges_3db_hz"]
+            self.assertLess(l20["edges_hz"][0], l10["edges_hz"][0])
+            self.assertLess(l10["edges_hz"][0], lo3)
+            self.assertGreater(l10["edges_hz"][1], hi3)
+            self.assertGreater(l20["edges_hz"][1], l10["edges_hz"][1])
+            self.assertAlmostEqual(l10["bw_hz"], l10["edges_hz"][1] - l10["edges_hz"][0] + r["rbw_hz"], delta=1)
+            widths.append((l10["bw_hz"], l20["bw_hz"]))
+        # the signal's shape, not its strength, sets the width
+        self.assertLessEqual(abs(widths[0][0] - widths[1][0]), 200)
+        self.assertLessEqual(abs(widths[0][1] - widths[1][1]), 200)
+
+    def test_deep_dip_between_tones_does_not_cut_the_width(self):
+        # two carriers 5 kHz apart, within 3 dB of each other, with noise
+        # between them: -10/-20 must span both, like the -3 dB edges do
+        rng = np.random.default_rng(5)
+        n = int(4 * FS)
+        x = np.sqrt(1e-6 / 2) * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
+        t = np.arange(int(0.4 * FS)) / FS
+        a = int(3 * FS)
+        x[a:a + t.size] += 3e-3 * (np.exp(-2j * np.pi * 2500 * t) + 0.85 * np.exp(2j * np.pi * 2500 * t))
+        _, r = _run(x.astype(np.complex64), end_s=3.4, air_s=0.2)
+        lo3, hi3 = r["edges_3db_hz"]
+        self.assertLess(lo3, -2000)
+        self.assertGreater(hi3, 2000)
+        for level in ("10", "20"):
+            lo, hi = r["bw_levels"][level]["edges_hz"]
+            self.assertLessEqual(lo, lo3)
+            self.assertGreaterEqual(hi, hi3)
+
+    def test_level_too_close_to_floor_is_not_measured(self):
+        x, _, end_s = _scene(20.0)                  # peak SNR ~23 dB: -20 dB line ~3 dB up
+        _, r = _run(x, end_s=end_s, air_s=0.2)
+        self.assertEqual(r["bw_levels"]["10"]["status"], "ok")
+        l20 = r["bw_levels"]["20"]
+        self.assertEqual(l20["status"], "near_floor")
+        self.assertLess(l20["line_above_floor_db"], 3.0)
+        self.assertNotIn("edges_hz", l20)
+        self.assertNotIn("bw_hz", l20)
+
+    def test_tone_beyond_the_skirt_stays_out_of_the_width(self):
+        # a CW carrier at +9 kHz, above even the -10 dB line, separated from
+        # the burst by noise: the walk stops at the burst's skirt
+        x, _, end_s = _scene(30.0)
+        _, clean = _run(x, end_s=end_s, air_s=0.2)
+        t = np.arange(x.size) / FS
+        x = (x + 1e-3 * np.exp(2j * np.pi * 9000 * t)).astype(np.complex64)
+        _, r = _run(x, end_s=end_s, air_s=0.2)
+        spec = r["spectrum"]
+        tone_db = spec["db10"][round((9000 - spec["f0_hz"]) / spec["df_hz"])] / 10
+        self.assertGreater(tone_db, r["peak_dbfs"] - 10)
+        for level in ("10", "20"):
+            self.assertEqual(r["bw_levels"][level]["edges_hz"], clean["bw_levels"][level]["edges_hz"])
+            self.assertLess(r["bw_levels"][level]["edges_hz"][1], 8000)
+
+    def test_level_reaching_the_band_edge_is_flagged(self):
+        # a wideband burst fills the whole measured band
+        rng = np.random.default_rng(3)
+        n = int(4 * FS)
+        x = np.sqrt(1e-6 / 2) * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
+        x[int(3 * FS):int(3.4 * FS)] *= 100
+        _, r = _run(x.astype(np.complex64), end_s=3.4, air_s=0.2)
+        for level in ("10", "20"):
+            self.assertEqual(r["bw_levels"][level]["status"], "ok")
+            self.assertTrue(r["bw_levels"][level]["band_limited"])
+
     def test_uplink_before_beacon_never_reaches_floor(self):
         # strong leak 1.5-2.1 s, beacon at 3.0 s: with the recovery guard the
         # whole second before the beacon is TX-tainted, so the floor must come
@@ -178,11 +253,14 @@ class RecordedPassReplayTests(unittest.TestCase):
         (473.091, 473.478, -78.2, -107.6, 16.9),
         (683.369, 683.673, -86.9, -107.9, 8.5),
     ]
+    # -10 / -20 dB widths (Hz); None = line too close to the floor. The
+    # strongest tone is +2051 Hz with a >10 dB dip to the other tone.
+    EXPECTED_BW = [(5273, 6445), (5371, 6055), (5371, None)]
 
     def test_beacons_reproduce(self):
         fs, disp = 200_000.0, 2                     # display tap at rx_bw 50 kHz
         x = np.memmap(REPLAY, dtype=np.complex64, mode="r")
-        for start, end, peak, floor, ebn0 in self.EXPECTED:
+        for (start, end, peak, floor, ebn0), (bw10, bw20) in zip(self.EXPECTED, self.EXPECTED_BW):
             meter = SignalMeter(fs / disp)
             stop = int((end + 0.15) * fs)
             for i in range(int((start - 6) * fs), stop, 8192):
@@ -193,6 +271,11 @@ class RecordedPassReplayTests(unittest.TestCase):
             self.assertAlmostEqual(r["floor_dbfs"], floor, delta=0.5)
             self.assertAlmostEqual(r["ebn0_db"], ebn0, delta=0.5)
             self.assertEqual(r["edges_3db_hz"], [-3027, 2051])
+            self.assertEqual(r["bw_levels"]["10"]["bw_hz"], bw10)
+            if bw20 is None:
+                self.assertEqual(r["bw_levels"]["20"]["status"], "near_floor")
+            else:
+                self.assertEqual(r["bw_levels"]["20"]["bw_hz"], bw20)
             # every beacon is the same 274-byte frame plus flags: 0.389 s on
             # air (the decoder cut the weak third burst short at 0.304 s)
             self.assertAlmostEqual(r["burst_s"], 0.389, delta=0.02)

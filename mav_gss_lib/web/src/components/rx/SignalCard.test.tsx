@@ -35,6 +35,32 @@ describe('SignalCard (real SCION-X beacons)', () => {
     expect(screen.queryByText(/MARGIN|MARGINAL|BELOW REQUIRED/)).toBeNull()
   })
 
+  it('tabulates the −3, −10 and −20 dB bandwidth and draws the lower levels', () => {
+    const { container } = render(<SignalCard signal={first} />)
+    const rows = [...container.querySelectorAll('tbody tr')].map(tr => tr.textContent)
+    expect(rows).toEqual([
+      '−3 dB−3027 … +2051 Hz5176 Hz',
+      '−10 dB−3027 … +2148 Hz5273 Hz',
+      '−20 dB−3613 … +2734 Hz6445 Hz',
+    ])
+    expect(screen.getByText('Strongest tone')).toBeTruthy()
+    const labels = [...container.querySelectorAll('svg text')].map(t => t.textContent)
+    expect(labels).toContain('−10 dB')
+    expect(labels).toContain('−20 dB')
+    expect(screen.getByText('−20 dB level and edges')).toBeTruthy()
+  })
+
+  it('shows a level too close to the noise floor as near floor, not a width', () => {
+    // the pass's third (weakest) beacon: -20 dB line only 1.0 dB above the floor
+    const weak = { ...first, bw_levels: { ...first.bw_levels, 20: { status: 'near_floor', line_above_floor_db: 1.0 } } }
+    const { container } = render(<SignalCard signal={weak as SignalMeasurement} />)
+    expect(screen.getByText('— near floor').getAttribute('title')).toMatch(/1\.0 dB above the noise floor/)
+    expect(container.querySelector('tbody tr:last-child')!.textContent).toBe('−20 dB— near floor—')
+    const labels = [...container.querySelectorAll('svg text')].map(t => t.textContent)
+    expect(labels).toContain('−10 dB')
+    expect(labels).not.toContain('−20 dB')
+  })
+
   it('explains frames received while transmitting', () => {
     render(<SignalCard signal={{ v: 1, status: 'during_tx' }} />)
     expect(screen.getByText(/while the station was transmitting/)).toBeTruthy()
@@ -63,6 +89,13 @@ describe('SignalCard offset from nominal (real SCION-X beacon, recorded Doppler)
     fireEvent.click(screen.getByRole('button', { name: 'from nominal' }))
     expect(screen.getByText('offset from nominal 437.500 MHz (Hz)')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'from nominal' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('keeps beacons logged before −10/−20 dB existed readable: −3 dB row only', () => {
+    const { container } = render(<SignalCard signal={tunedFirst} />)
+    expect(tunedFirst.bw_levels).toBeUndefined()
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(screen.queryByText('−10 dB level and edges')).toBeNull()
   })
 
   it('keeps older logs readable: residual only, no toggle or strip', () => {

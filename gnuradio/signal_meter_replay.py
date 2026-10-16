@@ -218,6 +218,7 @@ def live_measurements(session: Path) -> list[dict]:
 
 COMPARE = (("center_offset_hz", "residual Hz"), ("tune.tuned_hz", "tuned Hz"),
            ("nominal_offset_hz", "Δf nom Hz"), ("snr_3db_db", "SNR-3dB"),
+           ("bw_levels.10.bw_hz", "-10dB BW"), ("bw_levels.20.bw_hz", "-20dB BW"),
            ("peak_dbfs", "peak dBFS"), ("floor_dbfs", "floor dBFS"), ("burst_s", "burst s"))
 
 

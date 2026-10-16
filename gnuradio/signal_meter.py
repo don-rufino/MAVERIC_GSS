@@ -16,6 +16,11 @@ buffering delay), averages them, and reads:
   SNR             peak SNR (peak - floor) and -3 dB SNR (peak - 3 dB - floor),
                   the figure operators usually report
   -3 dB           outer edges (both FSK tones) and the strongest tone's width
+  -10 / -20 dB    edges and width where the spectrum first drops below
+                  peak - 10 / peak - 20 dB, walking outward from the -3 dB
+                  outer edges (so they always contain the -3 dB span);
+                  a level whose line sits within NEAR_FLOOR_GUARD_DB of the
+                  noise floor is not measured (status near_floor)
   C/N0, Eb/N0     excess power over the floor around the signal center
   max hold        the same peak and floor read from a per-bin max-hold of
                   the same rows, matching a max-hold spectrum display read
@@ -49,6 +54,8 @@ TX_GUARD_BEFORE_S = 0.3     # row timestamps lag the antenna by buffering
 TX_GUARD_AFTER_S = 0.8      # ... and the receiver needs time to recover
 SCHEMA_VERSION = 1
 DOPPLER_MIN_SHIFT_HZ = 1.0  # a Doppler "retune" that sits on nominal is a park
+BW_LEVELS_DB = (10, 20)     # bandwidth below the peak, beside the -3 dB one
+NEAR_FLOOR_GUARD_DB = 3.0   # a level line closer than this to the floor measures noise
 
 
 def _blackman_harris(n: int) -> np.ndarray:
@@ -253,6 +260,27 @@ class SignalMeter:
         floor_db = float(_db(floor_bin))
         peak_hold_db = float(_db(rows[a:b + 1].max(axis=0)[band].max()))
         floor_hold_db = float(_db(floor_hold))
+        bw_levels = {}
+        for level_db in BW_LEVELS_DB:
+            line = sig[pk] / 10 ** (level_db / 10)
+            above_floor = round(float(_db(line)) - floor_db, 1)
+            if above_floor < NEAR_FLOOR_GUARD_DB:
+                bw_levels[str(level_db)] = {"status": "near_floor", "line_above_floor_db": above_floor}
+                continue
+            # from the -3 dB outer edges, so a dip between FSK tones cannot
+            # cut the width short; contiguous, so noise bumps beyond the skirts stay out
+            l_lo, l_hi = lo, hi
+            while l_lo - 1 >= bins[0] and sig[l_lo - 1] >= line:
+                l_lo -= 1
+            while l_hi + 1 <= bins[-1] and sig[l_hi + 1] >= line:
+                l_hi += 1
+            bw_levels[str(level_db)] = {
+                "status": "ok",
+                "edges_hz": [round(float(self.freqs[l_lo])), round(float(self.freqs[l_hi]))],
+                "bw_hz": round(float(self.freqs[l_hi] - self.freqs[l_lo] + self.rbw)),
+                "line_above_floor_db": above_floor,
+                "band_limited": bool(l_lo == bins[0] or l_hi == bins[-1]),
+            }
         spectrum = np.round(_db(sig[band]) * 10).astype(int)
         out = {
             "v": SCHEMA_VERSION,
@@ -265,6 +293,7 @@ class SignalMeter:
             "edges_3db_hz": [round(float(self.freqs[lo])), round(float(self.freqs[hi]))],
             "bw_3db_hz": round(float(self.freqs[hi] - self.freqs[lo] + self.rbw)),
             "tone_3db_hz": round(float(self.freqs[t_hi] - self.freqs[t_lo] + self.rbw)),
+            "bw_levels": bw_levels,
             "center_offset_hz": round(float(center)),
             "maxhold": {
                 "peak_dbfs": round(peak_hold_db, 1),

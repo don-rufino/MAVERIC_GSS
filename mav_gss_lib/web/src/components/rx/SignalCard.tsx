@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { colors } from '@/lib/colors'
 import { MARGIN_LABEL, floorNote, isMeasured, marginTone, signed } from '@/lib/signal'
 import { formatMhz, hasNominalOffset } from '@/lib/frequencyOffset'
-import type { SignalMeasurement } from '@/lib/types'
+import type { BandwidthLevel, SignalMeasurement } from '@/lib/types'
 
 type SpectrumAxis = 'tuned' | 'nominal'
 
@@ -11,6 +11,16 @@ interface SignalCardProps {
   signal: SignalMeasurement
   /** Required downlink Eb/N0 from the link budget; 0/undefined hides margin. */
   requiredEbn0Db?: number
+}
+
+/** Levels below peak beside −3 dB, drawn solid then dashed. */
+const BW_LEVELS = [['10', ''], ['20', '6 3']] as const
+
+function bwLevels(s: SignalMeasurement): [string, string, BandwidthLevel][] {
+  return BW_LEVELS.flatMap(([db, dash]) => {
+    const lv = s.bw_levels?.[db]
+    return lv ? [[db, dash, lv] as [string, string, BandwidthLevel]] : []
+  })
 }
 
 const W = 600
@@ -74,6 +84,18 @@ function Spectrum({ s, axis }: { s: SignalMeasurement; axis: SpectrumAxis }) {
       <text x={12} y={(T + H - B) / 2} fill={colors.textMuted} fontSize={11} textAnchor="middle"
         transform={`rotate(-90 12 ${(T + H - B) / 2})`}>dBFS / bin</text>
       <rect x={X(lo)} y={T} width={Math.max(1, X(hi) - X(lo))} height={H - B - T} fill={colors.warning} fillOpacity={0.06} />
+      {bwLevels(s).map(([db, dash, lv]) => {
+        if (lv.status !== 'ok' || !lv.edges_hz) return null
+        const [a, z] = lv.edges_hz.map(f => X(f + shift))
+        const y = Y(peak - Number(db))
+        return (
+          <g key={`bw${db}`}>
+            <line x1={a} x2={z} y1={y} y2={y} stroke={colors.textSecondary} strokeWidth={1.2} strokeDasharray={dash || undefined} />
+            {[a, z].map((x, i) => <line key={i} x1={x} x2={x} y1={y - 4} y2={y + 4} stroke={colors.textSecondary} strokeWidth={1.2} />)}
+            <text x={z + 6} y={y + 4} fill={colors.textSecondary} fontSize={11} fontFamily={mono}>−{db} dB</text>
+          </g>
+        )
+      })}
       <polyline points={pts} fill="none" stroke={colors.active} strokeWidth={1.5} strokeLinejoin="round" />
       <line x1={L} x2={W - R} y1={Y(floor)} y2={Y(floor)} stroke={colors.neutral} strokeDasharray="5 4" />
       <line x1={X(lo)} x2={X(hi)} y1={Y(level)} y2={Y(level)} stroke={colors.warning} strokeWidth={1.5} />
@@ -131,6 +153,40 @@ function Tag({ tone, children, title }: { tone: 'success' | 'warning' | 'danger'
   )
 }
 
+function BandwidthTable({ s }: { s: SignalMeasurement }) {
+  const cell = 'pt-1 font-mono tabular-nums text-right'
+  const level = (label: string, edges: React.ReactNode, width: React.ReactNode) => (
+    <tr key={label}>
+      <td className="pt-1" style={{ color: colors.textMuted }}>{label}</td>
+      <td className={cell}>{edges}</td>
+      <td className={cell}>{width}</td>
+    </tr>
+  )
+  return (
+    <table className="col-span-2 w-full border-collapse" style={{ color: colors.textPrimary }}>
+      <thead>
+        <tr className="border-b" style={{ borderColor: colors.borderSubtle }}>
+          {['Level', 'Edges', 'Width'].map((h, i) => (
+            <th key={h} className={`pb-1 text-[11px] font-normal ${i ? 'text-right' : 'text-left'}`}
+              style={{ color: colors.textDisabled }}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {level('−3 dB', `${signed(s.edges_3db_hz![0])} … ${signed(s.edges_3db_hz![1])} Hz`, `${s.bw_3db_hz} Hz`)}
+        {bwLevels(s).map(([db, , lv]) => lv.status === 'ok' && lv.edges_hz
+          ? level(`−${db} dB`, `${signed(lv.edges_hz[0])} … ${signed(lv.edges_hz[1])} Hz`, `${lv.bw_hz} Hz`)
+          : level(`−${db} dB`,
+              <span style={{ color: colors.textMuted }}
+                title={`The −${db} dB line sits ${lv.line_above_floor_db.toFixed(1)} dB above the noise floor, too close to measure`}>
+                — near floor
+              </span>,
+              <span style={{ color: colors.textMuted }}>—</span>))}
+      </tbody>
+    </table>
+  )
+}
+
 function Values({ s, requiredEbn0Db }: { s: SignalMeasurement; requiredEbn0Db?: number }) {
   const hold = s.maxhold
   const showMargin = !!requiredEbn0Db && requiredEbn0Db > 0 && typeof s.ebn0_db === 'number'
@@ -142,8 +198,7 @@ function Values({ s, requiredEbn0Db }: { s: SignalMeasurement; requiredEbn0Db?: 
       <Row label="Peak SNR">{s.snr_peak_db!.toFixed(1)} dB</Row>
       {typeof s.snr_3db_db === 'number' && <Row label="−3 dB SNR">{s.snr_3db_db.toFixed(1)} dB</Row>}
       <Sep />
-      <Row label="−3 dB edges">{signed(s.edges_3db_hz![0])} … {signed(s.edges_3db_hz![1])} Hz</Row>
-      <Row label="−3 dB bandwidth">{s.bw_3db_hz} Hz</Row>
+      <BandwidthTable s={s} />
       <Row label="Strongest tone">{s.tone_3db_hz} Hz</Row>
       {hasNominalOffset(s) ? (
         <>
@@ -292,6 +347,12 @@ export function SignalCard({ signal, requiredEbn0Db }: SignalCardProps) {
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2" style={{ borderColor: colors.active }} />Spectrum (burst average)</span>
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2 border-dashed" style={{ borderColor: colors.neutral }} />Noise floor</span>
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2" style={{ borderColor: colors.warning }} />−3 dB level and edges</span>
+              {signal.bw_levels && (
+                <>
+                  <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t" style={{ borderColor: colors.textSecondary }} />−10 dB level and edges</span>
+                  <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t border-dashed" style={{ borderColor: colors.textSecondary }} />−20 dB level and edges</span>
+                </>
+              )}
               {located && (
                 <>
                   <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2 border-dashed" style={{ borderColor: colors.info }} />Nominal</span>
