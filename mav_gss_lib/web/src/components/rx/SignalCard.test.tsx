@@ -91,11 +91,17 @@ describe('SignalCard offset from nominal (real SCION-X beacon, recorded Doppler)
     expect(screen.getByRole('button', { name: 'from nominal' }).getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('keeps beacons logged before −10/−20 dB existed readable: −3 dB row only', () => {
+  it('recalculates −10/−20 dB from the saved spectrum for beacons logged before them', () => {
     const { container } = render(<SignalCard signal={tunedFirst} />)
     expect(tunedFirst.bw_levels).toBeUndefined()
-    expect(container.querySelectorAll('tbody tr')).toHaveLength(1)
-    expect(screen.queryByText('−10 dB level and edges')).toBeNull()
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(3)
+    expect(screen.getByText('−10/−20 dB calculated from the saved spectrum')).toBeTruthy()
+    expect(screen.getByText('−10 dB level and edges')).toBeTruthy()
+  })
+
+  it('does not label logged levels as recalculated', () => {
+    render(<SignalCard signal={first} />)
+    expect(screen.queryByText('−10/−20 dB calculated from the saved spectrum')).toBeNull()
   })
 
   it('keeps older logs readable: residual only, no toggle or strip', () => {

@@ -56,6 +56,7 @@ SCHEMA_VERSION = 1
 DOPPLER_MIN_SHIFT_HZ = 1.0  # a Doppler "retune" that sits on nominal is a park
 BW_LEVELS_DB = (10, 20)     # bandwidth below the peak, beside the -3 dB one
 NEAR_FLOOR_GUARD_DB = 3.0   # a level line closer than this to the floor measures noise
+# (both mirrored in mav_gss_lib/web/src/lib/signal.ts, which recalculates older beacons)
 
 
 def _blackman_harris(n: int) -> np.ndarray:

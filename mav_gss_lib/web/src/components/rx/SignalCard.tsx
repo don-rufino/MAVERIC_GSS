@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { colors } from '@/lib/colors'
-import { MARGIN_LABEL, floorNote, isMeasured, marginTone, signed } from '@/lib/signal'
+import { MARGIN_LABEL, bandwidthLevels, floorNote, isMeasured, marginTone, signed } from '@/lib/signal'
 import { formatMhz, hasNominalOffset } from '@/lib/frequencyOffset'
 import type { BandwidthLevel, SignalMeasurement } from '@/lib/types'
 
@@ -17,8 +17,9 @@ interface SignalCardProps {
 const BW_LEVELS = [['10', ''], ['20', '6 3']] as const
 
 function bwLevels(s: SignalMeasurement): [string, string, BandwidthLevel][] {
+  const resolved = bandwidthLevels(s)
   return BW_LEVELS.flatMap(([db, dash]) => {
-    const lv = s.bw_levels?.[db]
+    const lv = resolved?.levels[db]
     return lv ? [[db, dash, lv] as [string, string, BandwidthLevel]] : []
   })
 }
@@ -164,6 +165,11 @@ function BandwidthTable({ s }: { s: SignalMeasurement }) {
   )
   return (
     <table className="col-span-2 w-full border-collapse" style={{ color: colors.textPrimary }}>
+      {bandwidthLevels(s)?.fromSpectrum && (
+        <caption className="caption-bottom pt-1 text-left text-[11px]" style={{ color: colors.textMuted }}>
+          −10/−20 dB calculated from the saved spectrum
+        </caption>
+      )}
       <thead>
         <tr className="border-b" style={{ borderColor: colors.borderSubtle }}>
           {['Level', 'Edges', 'Width'].map((h, i) => (
@@ -347,7 +353,7 @@ export function SignalCard({ signal, requiredEbn0Db }: SignalCardProps) {
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2" style={{ borderColor: colors.active }} />Spectrum (burst average)</span>
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2 border-dashed" style={{ borderColor: colors.neutral }} />Noise floor</span>
               <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t-2" style={{ borderColor: colors.warning }} />−3 dB level and edges</span>
-              {signal.bw_levels && (
+              {measured && bandwidthLevels(signal) && (
                 <>
                   <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t" style={{ borderColor: colors.textSecondary }} />−10 dB level and edges</span>
                   <span><i className="inline-block w-3.5 align-middle mr-1.5 border-t border-dashed" style={{ borderColor: colors.textSecondary }} />−20 dB level and edges</span>
