@@ -104,7 +104,8 @@ class PassStatisticsTests(unittest.TestCase):
         ant = [row[2] for row in out["series"]]
         self.assertEqual(max(ant), 55.0)
         self.assertEqual([row[1] for row in out["series"]][4], 72.0)
-        bins = dict((lo, n) for lo, _, n in out["by_gain"][0]["by_elevation"])
+        bins = {b[0]: b[2] for b in out["by_gain"][0]["by_elevation"]}
+        self.assertTrue(all(len(b) == 5 and b[3] <= b[1] <= b[4] for b in out["by_gain"][0]["by_elevation"]))
         self.assertEqual(bins[50], 6)                   # 54, 4x held at 55, 50
         self.assertEqual(max(bins), 50)
 
@@ -154,6 +155,8 @@ def _tracker(elevations):
     tracker = NoiseFloorTracker(runtime, broadcast=sent.append)
     feed = iter(elevations)
     tracker._geometry = lambda ts_ms: (config, SimpleNamespace(elevation_deg=next(feed), azimuth_deg=200.0))
+    runtime.tracking = SimpleNamespace(passes=lambda from_ms, count: {"passes": [
+        {"aos_ms": AOS_MS + 2000, "los_ms": AOS_MS + 7000}, {"aos_ms": AOS_MS + 6_000_000, "los_ms": AOS_MS + 6_600_000}]})
     return tracker, log, sent
 
 
@@ -168,6 +171,8 @@ class TrackerTests(unittest.TestCase):
         self.assertTrue(rec["complete"])
         self.assertEqual(rec["seconds"], 5)              # 5, 12, 30, 12, 6 deg
         self.assertEqual(rec["aos_ms"], AOS_MS + 2000)
+        self.assertEqual(rec["predicted_los_ms"], AOS_MS + 7000)
+        self.assertEqual(tracker.next_aos_ms(AOS_MS + 8000), AOS_MS + 6_000_000)
         self.assertEqual(len(rec["series"]), 5)
         kinds = [m["type"] for m in sent]
         self.assertEqual(kinds, ["noise_floor"] * 5 + ["noise_floor_pass"])

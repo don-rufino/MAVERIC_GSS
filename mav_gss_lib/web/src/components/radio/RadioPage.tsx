@@ -19,6 +19,7 @@ import { type RadioStatus } from './useRadioSocket'
 import { useRadio } from '@/state/radioHooks'
 import { useTracking } from '@/state/trackingHooks'
 import { DopplerSection } from './DopplerSection'
+import { NoiseFloorPanel } from './NoiseFloorPanel'
 import { isOffsetSweepMission } from '@/lib/offsetSweep'
 
 const HEALTH_STALE_AFTER_MS = 30_000
@@ -105,7 +106,7 @@ function DataCell({
 
 export function RadioPage() {
   const { config } = useConfig()
-  const { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError } = useRadio()
+  const { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError, noiseFloor } = useRadio()
   const tracking = useTracking()
   const [apiStatus, setApiStatus] = useState<{ zmq_rx?: string; zmq_tx?: string }>({})
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -375,7 +376,14 @@ export function RadioPage() {
           </section>
         </div>
 
-        <section className="flex min-h-0 flex-col rounded-lg border shadow-panel max-[980px]:order-1 max-[980px]:min-h-[40vh]" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto max-[980px]:order-1 max-[980px]:overflow-visible">
+        <NoiseFloorPanel
+          pass={noiseFloor.active ?? noiseFloor.last}
+          live={!!noiseFloor.active}
+          recent={noiseFloor.recent}
+          nextAosMs={noiseFloor.next_aos_ms}
+        />
+        <section className="flex min-h-[240px] flex-1 flex-col rounded-lg border shadow-panel max-[980px]:min-h-[40vh]" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
           <PanelHeader
             icon={<Terminal className="size-3.5 shrink-0" style={{ color: colors.dim }} />}
             title="GNU Radio Terminal"
@@ -402,6 +410,7 @@ export function RadioPage() {
             ))}
           </div>
         </section>
+        </div>
       </div>
     </div>
   )

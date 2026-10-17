@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { authFetch } from '@/lib/auth'
 import { createSocket } from '@/lib/ws'
+import { EMPTY_SNAPSHOT, mergeLive, type NoiseFloorPass, type NoiseFloorSnapshot, type SeriesRow } from '@/lib/noiseFloor'
 
 export interface StreamHealth {
   rms_dbfs: number
@@ -73,6 +74,8 @@ export interface UseRadioSocket {
   actionError: string | null
   runAction: (action: 'start' | 'stop' | 'restart') => Promise<void>
   dismissError: () => void
+  /** Per-pass noise floor: live pass, latest logged pass, recent passes. */
+  noiseFloor: NoiseFloorSnapshot
 }
 
 export function useRadioSocket(): UseRadioSocket {
@@ -84,6 +87,24 @@ export function useRadioSocket(): UseRadioSocket {
   const [lastUpdateMs, setLastUpdateMs] = useState<number>(Date.now())
   const logIdRef = useRef(0)
   const logLimitRef = useRef(DEFAULT_STATUS.log_lines)
+  const [noiseFloor, setNoiseFloorState] = useState<NoiseFloorSnapshot>(EMPTY_SNAPSHOT)
+  const noiseFloorRef = useRef<NoiseFloorSnapshot>(EMPTY_SNAPSHOT)
+  const setNoiseFloor = useCallback((next: NoiseFloorSnapshot) => {
+    noiseFloorRef.current = next
+    setNoiseFloorState(next)
+  }, [])
+
+  const loadingNoiseFloorRef = useRef(false)
+  const loadNoiseFloor = useCallback(async () => {
+    if (loadingNoiseFloorRef.current) return
+    loadingNoiseFloorRef.current = true
+    try {
+      const r = await authFetch('/api/radio/noise-floor', { cache: 'no-store' })
+      if (r.ok) setNoiseFloor({ ...EMPTY_SNAPSHOT, ...((await r.json()) as NoiseFloorSnapshot) })
+    } catch { /* ignore */ } finally {
+      loadingNoiseFloorRef.current = false
+    }
+  }, [setNoiseFloor])
 
   useEffect(() => {
     logLimitRef.current = status.log_lines || DEFAULT_STATUS.log_lines
@@ -131,14 +152,25 @@ export function useRadioSocket(): UseRadioSocket {
           return next.length > limit ? next.slice(-limit) : next
         })
         setLastUpdateMs(Date.now())
+      } else if (msg.type === 'noise_floor' && msg.summary && Array.isArray(msg.tail)) {
+        const prev = noiseFloorRef.current
+        const active = mergeLive(prev.active, msg.summary as NoiseFloorPass, msg.tail as SeriesRow[])
+        if (active === null) void loadNoiseFloor()     // joined mid-pass: fetch the rows so far
+        else setNoiseFloor({ ...prev, active })
+      } else if (msg.type === 'noise_floor_pass') {
+        // pass closed and logged: refetch for the record, recent list and next AOS
+        void loadNoiseFloor()
       } else if (msg.type === 'exit' && msg.status && typeof msg.status === 'object') {
         setStatus({ ...DEFAULT_STATUS, ...(msg.status as RadioStatus) })
         setLastUpdateMs(Date.now())
       }
-    }, setConnected)
+    }, (open) => {
+      setConnected(open)
+      if (open) void loadNoiseFloor()
+    })
 
     return () => { sock.close() }
-  }, [])
+  }, [loadNoiseFloor, setNoiseFloor])
 
   const runAction = useCallback(async (action: 'start' | 'stop' | 'restart') => {
     setActionError(null)
@@ -166,5 +198,5 @@ export function useRadioSocket(): UseRadioSocket {
 
   const dismissError = useCallback(() => setActionError(null), [])
 
-  return { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError }
+  return { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError, noiseFloor }
 }

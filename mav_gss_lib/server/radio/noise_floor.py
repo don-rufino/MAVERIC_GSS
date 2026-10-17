@@ -28,6 +28,7 @@ import logging
 import math
 import os
 import threading
+import time
 from pathlib import Path
 from statistics import median
 from typing import TYPE_CHECKING, Any, Callable
@@ -91,6 +92,7 @@ class PassNoiseFloor:
         self.seconds: list[dict[str, Any]] = []
         self.gain_changes: list[list[float]] = []
         self.rbw_hz: float | None = None
+        self.predicted_los_ms: int | None = None   # from the GSS pass prediction, for the live axis
         self._run = -1
         self._run_open = False
         self._run_gain: float | None = None
@@ -162,7 +164,8 @@ class PassNoiseFloor:
                     if not s["burst"] and s["ant_el"] >= lo
                     and (s["ant_el"] < lo + ELEVATION_STEP_DEG or last)]
             if vals:
-                out.append([lo, _r1(_power_mean_db(vals)), len(vals)])
+                out.append([lo, _r1(_power_mean_db(vals)), len(vals),
+                            _r1(_percentile(vals, 0.1)), _r1(_percentile(vals, 0.9))])
             lo += ELEVATION_STEP_DEG
         return out
 
@@ -200,6 +203,7 @@ class PassNoiseFloor:
             "station_id": self.station_id,
             "aos_ms": self.aos_ms,
             "los_ms": last_ms,
+            "predicted_los_ms": self.predicted_los_ms,
             "complete": bool(complete),
             "el_min_deg": self.el_min_deg,
             "el_max_deg": self.el_max_deg,
@@ -249,6 +253,28 @@ class NoiseFloorTracker:
         look = look_angles_at(self._satellite, config.selected_station, ts_ms)
         return config, look
 
+    def _upcoming(self, from_ms: int, count: int) -> list[dict[str, Any]]:
+        tracking = getattr(self.runtime, "tracking", None)
+        if tracking is None:
+            return []
+        try:
+            return list(tracking.passes(from_ms=from_ms, count=count).get("passes") or [])
+        except Exception:
+            logging.exception("noise floor: pass prediction failed")
+            return []
+
+    def _predicted_los(self, ts_ms: int) -> int | None:
+        for p in self._upcoming(ts_ms - 20 * 60_000, 3):
+            if p["aos_ms"] - 60_000 <= ts_ms <= p["los_ms"]:
+                return int(p["los_ms"])
+        return None
+
+    def next_aos_ms(self, now_ms: int) -> int | None:
+        for p in self._upcoming(now_ms, 2):
+            if p["aos_ms"] > now_ms:
+                return int(p["aos_ms"])
+        return None
+
     def ingest(self, report: dict[str, Any]) -> None:
         try:
             ts_ms = int(report["ts_ms"])
@@ -272,6 +298,7 @@ class NoiseFloorTracker:
                         satellite=config.tle.name, station_id=station.id, aos_ms=ts_ms,
                         el_min_deg=station.min_elevation_deg, el_max_deg=station.max_elevation_deg,
                         station_lat_deg=station.lat_deg, station_lon_deg=station.lon_deg)
+                    cur.predicted_los_ms = self._predicted_los(ts_ms)
                 cur.add(report, look.elevation_deg, look.azimuth_deg)
                 message = {
                     "type": "noise_floor",
@@ -322,7 +349,8 @@ class NoiseFloorTracker:
         the recent logged passes of this mission (summaries only)."""
         recent = recent_passes(Path(self.runtime.log_dir) / "json",
                                mission_id=getattr(self.runtime, "mission_id", None), limit=limit)
-        return {"active": self.live(), "last": recent[0] if recent else None, "recent": [
+        return {"active": self.live(), "last": recent[0] if recent else None,
+                "next_aos_ms": self.next_aos_ms(int(time.time() * 1000)), "recent": [
             {k: v for k, v in rec.items() if k != "series"} for rec in recent]}
 
 
