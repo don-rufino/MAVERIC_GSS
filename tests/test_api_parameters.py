@@ -5,16 +5,31 @@ so passes in any environment.
 """
 from __future__ import annotations
 
+import os
 import unittest
+from unittest import mock
+
 from fastapi.testclient import TestClient
 
 from mav_gss_lib.platform.contract.parameters import ParamUpdate
 from mav_gss_lib.server.app import create_app
 
 
+def _isolated_app(test_case: unittest.TestCase):
+    """create_app() in ephemeral mode: log dir (session log, parameters.json,
+    .pending_instances.jsonl) and generated-commands dir go to a tempdir and
+    config save-back is off, so tests never touch the operator's logs/."""
+    with mock.patch.dict(os.environ, {"GSS_EPHEMERAL": "1"}):
+        app = create_app()
+    cleanup = app.state.runtime._ephemeral_cleanup
+    if cleanup is not None:
+        test_case.addCleanup(cleanup)
+    return app
+
+
 class ApiParametersTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.app = create_app()
+        self.app = _isolated_app(self)
         self.client = TestClient(self.app)
         self.runtime = self.app.state.runtime
         self.token = self.runtime.session_token

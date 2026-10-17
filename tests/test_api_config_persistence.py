@@ -160,7 +160,8 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
 
             platform_cfg = {
                 "general": {
-                    "log_dir": "logs",
+                    # disabling verifiers clears <log_dir>/.pending_instances.jsonl
+                    "log_dir": tmp,
                     "generated_commands_dir": "generated_commands",
                     "version": "5.0.0",
                 },
@@ -191,7 +192,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
                     # These must be dropped by apply_platform_config_update:
                     "stations": {"h1": "LEAK"},
                     "general": {
-                        "log_dir": "logs",
+                        "log_dir": tmp,     # applied; keep the verifier clear in the tempdir
                         "version": "0.0.1-sentinel",
                     },
                 },
