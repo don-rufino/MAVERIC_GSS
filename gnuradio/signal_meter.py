@@ -31,6 +31,11 @@ buffering delay), averages them, and reads:
                   through note_tune), the received center (tuned + center
                   offset) and its offset from nominal
 
+Independently of beacons, floor_report reads the noise floor of each second
+the same way (median in-band bin of the averaged rows) together with the RX
+gain over that second (note_gain), so a pass with no beacon still yields a
+floor; the server turns those seconds into a per-pass record.
+
 Rows recorded while the station transmits (reported by the PTT gate through
 note_tx) are never used, so an uplink just before a beacon cannot inflate the
 floor; when no clean pre-burst rows exist the floor falls back to bins beside
@@ -56,6 +61,7 @@ SCHEMA_VERSION = 1
 DOPPLER_MIN_SHIFT_HZ = 1.0  # a Doppler "retune" that sits on nominal is a park
 BW_LEVELS_DB = (10, 20)     # bandwidth below the peak, beside the -3 dB one
 NEAR_FLOOR_GUARD_DB = 3.0   # a level line closer than this to the floor measures noise
+FLOOR_REPORT_S = 1.0        # one noise-floor report per second, beacon or not
 # (both mirrored in mav_gss_lib/web/src/lib/signal.ts, which recalculates older beacons)
 
 
@@ -91,6 +97,8 @@ class SignalMeter:
         self._tx: deque[list[float]] = deque(maxlen=64)
         # (wall time, tuned Hz, source) — source "doppler" or "manual"
         self._tunes: deque[tuple[float, float, str]] = deque(maxlen=4 * int(history_s + 4))
+        # (wall time, RX gain dB): every step the operator's slider applies
+        self._gains: deque[tuple[float, float]] = deque(maxlen=256)
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------ ingest
@@ -124,6 +132,54 @@ class SignalMeter:
         """Record that the receiver was retuned to `frequency_hz` at wall time `t`."""
         with self._lock:
             self._tunes.append((float(t), float(frequency_hz), source))
+
+    def note_gain(self, t: float, gain_db: float) -> None:
+        """Record that the RX gain became `gain_db` at wall time `t`."""
+        with self._lock:
+            self._gains.append((float(t), float(gain_db)))
+
+    def _band(self, baud: float) -> np.ndarray:
+        half_bw = min(0.48 * self.fs, max(10e3, 1.25 * baud))
+        return np.abs(self.freqs) <= half_bw
+
+    def floor_report(self, t0: float, t1: float, baud: float) -> dict | None:
+        """Noise floor of the rows recorded in (t0, t1], read like a beacon's
+        floor: median in-band bin of the averaged rows. Transmit rows are left
+        out (all-transmit seconds report floor_dbfs None). Carries the RX gain
+        at t1 and every gain step inside the window. None without rows."""
+        with self._lock:
+            picked = []
+            for t, row in reversed(self._rows):
+                if t <= t0:
+                    break
+                if t <= t1:
+                    picked.append((t, row))
+            if not picked:
+                return None
+            times = np.fromiter((t for t, _ in picked), dtype=np.float64, count=len(picked))
+            tx = self._tx_mask(times)
+            gains = list(self._gains)
+        gain_db = None
+        changes = []
+        for t, g in gains:
+            if t <= t1:
+                gain_db = g
+            if t0 < t <= t1:
+                changes.append([int(round(t * 1000)), g])
+        clean = ~tx
+        floor = None
+        if clean.any():
+            avg = np.stack([row for (_, row), ok in zip(picked, clean) if ok]).mean(axis=0)
+            floor = round(float(_db(np.median(avg[self._band(baud)]))), 2)
+        return {
+            "ts_ms": int(round(t1 * 1000)),
+            "floor_dbfs": floor,
+            "rows": int(clean.sum()),
+            "tx_rows": int(tx.sum()),
+            "gain_db": gain_db,
+            "gain_changes": changes,
+            "rbw_hz": round(self.rbw, 2),
+        }
 
     def _tune_over(self, t0: float, t1: float) -> dict | None:
         """Tuned frequency over [t0, t1]: time-weighted mean, change across the
@@ -178,8 +234,7 @@ class SignalMeter:
             rows = np.stack([r for _, r in self._rows])
             tx = self._tx_mask(times)
 
-        half_bw = min(0.48 * self.fs, max(10e3, 1.25 * baud))
-        band = np.abs(self.freqs) <= half_bw
+        band = self._band(baud)
         n_air = max(3, int(round(air_s / self.row_s)))
 
         cand = np.flatnonzero(times >= now - air_s - LOOKBACK_S)

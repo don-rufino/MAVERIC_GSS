@@ -655,5 +655,33 @@ class RadioServiceLogPrefixTests(unittest.TestCase):
         self.assertTrue(snapshot[0].endswith("hello world"))
 
 
+
+class RadioServiceNoiseFloorTests(unittest.TestCase):
+    def test_noise_floor_lines_feed_the_tracker_not_the_terminal(self):
+        import io
+        svc = RadioService(_fake_runtime())
+        got = []
+        svc.noise_floor.ingest = got.append
+        proc = SimpleNamespace(stdout=io.StringIO(
+            "flowgraph up\n"
+            'NOISE_FLOOR {"ts_ms": 1000, "floor_dbfs": -101.2, "gain_db": 27.0, "gain_changes": []}\n'
+            'UHD warning NOISE_FLOOR {"ts_ms": 2000, "floor_dbfs": -101.0, "gain_db": 27.0, "gain_changes": []}\n'
+            "NOISE_FLOOR {not json\n"))
+        svc.proc = proc
+        svc._reader(proc, None)
+        self.assertEqual([r["ts_ms"] for r in got], [1000, 2000])
+        snapshot = svc.log_snapshot()
+        self.assertEqual(len(snapshot), 1)
+        self.assertTrue(snapshot[0].endswith("flowgraph up"))
+
+    def test_flowgraph_exit_closes_the_open_pass(self):
+        svc = RadioService(_fake_runtime())
+        closed = []
+        svc.noise_floor.finish = lambda complete=False: closed.append(complete)
+        for cb in list(svc._exit_callbacks):
+            cb()
+        self.assertEqual(closed, [False])
+
+
 if __name__ == "__main__":
     unittest.main()

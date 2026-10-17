@@ -39,6 +39,9 @@ class TrackingStation:
     # per-mission data. 0.0 until an operator fills in a real link budget.
     tx_eirp_dbw: float = 0.0
     rx_gain_dbi: float = 0.0
+    # Highest elevation the rotator reaches. Above it the antenna holds this
+    # elevation and keeps following in azimuth; 90 = no mechanical stop.
+    max_elevation_deg: float = 90.0
 
 
 @dataclass(frozen=True, slots=True)

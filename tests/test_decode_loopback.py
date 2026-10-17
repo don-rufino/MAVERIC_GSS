@@ -435,8 +435,16 @@ class FlowgraphParamGuards(unittest.TestCase):
             self.assertIn("maveric:constructed_utc",
                           blocks[name]["parameters"]["_source_code"])
         self.assertIn("GSS_RX_GAIN", blocks["rx_gain"]["parameters"]["value"])
+        # Per-second noise floor with the RX gain: both copies report it and
+        # the .grc feeds gain steps to the meter like it does the recorders.
+        self.assertIn('print("NOISE_FLOOR "', py)
+        self.assertIn("self.signal_meter.note_gain(self.rx_gain)", py)
+        meter_src = blocks["epy_block_signal_meter"]["parameters"]["_source_code"]
+        self.assertIn('print("NOISE_FLOOR "', meter_src)
+        self.assertIn('"rx_gain"', meter_src)
         conns = {tuple(c) for c in grc["connections"]}
         self.assertIn(("uhd_usrp_source_0", "0", "epy_block_iq_raw", "0"), conns)
+        self.assertIn(("blocks_var_to_msg_rx_gain", "msgout", "epy_block_signal_meter", "command"), conns)
         self.assertIn(("uhd_usrp_source_0", "0", "epy_block_stream_health", "0"), conns)
 
 

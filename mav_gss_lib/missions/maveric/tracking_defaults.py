@@ -36,6 +36,7 @@ MAVERIC_STATION_LAT_DEG = 34.0205
 MAVERIC_STATION_LON_DEG = -118.2856
 MAVERIC_STATION_ALT_M = 70.0
 MAVERIC_STATION_MIN_ELEVATION_DEG = 5.0
+MAVERIC_STATION_MAX_ELEVATION_DEG = 55.0   # rotator elevation stop; azimuth keeps tracking above it
 
 
 def seed_tracking_defaults(platform_cfg: dict[str, Any]) -> None:
@@ -84,6 +85,7 @@ def seed_tracking_defaults(platform_cfg: dict[str, Any]) -> None:
             "lon_deg": MAVERIC_STATION_LON_DEG,
             "alt_m": MAVERIC_STATION_ALT_M,
             "min_elevation_deg": MAVERIC_STATION_MIN_ELEVATION_DEG,
+            "max_elevation_deg": MAVERIC_STATION_MAX_ELEVATION_DEG,
         }]
         tracking.setdefault("selected_station_id", MAVERIC_STATION_ID)
 
@@ -101,5 +103,6 @@ __all__ = [
     "MAVERIC_STATION_LON_DEG",
     "MAVERIC_STATION_ALT_M",
     "MAVERIC_STATION_MIN_ELEVATION_DEG",
+    "MAVERIC_STATION_MAX_ELEVATION_DEG",
     "seed_tracking_defaults",
 ]

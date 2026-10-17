@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from mav_gss_lib.config import get_tracking_control, resolve_project_path
 
 from .._broadcast import broadcast_safe
+from .noise_floor import NoiseFloorTracker
 
 if TYPE_CHECKING:
     from ..state import WebRuntime
@@ -153,6 +154,10 @@ class RadioService:
         # on this barrier, so a replacement process cannot be installed while
         # the previous run can still disengage tracking or publish stale data.
         self._terminal_done: threading.Event | None = None
+        # Per-pass noise floor from the flowgraph's NOISE_FLOOR lines; a pass
+        # still open when the flowgraph stops is logged as incomplete.
+        self.noise_floor = NoiseFloorTracker(runtime, broadcast=self._schedule_broadcast)
+        self._exit_callbacks.append(lambda: self.noise_floor.finish(complete=False))
 
     def add_exit_callback(self, cb: Callable[[], None]) -> None:
         with self._state_lock:
@@ -703,6 +708,13 @@ class RadioService:
             return
         try:
             for line in stream:
+                marker = line.find("NOISE_FLOOR {")
+                if marker >= 0:
+                    # one per second: feeds the pass record, stays out of the
+                    # terminal and the run log
+                    if self.proc is proc:
+                        self._ingest_noise_floor(line[marker:])
+                    continue
                 stamped = _stamp_log_line(line.rstrip("\n"))
                 if run_log is not None:
                     run_log.write(stamped)
@@ -720,6 +732,14 @@ class RadioService:
                 stream.close()
             except Exception:
                 pass
+
+    def _ingest_noise_floor(self, line: str) -> None:
+        try:
+            payload = json.loads(line[len("NOISE_FLOOR "):])
+        except (ValueError, TypeError):
+            return
+        if isinstance(payload, dict) and "ts_ms" in payload:
+            self.noise_floor.ingest(payload)
 
     def _ingest_stream_health(self, line: str) -> None:
         """Parse the flowgraph's structured pre-FIR health reports

@@ -29,6 +29,17 @@ async def api_radio_status(request: Request) -> Any:
     return get_runtime(request).radio.status()
 
 
+@router.get("/api/radio/noise-floor")
+async def api_radio_noise_floor(request: Request, limit: int = 10) -> Any:
+    """Live pass (with its per-second series), the latest logged pass and the
+    recent logged passes of the active mission."""
+    denied = _maybe_require_read_token(request)
+    if denied:
+        return denied
+    tracker = get_runtime(request).radio.noise_floor
+    return await asyncio.to_thread(tracker.snapshot, limit=max(1, min(int(limit), 50)))
+
+
 @router.get("/api/radio/logs")
 async def api_radio_logs(request: Request) -> Any:
     denied = _maybe_require_read_token(request)

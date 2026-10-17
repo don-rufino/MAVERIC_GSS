@@ -356,6 +356,7 @@ class _SignalMeter(gr.sync_block):
         self.set_msg_handler(pmt.intern("command"), self._handle_tune_command)
         self._baud = float(baud)
         self._meter = None
+        self._floor_from = None     # start of the second the next NOISE_FLOOR covers
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             if script_dir not in sys.path:
@@ -376,8 +377,19 @@ class _SignalMeter(gr.sync_block):
         if self._meter is not None:
             self._meter.note_tune(time.time(), frequency_hz, source)
 
+    def note_gain(self, gain_db):
+        if self._meter is not None:
+            self._meter.note_gain(time.time(), gain_db)
+
     def _handle_tune_command(self, message):
         # Same parsing as _IqRecorder: a UHD RX tune is lo_freq - dsp_freq.
+        if (pmt.is_pair(message) and pmt.is_symbol(pmt.car(message))
+                and pmt.symbol_to_string(pmt.car(message)) == "rx_gain"):
+            try:
+                self.note_gain(float(pmt.to_python(pmt.cdr(message))))
+            except Exception:
+                pass
+            return
         try:
             if not pmt.is_dict(message):
                 return
@@ -398,13 +410,34 @@ class _SignalMeter(gr.sync_block):
         n_in = len(input_items[0])
         if self._meter is None:
             return n_in
+        now = time.time()
         try:
-            self._meter.push(input_items[0], time.time())
+            self._meter.push(input_items[0], now)
         except Exception:
             traceback.print_exc()
             print("signal_meter: spectrum capture failed; measurements disabled for this run", flush=True)
             self._meter = None
+            return n_in
+        self._report_floor(now)
         return n_in
+
+    def _report_floor(self, now):
+        # One NOISE_FLOOR line per second for the GSS pass noise-floor record,
+        # whether or not a beacon is decoded (RadioService parses it).
+        if self._floor_from is None:
+            self._floor_from = now
+            return
+        if now - self._floor_from < 1.0:
+            return
+        start, self._floor_from = self._floor_from, now
+        try:
+            report = self._meter.floor_report(start, now, self._baud)
+            if report is not None:
+                print("NOISE_FLOOR " + json.dumps(report, separators=(",", ":")), flush=True)
+        except Exception:
+            traceback.print_exc()
+            print("signal_meter: noise-floor report failed; floor reports disabled for this run", flush=True)
+            self._floor_from = float("inf")
 
     def _handle_pdu(self, msg):
         out = msg
@@ -1504,6 +1537,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.waterfall_logger = _WaterfallLogger(samp_rate=((samp_rate/rx_decim)/disp_decim))
         self.signal_meter = _SignalMeter(samp_rate=((samp_rate/rx_decim)/disp_decim), baud=baud)
         self.ptt_gate.tx_listeners.append(self.signal_meter.note_tx)
+        self.signal_meter.note_gain(rx_gain)
         # Profile-enabled GSS burst decoder for satellites stock gr-satellites
         # cannot deframe (SCIONX_DECODER.yml: gss_burst_decoder: scionx).
         # Python-only, like the PTT gate: the .grc carries no copy.
@@ -1715,6 +1749,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
     def set_rx_gain(self, rx_gain):
         self.rx_gain = rx_gain
         self.uhd_usrp_source_0.set_gain(self.rx_gain, 0)
+        if getattr(self, "signal_meter", None) is not None:
+            self.signal_meter.note_gain(self.rx_gain)
         for recorder in (getattr(self, "iq_recorder", None),
                          getattr(self, "iq_raw_recorder", None)):
             if recorder is not None:

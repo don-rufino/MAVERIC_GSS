@@ -199,6 +199,21 @@ class SessionLog(_BaseLog):
             detail=detail,
         ))
 
+    def write_noise_floor_pass(self, record: dict[str, Any], ts_ms: int | None = None) -> None:
+        """Append one per-pass noise floor record (see noise_floor_pass_record)."""
+        from mav_gss_lib.platform.log_records import noise_floor_pass_record
+        import time as _time
+
+        self.write_jsonl(noise_floor_pass_record(
+            record,
+            session_id=self.session_id,
+            ts_ms=ts_ms if ts_ms is not None else int(_time.time() * 1000),
+            version=self._version,
+            mission_id=self._mission_id,
+            operator=self._operator,
+            station=self._station,
+        ))
+
     def write_tracking_sample(
         self, doppler: dict[str, Any], *, source: str,
         actual: dict[str, Any] | None = None,

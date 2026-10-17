@@ -371,6 +371,8 @@ export interface PlatformTrackingStation {
   min_elevation_deg: number
   tx_eirp_dbw?: number
   rx_gain_dbi?: number
+  /** Rotator elevation stop; above it the antenna holds this elevation. */
+  max_elevation_deg?: number
 }
 
 export interface PlatformTrackingConfig {

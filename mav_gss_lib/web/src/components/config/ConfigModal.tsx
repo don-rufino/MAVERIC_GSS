@@ -698,6 +698,9 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
           { id: 'lon_deg', label: 'Longitude', control: { kind: 'number', unit: 'deg', disabled: !stationLocationUnlocked, value: selectedStation?.lon_deg ?? 0, onChange: (v) => updateSelectedStation({ lon_deg: v }) } },
           { id: 'alt_m', label: 'Altitude', control: { kind: 'number', unit: 'm', disabled: !stationLocationUnlocked, value: selectedStation?.alt_m ?? 0, onChange: (v) => updateSelectedStation({ alt_m: v }) } },
         ]},
+        { title: 'Antenna', rows: [
+          { id: 'max_elevation_deg', label: 'Max elevation', description: 'Highest elevation the rotator reaches. Above it the antenna holds this elevation and keeps following in azimuth; the noise floor records both. 90 = no stop.', control: { kind: 'number', unit: 'deg', value: selectedStation?.max_elevation_deg ?? 90, onChange: (v) => updateSelectedStation({ max_elevation_deg: v }) } },
+        ]},
         { title: 'Link budget', rows: [
           { id: 'tx_eirp_dbw', label: `${stationDisplayName} EIRP (uplink)`, description: "This station's uplink transmit EIRP, from your link budget.", control: { kind: 'number', unit: 'dBW', value: selectedStation?.tx_eirp_dbw ?? 0, onChange: (v) => updateSelectedStation({ tx_eirp_dbw: v }) } },
           { id: 'rx_gain_dbi', label: `${stationDisplayName} Rx gain (downlink)`, description: `This station's receive antenna gain. Used with ${missionDisplayName}'s downlink EIRP to compute received power at ${stationDisplayName}.`, control: { kind: 'number', unit: 'dBi', value: selectedStation?.rx_gain_dbi ?? 0, onChange: (v) => updateSelectedStation({ rx_gain_dbi: v }) } },

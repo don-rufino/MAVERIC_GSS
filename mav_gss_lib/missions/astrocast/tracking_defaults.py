@@ -24,6 +24,7 @@ STATION_LAT_DEG = 34.0205
 STATION_LON_DEG = -118.2856
 STATION_ALT_M = 70.0
 STATION_MIN_ELEVATION_DEG = 5.0
+STATION_MAX_ELEVATION_DEG = 55.0   # rotator elevation stop; azimuth keeps tracking above it
 
 
 def seed_tracking_defaults(platform_cfg: dict[str, Any]) -> None:
@@ -64,5 +65,6 @@ def seed_tracking_defaults(platform_cfg: dict[str, Any]) -> None:
             "lon_deg": STATION_LON_DEG,
             "alt_m": STATION_ALT_M,
             "min_elevation_deg": STATION_MIN_ELEVATION_DEG,
+            "max_elevation_deg": STATION_MAX_ELEVATION_DEG,
         }]
         tracking.setdefault("selected_station_id", STATION_ID)

@@ -29,7 +29,7 @@ _ENVELOPE_KEYS = {
 }
 
 _ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm", "radio", "tracking",
-                   "tracking_sample"}
+                   "tracking_sample", "noise_floor_pass"}
 
 
 def _assert_envelope(rec: dict) -> None:

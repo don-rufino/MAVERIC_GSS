@@ -100,6 +100,7 @@ def default_tracking_config_dict() -> dict[str, Any]:
                 "min_elevation_deg": station.min_elevation_deg,
                 "tx_eirp_dbw": station.tx_eirp_dbw,
                 "rx_gain_dbi": station.rx_gain_dbi,
+                "max_elevation_deg": station.max_elevation_deg,
             }
             for station in cfg.stations
         ],
@@ -141,6 +142,7 @@ def _station_from_raw(value: Any) -> TrackingStation | None:
         min_elevation_deg=_float(raw.get("min_elevation_deg"), 5.0, min_value=0.0, max_value=45.0),
         tx_eirp_dbw=_float(raw.get("tx_eirp_dbw"), 0.0),
         rx_gain_dbi=_float(raw.get("rx_gain_dbi"), 0.0),
+        max_elevation_deg=_float(raw.get("max_elevation_deg"), 90.0, min_value=10.0, max_value=90.0),
     )
 
 

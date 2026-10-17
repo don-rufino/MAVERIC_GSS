@@ -276,6 +276,35 @@ def tracking_event_record(
     }
 
 
+def noise_floor_pass_record(
+    record: dict[str, Any],
+    *,
+    session_id: str,
+    ts_ms: int,
+    version: str,
+    mission_id: str = "",
+    operator: str = "",
+    station: str = "",
+    event_id: str | None = None,
+) -> dict[str, Any]:
+    """Build one per-pass noise floor record (server/radio/noise_floor.py):
+    the pass summary per RX gain plus a one-row-per-second series. Written at
+    LOS, or with complete=False when the flowgraph stops mid-pass."""
+    return {
+        "event_id": event_id or new_event_id(),
+        "event_kind": "noise_floor_pass",
+        "session_id": session_id,
+        "ts_ms": ts_ms,
+        "ts_iso": ts_iso(ts_ms),
+        "seq": 0,
+        "v": version,
+        "mission_id": mission_id,
+        "operator": operator,
+        "station": station,
+        "noise_floor_pass": record,
+    }
+
+
 def tracking_sample_record(
     doppler: dict[str, Any],
     *,

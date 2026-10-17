@@ -1128,6 +1128,7 @@ blocks:
               self.set_msg_handler(pmt.intern("command"), self._handle_tune_command)
               self._baud = float(baud)
               self._meter = None
+              self._floor_from = None     # start of the second the next NOISE_FLOOR covers
               try:
                   script_dir = os.path.dirname(os.path.abspath(__file__))
                   if script_dir not in sys.path:
@@ -1136,6 +1137,8 @@ blocks:
                   raw_nominal = os.environ.get("GSS_RX_FREQ_HZ", "")
                   self._meter = signal_meter.SignalMeter(
                       samp_rate, nominal_hz=float(raw_nominal) if raw_nominal else None)
+                  # boot gain; later steps arrive from blocks_var_to_msg_rx_gain
+                  self._meter.note_gain(time.time(), float(os.environ.get("GSS_RX_GAIN", 40)))
               except Exception:
                   traceback.print_exc()
                   print("signal_meter: init failed; beacon measurements disabled", flush=True)
@@ -1148,8 +1151,19 @@ blocks:
               if self._meter is not None:
                   self._meter.note_tune(time.time(), frequency_hz, source)
 
+          def note_gain(self, gain_db):
+              if self._meter is not None:
+                  self._meter.note_gain(time.time(), gain_db)
+
           def _handle_tune_command(self, message):
               # Same parsing as the IQ recorder: a UHD RX tune is lo_freq - dsp_freq.
+              if (pmt.is_pair(message) and pmt.is_symbol(pmt.car(message))
+                      and pmt.symbol_to_string(pmt.car(message)) == "rx_gain"):
+                  try:
+                      self.note_gain(float(pmt.to_python(pmt.cdr(message))))
+                  except Exception:
+                      pass
+                  return
               try:
                   if not pmt.is_dict(message):
                       return
@@ -1170,13 +1184,34 @@ blocks:
               n_in = len(input_items[0])
               if self._meter is None:
                   return n_in
+              now = time.time()
               try:
-                  self._meter.push(input_items[0], time.time())
+                  self._meter.push(input_items[0], now)
               except Exception:
                   traceback.print_exc()
                   print("signal_meter: spectrum capture failed; measurements disabled for this run", flush=True)
                   self._meter = None
+                  return n_in
+              self._report_floor(now)
               return n_in
+
+          def _report_floor(self, now):
+              # One NOISE_FLOOR line per second for the GSS pass noise-floor record,
+              # whether or not a beacon is decoded (RadioService parses it).
+              if self._floor_from is None:
+                  self._floor_from = now
+                  return
+              if now - self._floor_from < 1.0:
+                  return
+              start, self._floor_from = self._floor_from, now
+              try:
+                  report = self._meter.floor_report(start, now, self._baud)
+                  if report is not None:
+                      print("NOISE_FLOOR " + json.dumps(report, separators=(",", ":")), flush=True)
+              except Exception:
+                  traceback.print_exc()
+                  print("signal_meter: noise-floor report failed; floor reports disabled for this run", flush=True)
+                  self._floor_from = float("inf")
 
           def _handle_pdu(self, msg):
               out = msg
@@ -2822,6 +2857,7 @@ blocks:
 connections:
 - [blocks_var_to_msg_rx_gain, msgout, epy_block_iq, command]
 - [blocks_var_to_msg_rx_gain, msgout, epy_block_iq_raw, command]
+- [blocks_var_to_msg_rx_gain, msgout, epy_block_signal_meter, command]
 - [blocks_float_to_complex_0, '0', blocks_throttle2_0, '0']
 - [blocks_multiply_const_vxx_0, '0', qtgui_freq_sink_x_0, '0']
 - [blocks_multiply_const_vxx_0, '0', uhd_usrp_sink_0, '0']

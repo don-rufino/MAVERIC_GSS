@@ -239,6 +239,60 @@ class SignalMeterTests(unittest.TestCase):
         self.assertEqual(r["nominal_offset_hz"], r["center_offset_hz"])
 
 
+class FloorReportTests(unittest.TestCase):
+    """Per-second noise floor, read with or without a beacon."""
+
+    def test_noise_only_second_reads_the_true_floor(self):
+        x, sigma2, end_s = _scene(20.0)
+        meter, _ = _run(x, end_s=end_s, air_s=0.2)
+        rep = meter.floor_report(1001.0, 1002.0, BAUD)    # quiet second well before the burst
+        expected = 10 * np.log10(sigma2 * meter.enbw / FS)
+        self.assertAlmostEqual(rep["floor_dbfs"], expected, delta=0.5)
+        self.assertGreater(rep["rows"], 80)
+        self.assertEqual(rep["tx_rows"], 0)
+        self.assertEqual(rep["ts_ms"], 1002000)
+        self.assertEqual(rep["rbw_hz"], round(meter.rbw, 2))
+
+    def test_agrees_with_the_beacon_measurement_floor(self):
+        # the signal card reads its floor from the clean second before the
+        # burst; the per-second report over that same second must match
+        x, _, end_s = _scene(20.0)
+        meter, r = _run(x, end_s=end_s, air_s=0.2)
+        t0 = r["burst_end_ms"] / 1000 - r["burst_s"] - meter.row_s
+        rep = meter.floor_report(t0 - 0.1 - 1.0, t0 - 0.1, BAUD)
+        self.assertAlmostEqual(rep["floor_dbfs"], r["floor_dbfs"], delta=0.2)
+
+    def test_transmit_rows_are_left_out(self):
+        x, sigma2, end_s = _scene(15.0, tx_level=0.05, tx_span=(1.5, 2.1))
+        meter, _ = _run(x, end_s=end_s, air_s=0.2, tx=(1.5, 2.1))
+        during = meter.floor_report(1001.6, 1002.0, BAUD)
+        self.assertIsNone(during["floor_dbfs"])
+        self.assertEqual(during["rows"], 0)
+        self.assertGreater(during["tx_rows"], 0)
+        partly = meter.floor_report(1000.0, 1001.6, BAUD)  # guard starts 0.3 s before key-up
+        expected = 10 * np.log10(sigma2 * meter.enbw / FS)
+        self.assertAlmostEqual(partly["floor_dbfs"], expected, delta=0.5)
+        self.assertGreater(partly["tx_rows"], 0)
+
+    def test_carries_gain_and_every_step_inside_the_second(self):
+        x, _, end_s = _scene(20.0)
+        meter, _ = _run(x, end_s=end_s, air_s=0.2)
+        meter.note_gain(1000.0, 27.0)
+        for i, g in enumerate((28.0, 29.0, 30.0)):
+            meter.note_gain(1001.2 + 0.3 * i, g)
+        rep = meter.floor_report(1001.0, 1002.0, BAUD)
+        self.assertEqual(rep["gain_db"], 30.0)
+        self.assertEqual(rep["gain_changes"], [[1001200, 28.0], [1001500, 29.0], [1001800, 30.0]])
+        before = meter.floor_report(1000.0, 1001.0, BAUD)
+        self.assertEqual(before["gain_db"], 27.0)
+        self.assertEqual(before["gain_changes"], [])
+
+    def test_no_rows_in_the_window_is_none(self):
+        x, _, end_s = _scene(20.0)
+        meter, _ = _run(x, end_s=end_s, air_s=0.2)
+        self.assertIsNone(meter.floor_report(2000.0, 2001.0, BAUD))
+
+
 REPLAY = (Path(__file__).resolve().parent.parent / "logs" / "iq"
           / "iq_maveric_20260923T063435Z.sigmf-data")
 
