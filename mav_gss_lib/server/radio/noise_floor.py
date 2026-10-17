@@ -81,8 +81,14 @@ class PassNoiseFloor:
 
     def __init__(self, *, satellite: str, station_id: str, aos_ms: int,
                  el_min_deg: float, el_max_deg: float,
-                 station_lat_deg: float = 0.0, station_lon_deg: float = 0.0) -> None:
+                 station_lat_deg: float = 0.0, station_lon_deg: float = 0.0,
+                 radio: dict[str, Any] | None = None) -> None:
         self.satellite = satellite
+        self.radio = dict(radio) if radio else None
+        # TLE prediction of this pass ({aos_ms, max_ms, max_el_deg, los_ms}) and why
+        # the record opened: "aos", "radio_started" or "target_changed".
+        self.predicted: dict[str, Any] | None = None
+        self.start_cause = "aos"
         self.station_id = station_id
         self.aos_ms = int(aos_ms)
         self.el_min_deg = float(el_min_deg)
@@ -205,6 +211,11 @@ class PassNoiseFloor:
             "los_ms": last_ms,
             "predicted_los_ms": self.predicted_los_ms,
             "complete": bool(complete),
+            "radio": self.radio,
+            "start_cause": self.start_cause,
+            "start_el_deg": _r1(self.seconds[0]["sat_el"]) if self.seconds else None,
+            "end_el_deg": _r1(self.seconds[-1]["sat_el"]) if self.seconds else None,
+            "predicted": self.predicted,
             "el_min_deg": self.el_min_deg,
             "el_max_deg": self.el_max_deg,
             "sat_max_el_deg": _r1(peak["sat_el"]) if peak else None,
@@ -236,6 +247,10 @@ class NoiseFloorTracker:
         self._broadcast = broadcast
         self._lock = threading.Lock()
         self._current: PassNoiseFloor | None = None
+        self.radio: dict[str, Any] | None = None   # USRP of the running flowgraph ({serial, product, name})
+        self._fresh = True                          # no report seen yet from this flowgraph run
+        self._prev_key: tuple[str, str] | None = None
+        self._prev_el: float | None = None          # last elevation of that target, for start_cause
         self._satellite_key: tuple[str, str] | None = None
         self._satellite = None
 
@@ -263,11 +278,25 @@ class NoiseFloorTracker:
             logging.exception("noise floor: pass prediction failed")
             return []
 
-    def _predicted_los(self, ts_ms: int) -> int | None:
+    def _predicted_pass(self, ts_ms: int) -> dict[str, Any] | None:
         for p in self._upcoming(ts_ms - 20 * 60_000, 3):
             if p["aos_ms"] - 60_000 <= ts_ms <= p["los_ms"]:
-                return int(p["los_ms"])
+                peak_el = p.get("max_elevation_deg")
+                return {"aos_ms": int(p["aos_ms"]), "max_ms": p.get("max_ms"),
+                        "max_el_deg": None if peak_el is None else _r1(float(peak_el)), "los_ms": int(p["los_ms"])}
         return None
+
+    def new_run(self) -> None:
+        """A new flowgraph run starts: its first record opens with start_cause "radio_started"."""
+        self._fresh = True
+
+    def rename_radio(self, radio: dict[str, Any]) -> None:
+        with self._lock:
+            if self.radio and self.radio.get("serial") == radio.get("serial"):
+                self.radio = dict(radio)
+            if self._current is not None and self._current.radio \
+                    and self._current.radio.get("serial") == radio.get("serial"):
+                self._current.radio = dict(radio)
 
     def next_aos_ms(self, now_ms: int) -> int | None:
         for p in self._upcoming(now_ms, 2):
@@ -283,9 +312,14 @@ class NoiseFloorTracker:
             logging.exception("noise floor: tracking geometry failed")
             return
         if geometry is None:
+            self._prev_key = self._prev_el = None
             return
         config, look = geometry
         station = config.selected_station
+        key = (config.tle.name, station.id)
+        fresh, self._fresh = self._fresh, False
+        prev_el = self._prev_el if not fresh and self._prev_key == key else None
+        self._prev_key, self._prev_el = key, look.elevation_deg
         finished = None
         message = None
         with self._lock:
@@ -297,8 +331,14 @@ class NoiseFloorTracker:
                     cur = self._current = PassNoiseFloor(
                         satellite=config.tle.name, station_id=station.id, aos_ms=ts_ms,
                         el_min_deg=station.min_elevation_deg, el_max_deg=station.max_elevation_deg,
-                        station_lat_deg=station.lat_deg, station_lon_deg=station.lon_deg)
-                    cur.predicted_los_ms = self._predicted_los(ts_ms)
+                        station_lat_deg=station.lat_deg, station_lon_deg=station.lon_deg,
+                        radio=self.radio)
+                    cur.predicted = self._predicted_pass(ts_ms)
+                    cur.predicted_los_ms = cur.predicted["los_ms"] if cur.predicted else None
+                    if prev_el is not None and prev_el < station.min_elevation_deg:
+                        cur.start_cause = "aos"
+                    else:
+                        cur.start_cause = "radio_started" if fresh else "target_changed"
                 cur.add(report, look.elevation_deg, look.azimuth_deg)
                 message = {
                     "type": "noise_floor",
@@ -349,9 +389,20 @@ class NoiseFloorTracker:
         the recent logged passes of this mission (summaries only)."""
         recent = recent_passes(Path(self.runtime.log_dir) / "json",
                                mission_id=getattr(self.runtime, "mission_id", None), limit=limit)
+        for rec in recent:
+            _backfill_coverage(rec)
         return {"active": self.live(), "last": recent[0] if recent else None,
                 "next_aos_ms": self.next_aos_ms(int(time.time() * 1000)), "recent": [
             {k: v for k, v in rec.items() if k != "series"} for rec in recent]}
+
+
+def _backfill_coverage(rec: dict[str, Any]) -> None:
+    """Records from before start/end elevations were stored: take them from
+    the series (satellite elevation column), so their coverage still shows."""
+    series = rec.get("series") or []
+    if rec.get("start_el_deg") is None and series:
+        rec["start_el_deg"] = series[0][1]
+        rec["end_el_deg"] = series[-1][1]
 
 
 def recent_passes(json_dir: Path, *, mission_id: str | None, limit: int) -> list[dict[str, Any]]:

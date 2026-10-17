@@ -1716,6 +1716,32 @@ blocks:
     coordinate: [800, 360.0]
     rotation: 0
     state: enabled
+- name: usrp_info_snippet
+  id: snippet
+  parameters:
+    section: main_after_init
+    priority: '1'
+    code: |-
+      # Report which USRP this run uses as one structured `USRP_INFO {json}`
+      # line (RadioService tags pass records with the serial). Never fatal.
+      # Mirrors _report_usrp_info() in MAV_DUO.py.
+      import json as _json
+      try:
+          _info = self.uhd_usrp_source_0.get_usrp_info(0)
+          print("USRP_INFO " + _json.dumps({
+              "serial": str(_info["mboard_serial"]),
+              "product": str(_info["mboard_id"]),
+              "name": str(_info["mboard_name"]) if "mboard_name" in _info.keys() else "",
+          }), flush=True)
+      except Exception as exc:
+          print(f"usrp_info: serial read failed: {exc}", flush=True)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [912, 360.0]
+    rotation: 0
+    state: enabled
 - name: rx_actual_freq
   id: variable_function_probe
   parameters:

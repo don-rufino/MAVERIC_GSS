@@ -1,9 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Activity } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import {
-  ROW, STATE, gainMarkers, heldSeconds, mmss, passLabel, recentQuiet, spansOf, utcTime,
-  type GainStats, type NoiseFloorPass, type SeriesRow,
+  ROW, START_CAUSE_TEXT, STATE, coverage, gainMarkers, heldSeconds, mmss, passLabel, radioName, recentQuiet, spansOf, utcTime,
+  type GainStats, type NoiseFloorPass, type PassRadio, type SeriesRow,
 } from '@/lib/noiseFloor'
 
 interface NoiseFloorPanelProps {
@@ -15,6 +15,11 @@ interface NoiseFloorPanelProps {
   nextAosMs?: number | null
   /** Radio tab (default) or a record opened from the Logs view. */
   source?: 'radio' | 'log'
+  /** Station-wide serial -> name list. */
+  radioNames?: Record<string, string>
+  /** USRP of the current (or last) flowgraph run, and whether that run is still going. */
+  usrp?: PassRadio | null
+  usrpRunning?: boolean
 }
 
 const mono = 'JetBrains Mono, ui-monospace, monospace'
@@ -74,6 +79,27 @@ function StateBadges({ pass, live, nextAosMs, source }: { pass: NoiseFloorPass |
   )
 }
 
+function CoverageCell({ pass }: { pass: NoiseFloorPass }) {
+  const cov = coverage(pass)
+  if (!cov) return <Cell label="Coverage">--</Cell>
+  const cause = pass.start_cause ? START_CAUSE_TEXT[pass.start_cause] : undefined
+  return (
+    <div className="min-w-0 py-1" title={cause}>
+      <div className="truncate text-[11px] font-medium uppercase" style={{ color: colors.textMuted }}>Coverage</div>
+      <div className="mt-0.5 truncate font-mono text-xs" style={{ color: cov.kind === 'full' ? colors.success : colors.warning }}>
+        {cov.text}{cov.percent !== null && cov.kind !== 'full' && <> <Small>{cov.percent} %</Small></>}
+      </div>
+    </div>
+  )
+}
+
+/** Recorded max elevation, plus the predicted peak when the record missed it. */
+function peakNote(pass: NoiseFloorPass): string | null {
+  const peak = pass.predicted?.max_el_deg
+  if (peak == null || pass.sat_max_el_deg == null || peak <= pass.sat_max_el_deg + 0.5) return null
+  return `peak ${peak.toFixed(0)}°`
+}
+
 function Cells({ pass, live }: { pass: NoiseFloorPass; live: boolean }) {
   const series = pass.series ?? []
   const last = series[series.length - 1]
@@ -111,8 +137,9 @@ function Cells({ pass, live }: { pass: NoiseFloorPass; live: boolean }) {
           <Cell label="Pass">{utcTime(pass.aos_ms)} – {utcTime(pass.los_ms)}</Cell>
           <Cell label="Max elevation">
             {f1(pass.sat_max_el_deg)}°{pass.held_at_max_s > 0 && <> <Small>held {pass.el_max_deg}° {mmss(pass.held_at_max_s)}</Small></>}
+            {peakNote(pass) && <> <Small>{peakNote(pass)}</Small></>}
           </Cell>
-          <Cell label="Logged" tone={pass.complete ? undefined : colors.warning}>{pass.complete ? 'pass summary' : 'incomplete'}</Cell>
+          <CoverageCell pass={pass} />
         </>
       )}
       <Cell label="Gains this pass">{gains ? `${gains} dB` : '--'}</Cell>
@@ -334,13 +361,41 @@ function Legend() {
   )
 }
 
-function RecentPasses({ rows }: { rows: { pass: NoiseFloorPass; current: boolean; live: boolean }[] }) {
-  const body = rows.flatMap(({ pass, current, live }) => {
+type RadioFilter = 'all' | 'radio'
+
+function RecentPasses({ rows, names, usrp, usrpRunning }: {
+  rows: { pass: NoiseFloorPass; current: boolean; live: boolean }[]
+  names: Record<string, string>
+  usrp: PassRadio | null
+  usrpRunning: boolean
+}) {
+  const [filter, setFilter] = useState<RadioFilter>('all')
+  // the attached radio while the flowgraph runs; otherwise the radio of the newest pass that has one
+  const filterRadio = usrp?.serial ? usrp : rows.find(r => r.pass.radio?.serial)?.pass.radio ?? null
+  const filterLabel = filterRadio ? `${radioName(filterRadio, names)} (${usrp?.serial && usrpRunning ? 'attached' : 'last used'})` : null
+  const shown = filter === 'radio' && filterRadio ? rows.filter(r => r.pass.radio?.serial === filterRadio.serial) : rows
+  const hidden = rows.length - shown.length
+  const body = shown.flatMap(({ pass, current, live }) => {
     const gains: (GainStats | null)[] = pass.by_gain.length ? pass.by_gain : [null]
     const day = pass.sun_el_deg !== null && pass.sun_el_deg >= 0
+    const name = radioName(pass.radio, names)
+    const cov = live ? null : coverage(pass)
+    const peak = peakNote(pass)
     return gains.map((g, i) => (
       <tr key={`${pass.aos_ms}-${i}`} style={{ color: current ? colors.active : colors.textPrimary }}>
-        <td className="pt-1 pr-3 text-left">{i === 0 ? `${passLabel(pass.aos_ms)}${live ? ' (live)' : ''}${pass.complete || live ? '' : ' · incomplete'}` : ''}</td>
+        <td className="pt-1 pr-3 text-left">{i === 0 ? `${passLabel(pass.aos_ms)}${live ? ' (live)' : ''}` : ''}</td>
+        <td className="pt-1 pr-3 text-left"
+          style={{ color: !name ? colors.textDisabled : current ? undefined : pass.radio?.serial === usrp?.serial ? undefined : colors.textSecondary }}
+          title={i === 0 ? (pass.radio ? `Ettus ${pass.radio.product || 'USRP'} · serial ${pass.radio.serial}` : 'Recorded before radio serials were logged') : undefined}>
+          {i === 0 ? name ?? '—' : ''}
+        </td>
+        <td className="pt-1 pr-3 text-left" title={i === 0 && pass.start_cause ? START_CAUSE_TEXT[pass.start_cause] : undefined}>
+          {i === 0 && (live ? <span style={{ color: colors.textMuted }}>recording</span> : cov ? (
+            <span style={{ color: current ? undefined : cov.kind === 'full' ? colors.success : colors.warning }}>
+              {cov.text}{cov.percent !== null && cov.kind !== 'full' && <span style={{ color: colors.textMuted }}> {cov.percent} %</span>}
+            </span>
+          ) : '--')}
+        </td>
         <td className="pt-1 pr-3 text-left" style={{ color: day ? colors.warning : colors.info }}
           title={pass.sun_el_deg === null ? undefined : `Sun ${pass.sun_el_deg.toFixed(0)}° at max elevation`}>
           {i === 0 && pass.sun_el_deg !== null ? (day ? '☀ day' : '☾ night') : ''}
@@ -352,6 +407,7 @@ function RecentPasses({ rows }: { rows: { pass: NoiseFloorPass; current: boolean
               {pass.sat_max_el_deg !== null && pass.sat_max_el_deg > pass.el_max_deg && (
                 <Badge tone={colors.info} dot={false}>▲ held {pass.el_max_deg}°</Badge>
               )}
+              {peak && <span style={{ color: colors.textMuted }}>{peak}</span>}
             </span>
           )}
         </td>
@@ -363,25 +419,56 @@ function RecentPasses({ rows }: { rows: { pass: NoiseFloorPass; current: boolean
       </tr>
     ))
   })
+  const segButton = (value: RadioFilter, label: string) => (
+    <button type="button" key={value} onClick={() => setFilter(value)} aria-pressed={filter === value}
+      className="border-r px-2 py-0.5 font-mono text-[11px] last:border-r-0"
+      style={{
+        borderColor: colors.borderStrong,
+        color: filter === value ? colors.textPrimary : colors.textMuted,
+        backgroundColor: filter === value ? colors.borderSubtle : 'transparent',
+        boxShadow: filter === value ? `inset 0 -2px 0 ${colors.active}` : undefined,
+      }}>
+      {label}
+    </button>
+  )
   return (
     <div className="overflow-x-auto px-3 pb-3">
-      <div className="pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: colors.textMuted }}>Recent passes</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-1 pt-1">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: colors.textMuted }}>Recent passes</span>
+        {filterLabel && (
+          <span className="inline-flex overflow-hidden rounded-sm border" role="group" aria-label="Show passes from" style={{ borderColor: colors.borderStrong }}>
+            {segButton('all', 'All radios')}
+            {segButton('radio', filterLabel)}
+          </span>
+        )}
+      </div>
       <table className="w-full border-collapse whitespace-nowrap font-mono text-xs tabular-nums">
         <thead>
           <tr className="border-b" style={{ borderColor: colors.borderSubtle }}>
-            {['Pass (UTC)', 'Light', 'Max el', 'RX gain', 'Quiet floor', 'p10–p90', 'Busy', 'Counted'].map((h, i) => (
-              <th key={h} className={`pb-1 pr-3 font-sans text-[11px] font-normal ${i < 2 ? 'text-left' : 'text-right'}`}
+            {['Pass (UTC)', 'Radio', 'Coverage', 'Light', 'Max el', 'RX gain', 'Quiet floor', 'p10–p90', 'Busy', 'Counted'].map((h, i) => (
+              <th key={h} className={`pb-1 pr-3 font-sans text-[11px] font-normal ${i < 4 ? 'text-left' : 'text-right'}`}
                 style={{ color: colors.textDisabled }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>{body}</tbody>
       </table>
+      {hidden > 0 && (
+        <div className="pt-1.5 text-[11px]" style={{ color: colors.textMuted }}>
+          {hidden} pass{hidden > 1 ? 'es' : ''} from other radios or with no serial hidden
+        </div>
+      )}
     </div>
   )
 }
 
-export function NoiseFloorPanel({ pass, live, recent, nextAosMs, source = 'radio' }: NoiseFloorPanelProps) {
+export function NoiseFloorPanel({ pass, live, recent, nextAosMs, source = 'radio', radioNames, usrp, usrpRunning }: NoiseFloorPanelProps) {
+  // the running radio's name is live (a rename reaches it at once); the list may lag until the next refresh
+  const names = useMemo(
+    () => (usrp?.serial && usrp.name ? { ...radioNames, [usrp.serial]: usrp.name } : radioNames ?? {}),
+    [radioNames, usrp],
+  )
+  const passRadio = pass ? radioName(pass.radio, names) : null
   const rows: { pass: NoiseFloorPass; current: boolean; live: boolean }[] = []
   if (recent) {
     if (live && pass) rows.push({ pass, current: true, live: true })
@@ -397,6 +484,7 @@ export function NoiseFloorPanel({ pass, live, recent, nextAosMs, source = 'radio
           {pass && (
             <span className="truncate text-xs" style={{ color: colors.textMuted }}>
               · {live || source === 'log' ? '' : 'last pass · '}{pass.satellite} {passLabel(pass.aos_ms)}
+              {passRadio && <span title={pass.radio ? `Ettus ${pass.radio.product || 'USRP'} · serial ${pass.radio.serial}` : undefined}> · {passRadio}</span>}
             </span>
           )}
         </div>
@@ -423,7 +511,7 @@ export function NoiseFloorPanel({ pass, live, recent, nextAosMs, source = 'radio
           from the station's minimum elevation{nextAosMs ? `; next AOS ${utcTime(nextAosMs)}` : ''}.
         </p>
       )}
-      {rows.length > 0 && <RecentPasses rows={rows} />}
+      {rows.length > 0 && <RecentPasses rows={rows} names={names} usrp={usrp ?? null} usrpRunning={!!usrpRunning} />}
     </section>
   )
 }

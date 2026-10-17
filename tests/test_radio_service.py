@@ -685,3 +685,33 @@ class RadioServiceNoiseFloorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RadioServiceUsrpInfoTests(unittest.TestCase):
+    def test_usrp_info_line_tags_passes_and_logs_a_radio_event(self) -> None:
+        events: list[tuple[str, str]] = []
+        log = SimpleNamespace(write_radio_event=lambda action, **kw: events.append((action, kw.get("detail", ""))))
+        rt = _fake_runtime()
+        rt.rx = SimpleNamespace(log=log)
+        svc = RadioService(rt)
+        svc._ingest_usrp_info('06:50:00Z USRP_INFO {"serial": "TESTSN1", "product": "B210", "name": "TESTBOARD"}')
+        self.assertEqual(svc.noise_floor.radio, {"serial": "TESTSN1", "product": "B210", "name": ""})
+        self.assertEqual(svc.status()["usrp"], {"serial": "TESTSN1", "product": "B210", "name": ""})
+        self.assertEqual(events, [("usrp", "serial=TESTSN1 product=B210")])
+
+    def test_named_radio_is_carried_and_renames_propagate(self) -> None:
+        svc = RadioService(_fake_runtime())
+        svc._ingest_usrp_info('06:50:00Z USRP_INFO {"serial": "TESTSN1", "product": "B210"}')
+        svc.set_radio_names({"TESTSN1": " SDR-A ", "UNKNOWN": "x"})
+        self.assertEqual(svc.status()["usrp"]["name"], "SDR-A")
+        self.assertEqual(svc.noise_floor.radio["name"], "SDR-A")
+        self.assertEqual(svc.radios.names(), {"TESTSN1": "SDR-A"})
+        svc._ingest_usrp_info('07:50:00Z USRP_INFO {"serial": "TESTSN1", "product": "B210"}')
+        self.assertEqual(svc.noise_floor.radio["name"], "SDR-A")
+
+    def test_other_lines_and_bad_json_are_ignored(self) -> None:
+        svc = RadioService(_fake_runtime())
+        svc._ingest_usrp_info("06:50:00Z STREAM_HEALTH {}")
+        svc._ingest_usrp_info("06:50:00Z USRP_INFO {not json")
+        svc._ingest_usrp_info('06:50:00Z USRP_INFO {"serial": ""}')
+        self.assertIsNone(svc.noise_floor.radio)

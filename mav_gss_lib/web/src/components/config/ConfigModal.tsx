@@ -13,6 +13,9 @@ import { ConfigRail, type RailItem } from './ConfigRail'
 import { SearchContext, matchesQuery } from './search'
 import { PaneRenderer, type SettingRow, type SettingPane } from './fields'
 
+/** One USRP from the station-wide catalog (GET /api/radio/radios). */
+interface StationRadio { serial: string; name: string; product: string; last_seen_ms: number | null; host: string }
+
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 const DEFAULT_DOPPLER_HZ = 437_575_000
 let hasLoadedConfigModal = false
@@ -137,6 +140,14 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
   // location is rare and a slip here would silently shift pointing/Doppler
   // geometry mid-pass, so it needs a deliberate unlock rather than sitting open.
   const [stationLocationUnlocked, setStationLocationUnlocked] = useState(false)
+  // Station-wide radio names (serial -> name), saved with the rest on Save.
+  const [radios, setRadios] = useState<StationRadio[]>([])
+  const [attachedSerial, setAttachedSerial] = useState<string | null>(null)
+  const [radioNameDraft, setRadioNameDraft] = useState<Record<string, string>>({})
+  const updateRadioName = useCallback((serial: string, name: string) => {
+    setRadioNameDraft((prev) => ({ ...prev, [serial]: name }))
+    setDirty(true)
+  }, [])
 
   useEffect(() => {
     hasLoadedConfigModal = true
@@ -225,10 +236,35 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       .then((r) => r.json())
       .then((d) => setMissions(Array.isArray(d.missions) ? d.missions : []))
       .catch(() => {})
+    fetch('/api/radio/radios')
+      .then((r) => r.json())
+      .then((d: { radios?: StationRadio[]; usrp?: { serial?: string } | null }) => {
+        const list = Array.isArray(d.radios) ? d.radios : []
+        setRadios(list)
+        setRadioNameDraft(Object.fromEntries(list.map((r) => [r.serial, r.name])))
+        setAttachedSerial(d.usrp?.serial ?? null)
+      })
+      .catch(() => {})
   }, [open])
 
   const handleSave = useCallback(async () => {
     if (!cfg || !initialRef.current) return false
+    const renamed = Object.fromEntries(Object.entries(radioNameDraft)
+      .filter(([serial, name]) => radios.find((r) => r.serial === serial)?.name !== name.trim()))
+    if (Object.keys(renamed).length > 0) {
+      try {
+        const response = await authFetch('/api/radio/radios', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ names: renamed }),
+        })
+        if (!response.ok) return false
+        const d = (await response.json()) as { radios?: StationRadio[] }
+        if (Array.isArray(d.radios)) setRadios(d.radios)
+      } catch {
+        return false
+      }
+    }
     const update = diffConfig(cfg, initialRef.current) ?? {}
     if (Object.keys(update).length === 0) {
       setDirty(false)
@@ -247,7 +283,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
     } catch {
       return false
     }
-  }, [cfg])
+  }, [cfg, radioNameDraft, radios])
 
   const handleCancel = useCallback(() => {
     if (initialRef.current) {
@@ -701,6 +737,18 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
         { title: 'Antenna', rows: [
           { id: 'max_elevation_deg', label: 'Max elevation', description: 'Highest elevation the rotator reaches. Above it the antenna holds this elevation and keeps following in azimuth; the noise floor records both. 90 = no stop.', control: { kind: 'number', unit: 'deg', value: selectedStation?.max_elevation_deg ?? 90, onChange: (v) => updateSelectedStation({ max_elevation_deg: v }) } },
         ]},
+        { title: 'Radios', rows: radios.length ? radios.map((r) => ({
+          id: `radio_name_${r.serial}`,
+          label: `${r.product || 'USRP'} ${r.serial}`,
+          description: [
+            r.serial === attachedSerial ? 'Attached now' : null,
+            r.last_seen_ms ? `last seen ${new Date(r.last_seen_ms).toISOString().slice(5, 16).replace('T', ' ')}Z${r.host ? ` on ${r.host}` : ''}` : null,
+            'One list for this station, shared by every mission. The name goes on every pass this radio records; unnamed shows the serial.',
+          ].filter(Boolean).join(' · '),
+          control: { kind: 'text' as const, value: radioNameDraft[r.serial] ?? '', onChange: (v: string) => updateRadioName(r.serial, v) },
+        })) : [
+          { id: 'radio_none', label: 'Radios', description: 'Each Ettus is listed here the first time the flowgraph runs on it.', control: { kind: 'info' as const, value: 'none seen yet' } },
+        ]},
         { title: 'Link budget', rows: [
           { id: 'tx_eirp_dbw', label: `${stationDisplayName} EIRP (uplink)`, description: "This station's uplink transmit EIRP, from your link budget.", control: { kind: 'number', unit: 'dBW', value: selectedStation?.tx_eirp_dbw ?? 0, onChange: (v) => updateSelectedStation({ tx_eirp_dbw: v }) } },
           { id: 'rx_gain_dbi', label: `${stationDisplayName} Rx gain (downlink)`, description: `This station's receive antenna gain. Used with ${missionDisplayName}'s downlink EIRP to compute received power at ${stationDisplayName}.`, control: { kind: 'number', unit: 'dBi', value: selectedStation?.rx_gain_dbi ?? 0, onChange: (v) => updateSelectedStation({ rx_gain_dbi: v }) } },
@@ -721,7 +769,7 @@ export function ConfigModal({ open, onClose }: ConfigModalProps) {
       out.push({ id: 'about', title: 'About', description: 'Session and build details.', groups: [{ title: 'Session', rows }] })
     }
     return out
-  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, missions, switchError, stationLocationUnlocked, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingControl, updateTrackingFetch, updateTrackingTle])
+  }, [cfg, tleDraft, statusInfo, credStatus, fetching, fetchMsg, missions, switchError, stationLocationUnlocked, radios, attachedSerial, radioNameDraft, updateRadioName, handleTleDraftChange, handleFetchTle, updateMission, updateMissionTopLevel, updatePlatform, updateRadioFrequency, updateTrackingControl, updateTrackingFetch, updateTrackingTle])
 
   const trimmed = search.trim()
   const contentPanes = trimmed ? panes : panes.filter((p) => p.id === activeCategory)

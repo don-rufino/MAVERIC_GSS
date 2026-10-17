@@ -20,7 +20,7 @@ import {
 import { LogFilterBar } from './LogFilterBar'
 import { SignalCard } from '@/components/rx/SignalCard'
 import { NoiseFloorPanel } from '@/components/radio/NoiseFloorPanel'
-import type { NoiseFloorPass } from '@/lib/noiseFloor'
+import { radioName, type NoiseFloorPass } from '@/lib/noiseFloor'
 import { useConfig } from '@/state/sessionHooks'
 import type { SignalMeasurement } from '@/lib/types'
 
@@ -90,12 +90,13 @@ function systemEventState(e: LogEntry, kind: string): string {
 // only for the ax100_rx mission family (suchai4, roads, ...). MAVERIC's
 // header has no "type" key (src/dest/echo/ptype instead), so this is a
 // no-op for it: entryLabel falls through to '', same as before.
-export function entryLabel(e: LogEntry): string {
+export function entryLabel(e: LogEntry, radioNames?: Record<string, string>): string {
   const kind = String(e.event_kind ?? '')
   if (kind === 'noise_floor_pass') {
     const pass = systemEventBlock(e, kind) as Partial<NoiseFloorPass> | undefined
     const gains = (pass?.by_gain ?? []).map(g => g.gain_db).join(' → ')
-    return `noise floor · ${pass?.satellite ?? ''}${gains ? ` · ${gains} dB` : ''}`
+    const radio = radioName(pass?.radio, radioNames)
+    return `noise floor · ${pass?.satellite ?? ''}${gains ? ` · ${gains} dB` : ''}${radio ? ` · ${radio}` : ''}`
   }
   if (isSystemEvent(kind)) {
     const action = systemEventAction(e, kind)
@@ -369,6 +370,15 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
   } = useLogQuery()
   const { config } = useConfig()
   const requiredEbn0Db = config?.platform?.tracking?.link_budget?.required_ebn0_db
+  const [radioNames, setRadioNames] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!open) return
+    fetch('/api/radio/radios')
+      .then((r) => r.json())
+      .then((d: { radios?: { serial: string; name: string }[] }) =>
+        setRadioNames(Object.fromEntries((d.radios ?? []).filter(r => r.name).map(r => [r.serial, r.name]))))
+      .catch(() => {})
+  }, [open])
 
   useEffect(() => { hasLoadedLogViewer = true }, [])
 
@@ -621,7 +631,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                     const isSys = isSystemEvent(kind)
                     const seq = Number(e.seq ?? 0)
                     const timeStr = hhmmss(e.ts_iso as string | undefined, e.ts_ms as number | undefined)
-                    const label = entryLabel(e)
+                    const label = entryLabel(e, radioNames)
                     const frame = isSys
                       ? systemEventState(e, kind)
                       : String(e.frame_label ?? e.frame_type ?? '')
@@ -722,7 +732,7 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                 )}
 
                                 {kind === 'noise_floor_pass' && sysBlock && (
-                                  <NoiseFloorPanel pass={sysBlock as unknown as NoiseFloorPass} live={false} source="log" />
+                                  <NoiseFloorPanel pass={sysBlock as unknown as NoiseFloorPass} live={false} source="log" radioNames={radioNames} />
                                 )}
 
                                 {isSys && sysBlock && kind !== 'noise_floor_pass' && (

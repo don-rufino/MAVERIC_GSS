@@ -156,7 +156,8 @@ def _tracker(elevations):
     feed = iter(elevations)
     tracker._geometry = lambda ts_ms: (config, SimpleNamespace(elevation_deg=next(feed), azimuth_deg=200.0))
     runtime.tracking = SimpleNamespace(passes=lambda from_ms, count: {"passes": [
-        {"aos_ms": AOS_MS + 2000, "los_ms": AOS_MS + 7000}, {"aos_ms": AOS_MS + 6_000_000, "los_ms": AOS_MS + 6_600_000}]})
+        {"aos_ms": AOS_MS + 2000, "max_ms": AOS_MS + 4000, "max_elevation_deg": 30.04, "los_ms": AOS_MS + 7000},
+        {"aos_ms": AOS_MS + 6_000_000, "los_ms": AOS_MS + 6_600_000}]})
     return tracker, log, sent
 
 
@@ -190,6 +191,74 @@ class TrackerTests(unittest.TestCase):
         tracker.finish(complete=False)                   # nothing open: no second record
         self.assertEqual(len(log.records), 1)
 
+    def test_pass_records_the_radio_serial(self):
+        els = [10, 20, 4]
+        tracker, log, _ = _tracker(els)
+        tracker.radio = {"serial": "TESTSN1", "product": "B210", "name": "SDR-A"}
+        for t in range(len(els)):
+            tracker.ingest(_report(t, -101.0))
+        self.assertEqual(log.records[0]["radio"], {"serial": "TESTSN1", "product": "B210", "name": "SDR-A"})
+
+    def test_rename_reaches_the_open_pass(self):
+        tracker, log, _ = _tracker([10, 20, 4])
+        tracker.radio = {"serial": "TESTSN1", "product": "B210", "name": ""}
+        tracker.ingest(_report(0, -101.0))
+        tracker.rename_radio({"serial": "TESTSN1", "product": "B210", "name": "SDR-A"})
+        tracker.ingest(_report(1, -101.0))
+        tracker.ingest(_report(2, -101.0))
+        self.assertEqual(log.records[0]["radio"]["name"], "SDR-A")
+
+    def test_full_pass_opens_at_aos_with_prediction_and_ends(self):
+        els = [1, 3, 5, 12, 30, 12, 6, 4]
+        tracker, log, _ = _tracker(els)
+        for t in range(len(els)):
+            tracker.ingest(_report(t, -101.0))
+        rec = log.records[0]
+        self.assertEqual(rec["start_cause"], "aos")
+        self.assertEqual((rec["start_el_deg"], rec["end_el_deg"]), (5.0, 6.0))
+        self.assertEqual(rec["predicted"], {"aos_ms": AOS_MS + 2000, "max_ms": AOS_MS + 4000,
+                                            "max_el_deg": 30.0, "los_ms": AOS_MS + 7000})
+
+    def test_record_opened_by_radio_start_mid_pass(self):
+        tracker, log, _ = _tracker([25, 30, 4])
+        for t in range(3):
+            tracker.ingest(_report(t, -101.0))
+        self.assertEqual(log.records[0]["start_cause"], "radio_started")
+        self.assertEqual(log.records[0]["start_el_deg"], 25.0)
+
+    def test_new_run_after_a_stop_is_radio_started(self):
+        tracker, log, _ = _tracker([2, 20, 30, 4])
+        tracker.ingest(_report(0, -101.0))              # below min: first report consumed
+        tracker.new_run()                               # flowgraph restarted mid-pass
+        for t in range(1, 4):
+            tracker.ingest(_report(t, -101.0))
+        self.assertEqual(log.records[0]["start_cause"], "radio_started")
+
+    def test_record_opened_by_target_change_mid_pass(self):
+        tracker, log, _ = _tracker([0])
+        station = tracker._geometry(0)[0].selected_station
+        target = lambda name: SimpleNamespace(enabled=True, tle=SimpleNamespace(name=name, line1=name, line2=name),
+                                              selected_station=station)
+        # target A far below the horizon, then the operator switches to B, already at 31 deg
+        configs = iter([(target("A"), -40), (target("B"), 31), (target("B"), 20), (target("B"), 4)])
+
+        def geometry(ts_ms):
+            cfg, el = next(configs)
+            return cfg, SimpleNamespace(elevation_deg=el, azimuth_deg=100.0)
+        tracker._geometry = geometry
+        for t in range(4):
+            tracker.ingest(_report(t, -101.0))
+        self.assertEqual(log.records[0]["satellite"], "B")
+        self.assertEqual(log.records[0]["start_cause"], "target_changed")
+        self.assertEqual(log.records[0]["start_el_deg"], 31.0)
+
+    def test_pass_without_a_serial_report_has_no_radio(self):
+        els = [10, 4]
+        tracker, log, _ = _tracker(els)
+        for t in range(len(els)):
+            tracker.ingest(_report(t, -101.0))
+        self.assertIsNone(log.records[0]["radio"])
+
     def test_no_pass_below_min_elevation(self):
         tracker, log, sent = _tracker([1, 2, 3, 2])
         for t in range(4):
@@ -200,6 +269,15 @@ class TrackerTests(unittest.TestCase):
 
 
 class RecentPassesTests(unittest.TestCase):
+    def test_old_records_get_coverage_ends_from_their_series(self):
+        from mav_gss_lib.server.radio.noise_floor import _backfill_coverage
+        rec = {"series": [[0, 31.1, 31.1, 113, 27.0, -104.2, 0, None], [1, 5.0, 5.0, 168, 27.0, -105.2, 0, None]]}
+        _backfill_coverage(rec)
+        self.assertEqual((rec["start_el_deg"], rec["end_el_deg"]), (31.1, 5.0))
+        new = {"start_el_deg": 5.3, "end_el_deg": 5.0, "series": [[0, 9.0], [1, 9.0]]}
+        _backfill_coverage(new)
+        self.assertEqual(new["start_el_deg"], 5.3)
+
     def test_reads_logged_passes_newest_first_for_the_mission(self):
         with tempfile.TemporaryDirectory() as tmp:
             def write(mission, aos):

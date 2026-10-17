@@ -31,6 +31,7 @@ from mav_gss_lib.config import get_tracking_control, resolve_project_path
 
 from .._broadcast import broadcast_safe
 from .noise_floor import NoiseFloorTracker
+from .radios import RadioCatalog
 
 if TYPE_CHECKING:
     from ..state import WebRuntime
@@ -157,6 +158,10 @@ class RadioService:
         # Per-pass noise floor from the flowgraph's NOISE_FLOOR lines; a pass
         # still open when the flowgraph stops is logged as incomplete.
         self.noise_floor = NoiseFloorTracker(runtime, broadcast=self._schedule_broadcast)
+        # Station-wide serial -> name list; None path (tests, ephemeral) = memory only.
+        self.radios = RadioCatalog(getattr(runtime, "radio_catalog_path", None))
+        # USRP of the current (or last) run, from its USRP_INFO line.
+        self._usrp: dict[str, Any] | None = None
         self._exit_callbacks.append(lambda: self.noise_floor.finish(complete=False))
 
     def add_exit_callback(self, cb: Callable[[], None]) -> None:
@@ -422,6 +427,7 @@ class RadioService:
             capture_storage = (
                 dict(self._capture_storage) if self._capture_storage else None
             )
+            usrp = dict(self._usrp) if self._usrp else None
 
         running = proc is not None and proc.poll() is None
         if running:
@@ -477,6 +483,7 @@ class RadioService:
             "stream_health": stream_health,
             "tx_health": tx_health,
             "capture_storage": capture_storage,
+            "usrp": usrp,
             "log_file": str(self._run_log_path) if self._run_log_path else None,
         }
 
@@ -672,6 +679,9 @@ class RadioService:
             self._stream_health = None
             self._tx_health = None
             self._tune_result = None
+            self.noise_floor.radio = None
+            self.noise_floor.new_run()
+            self._usrp = None
             self._terminal_done = terminal_done
             self._resize_log_if_needed()
             self._log.clear()
@@ -722,6 +732,7 @@ class RadioService:
                 # stay out of the live surfaces (UI stream, health status).
                 if self.proc is proc:
                     self._ingest_stream_health(stamped)
+                    self._ingest_usrp_info(stamped)
                     self._ingest_tx_health(stamped)
                     self._ingest_tune_result(stamped)
                     self._publish_log_line(stamped)
@@ -740,6 +751,39 @@ class RadioService:
             return
         if isinstance(payload, dict) and "ts_ms" in payload:
             self.noise_floor.ingest(payload)
+
+    def _ingest_usrp_info(self, line: str) -> None:
+        """Parse the flowgraph's one `USRP_INFO {json}` line: tag this run's
+        pass records with the radio serial and log it as a radio event."""
+        marker = line.find("USRP_INFO ")
+        if marker < 0:
+            return
+        try:
+            payload = json.loads(line[marker + len("USRP_INFO "):])
+        except (ValueError, TypeError):
+            return
+        if not isinstance(payload, dict) or not payload.get("serial"):
+            return
+        serial, product = str(payload["serial"]), str(payload.get("product") or "")
+        name = self.radios.seen(serial, product)
+        radio = {"serial": serial, "product": product, "name": name}
+        with self._state_lock:
+            self._usrp = dict(radio)
+        self.noise_floor.radio = dict(radio)
+        self._write_radio_event("usrp", detail=f"serial={serial} product={product}" + (f" name={name}" if name else ""))
+        self._schedule_broadcast({"type": "status", "status": self.status()})
+
+    def set_radio_names(self, names: dict[str, str]) -> None:
+        """Rename radios in the station catalog; the running radio's open
+        pass picks up the new name too."""
+        self.radios.set_names(names)
+        with self._state_lock:
+            if self._usrp and self._usrp["serial"] in names:
+                self._usrp["name"] = self.radios.name(self._usrp["serial"])
+            usrp = dict(self._usrp) if self._usrp else None
+        if usrp:
+            self.noise_floor.rename_radio(usrp)
+            self._schedule_broadcast({"type": "status", "status": self.status()})
 
     def _ingest_stream_health(self, line: str) -> None:
         """Parse the flowgraph's structured pre-FIR health reports

@@ -109,6 +109,10 @@ class WebRuntime:
                 f"config save-back disabled"
             )
 
+        # Station-wide radio names (USRP serials are private: file is gitignored).
+        from mav_gss_lib.server.radio.radios import RADIOS_PATH
+        self.radio_catalog_path = None if self.config_save_disabled else RADIOS_PATH
+
         self.operator = capture_operator()
         self.host = capture_host()
         self.station = capture_station(self.platform_cfg, self.host)

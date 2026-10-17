@@ -1054,6 +1054,20 @@ class _TxAsyncMonitor(gr.basic_block):
         return True
 
 
+def _report_usrp_info(usrp_source):
+    """Report which USRP this run uses as one structured `USRP_INFO {json}`
+    line (RadioService tags pass records with the serial). Never fatal."""
+    try:
+        info = usrp_source.get_usrp_info(0)
+        print("USRP_INFO " + json.dumps({
+            "serial": str(info["mboard_serial"]),
+            "product": str(info["mboard_id"]),
+            "name": str(info["mboard_name"]) if "mboard_name" in info.keys() else "",
+        }), flush=True)
+    except Exception as exc:
+        print(f"usrp_info: serial read failed: {exc}", flush=True)
+
+
 class _TuneResultMonitor(gr.basic_block):
     """Read-only heartbeat reporting what the USRP is actually tuned to.
 
@@ -1249,6 +1263,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.uhd_usrp_source_0.set_antenna("RX2", 0)
         self.uhd_usrp_source_0.set_gain(rx_gain, 0)
         self.uhd_usrp_source_0.set_bandwidth(bw0,0)
+        _report_usrp_info(self.uhd_usrp_source_0)
         self.uhd_usrp_sink_0 = uhd.usrp_sink(
             ",".join(("", "")),
             uhd.stream_args(

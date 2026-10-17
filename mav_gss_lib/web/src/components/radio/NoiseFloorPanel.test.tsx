@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { NoiseFloorPanel } from './NoiseFloorPanel'
 import fixture from './__fixtures__/noise_floor_pass.json'
@@ -45,9 +45,29 @@ describe('NoiseFloorPanel', () => {
   })
 
   it('flags a pass the flowgraph stopped before LOS', () => {
-    render(<NoiseFloorPanel pass={{ ...complete, complete: false }} live={false} recent={[]} />)
+    render(<NoiseFloorPanel pass={{ ...complete, complete: false, end_el_deg: 18.2 }} live={false} recent={[]} />)
     expect(screen.getByText('INCOMPLETE')).toBeTruthy()
-    expect(screen.getByText('incomplete')).toBeTruthy()
+    expect(screen.getByText(/ended early · at 18°/)).toBeTruthy()
+  })
+
+  it('names the radio, shows coverage and filters recent passes by radio', () => {
+    const a = { ...complete, aos_ms: complete.aos_ms, radio: { serial: 'TESTSN1', product: 'B210', name: '' },
+      start_el_deg: 31.1, end_el_deg: 5.0 }
+    const b = { ...complete, aos_ms: complete.aos_ms - 86_400_000, radio: { serial: 'TESTSN2', product: 'B210', name: 'SDR-B' },
+      start_el_deg: 5.0, end_el_deg: 5.0 }
+    const old = { ...complete, aos_ms: complete.aos_ms - 2 * 86_400_000, radio: null, start_el_deg: 5.0, end_el_deg: 5.0 }
+    render(<NoiseFloorPanel pass={a} live={false} recent={[a, b, old]} radioNames={{ TESTSN1: 'SDR-A' }}
+      usrp={{ serial: 'TESTSN1', product: 'B210', name: 'SDR-A' }} usrpRunning />)
+    expect(screen.getAllByText(/· SDR-A/).length).toBeGreaterThan(0)            // header
+    const table = screen.getByRole('table')
+    expect(within(table).getAllByText('late start · from 31°').length).toBe(1)
+    expect(within(table).getByText('SDR-B')).toBeTruthy()
+    expect(within(table).getByText('—')).toBeTruthy()                          // recorded before serials
+    fireEvent.click(screen.getByRole('button', { name: 'SDR-A (attached)' }))
+    expect(within(table).queryByText('SDR-B')).toBeNull()
+    expect(screen.getByText(/2 passes from other radios or with no serial hidden/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'All radios' }))
+    expect(within(table).getByText('SDR-B')).toBeTruthy()
   })
 
   it('explains what will appear before any pass is recorded', () => {

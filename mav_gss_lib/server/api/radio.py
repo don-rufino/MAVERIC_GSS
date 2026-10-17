@@ -36,8 +36,35 @@ async def api_radio_noise_floor(request: Request, limit: int = 10) -> Any:
     denied = _maybe_require_read_token(request)
     if denied:
         return denied
-    tracker = get_runtime(request).radio.noise_floor
-    return await asyncio.to_thread(tracker.snapshot, limit=max(1, min(int(limit), 50)))
+    radio = get_runtime(request).radio
+    snapshot = await asyncio.to_thread(radio.noise_floor.snapshot, limit=max(1, min(int(limit), 50)))
+    snapshot["radio_names"] = radio.radios.names()
+    return snapshot
+
+
+@router.get("/api/radio/radios")
+async def api_radio_radios(request: Request) -> Any:
+    """Station-wide list of the USRPs the flowgraph has run on, with their names."""
+    denied = _maybe_require_read_token(request)
+    if denied:
+        return denied
+    radio = get_runtime(request).radio
+    return {"radios": radio.radios.snapshot(), "usrp": radio.status().get("usrp")}
+
+
+@router.put("/api/radio/radios")
+async def api_radio_radios_update(request: Request) -> Any:
+    """Rename radios: body {"names": {serial: name}}."""
+    denied = require_api_token(request)
+    if denied:
+        return denied
+    body = await request.json()
+    names = body.get("names") if isinstance(body, dict) else None
+    if not isinstance(names, dict):
+        return JSONResponse({"error": "expected {names: {serial: name}}"}, status_code=400)
+    radio = get_runtime(request).radio
+    await asyncio.to_thread(radio.set_radio_names, {str(k): str(v) for k, v in names.items()})
+    return {"radios": radio.radios.snapshot()}
 
 
 @router.get("/api/radio/logs")

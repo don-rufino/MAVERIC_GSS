@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { authFetch } from '@/lib/auth'
 import { createSocket } from '@/lib/ws'
-import { EMPTY_SNAPSHOT, mergeLive, type NoiseFloorPass, type NoiseFloorSnapshot, type SeriesRow } from '@/lib/noiseFloor'
+import { EMPTY_SNAPSHOT, mergeLive, type NoiseFloorPass, type NoiseFloorSnapshot, type PassRadio, type SeriesRow } from '@/lib/noiseFloor'
 
 export interface StreamHealth {
   rms_dbfs: number
@@ -40,6 +40,8 @@ export interface RadioStatus {
   stream_health?: StreamHealth | null
   tx_health?: TxHealth | null
   log_file?: string | null
+  /** USRP of the current (or last) flowgraph run. */
+  usrp?: PassRadio | null
 }
 
 export const DEFAULT_STATUS: RadioStatus = {

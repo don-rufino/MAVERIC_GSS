@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fixture from '@/components/radio/__fixtures__/noise_floor_pass.json'
 import {
-  ROW, STATE, gainMarkers, heldSeconds, mergeLive, passLabel, recentQuiet, spansOf,
+  ROW, STATE, coverage, gainMarkers, heldSeconds, mergeLive, passLabel, radioName, recentQuiet, spansOf,
   type NoiseFloorPass, type SeriesRow,
 } from './noiseFloor'
 
@@ -61,5 +61,43 @@ describe('series helpers', () => {
 
   it('labels a pass by its UTC AOS', () => {
     expect(passLabel(Date.UTC(2026, 9, 16, 18, 42, 30))).toBe('10-16 18:42Z')
+  })
+})
+
+describe('coverage', () => {
+  const at = (start: number, end: number, extra: Partial<NoiseFloorPass> = {}) =>
+    ({ ...complete, start_el_deg: start, end_el_deg: end, ...extra }) as NoiseFloorPass
+
+  it('labels a record by the elevation at each end, 1 deg above the minimum counting as the edge', () => {
+    expect(coverage(at(5.3, 5.0))?.kind).toBe('full')
+    expect(coverage(at(6.0, 6.0))?.kind).toBe('full')
+    expect(coverage(at(31.1, 5.0))?.text).toBe('late start · from 31°')
+    expect(coverage(at(5.1, 18.2))?.text).toBe('ended early · at 18°')
+    expect(coverage(at(29.6, 18.2))?.text).toBe('partial · 30°→18°')
+  })
+
+  it('falls back to the series ends for records that predate the stored elevations', () => {
+    const old = { ...complete, start_el_deg: undefined, end_el_deg: undefined } as NoiseFloorPass
+    const s = old.series as SeriesRow[]
+    expect(coverage(old)).not.toBeNull()
+    expect(coverage({ ...old, series: [[...s[0].slice(0, 1), 31.1, ...s[0].slice(2)] as SeriesRow, ...s.slice(1)] })?.kind).toBe('late')
+    expect(coverage({ ...old, series: undefined })).toBeNull()
+  })
+
+  it('gives the share of the predicted pass that was recorded', () => {
+    const rec = at(31.1, 5.0, { aos_ms: 1_000_000, los_ms: 1_254_000,
+      predicted: { aos_ms: 680_000, max_ms: 970_000, max_el_deg: 32.2, los_ms: 1_256_000 } })
+    expect(coverage(rec)?.percent).toBe(44)
+    expect(coverage(at(31.1, 5.0, { predicted: null }))?.percent).toBeNull()
+  })
+})
+
+describe('radioName', () => {
+  it('prefers the station list, then the name saved in the record, then the serial', () => {
+    const radio = { serial: 'TESTSN1', product: 'B210', name: 'OLD' }
+    expect(radioName(radio, { TESTSN1: 'SDR-A' })).toBe('SDR-A')
+    expect(radioName(radio, { OTHER: 'X' })).toBe('OLD')
+    expect(radioName({ serial: 'TESTSN1' })).toBe('TESTSN1')
+    expect(radioName(null)).toBeNull()
   })
 })

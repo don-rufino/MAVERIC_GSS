@@ -382,6 +382,9 @@ export function RadioPage() {
           live={!!noiseFloor.active}
           recent={noiseFloor.recent}
           nextAosMs={noiseFloor.next_aos_ms}
+          radioNames={noiseFloor.radio_names}
+          usrp={status.usrp ?? null}
+          usrpRunning={status.running}
         />
         <section className="flex min-h-[240px] flex-1 flex-col rounded-lg border shadow-panel max-[980px]:min-h-[40vh]" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
           <PanelHeader

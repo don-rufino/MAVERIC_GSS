@@ -23,6 +23,21 @@ export interface GainStats {
   by_elevation: ElevationStep[]
 }
 
+/** USRP that recorded a pass ({serial, product, name}); null on records from before serials were logged. */
+export interface PassRadio {
+  serial: string
+  product?: string
+  name?: string
+}
+
+/** TLE prediction of the pass, stored when the record opened. */
+export interface PredictedPass {
+  aos_ms: number
+  max_ms: number | null
+  max_el_deg: number | null
+  los_ms: number
+}
+
 export interface NoiseFloorPass {
   satellite: string
   station_id: string
@@ -30,6 +45,13 @@ export interface NoiseFloorPass {
   los_ms: number
   predicted_los_ms?: number | null
   complete: boolean
+  radio?: PassRadio | null
+  /** Why the record opened: at AOS, mid-pass because the flowgraph started, or because the tracked satellite changed. */
+  start_cause?: 'aos' | 'radio_started' | 'target_changed'
+  /** Satellite elevation of the first / last recorded second. */
+  start_el_deg?: number | null
+  end_el_deg?: number | null
+  predicted?: PredictedPass | null
   el_min_deg: number
   el_max_deg: number
   sat_max_el_deg: number | null
@@ -54,6 +76,8 @@ export interface NoiseFloorSnapshot {
   last: NoiseFloorPass | null
   recent: NoiseFloorPass[]
   next_aos_ms?: number | null
+  /** Station-wide serial -> name list. */
+  radio_names?: Record<string, string>
 }
 
 export const EMPTY_SNAPSHOT: NoiseFloorSnapshot = { active: null, last: null, recent: [] }
@@ -140,4 +164,39 @@ export function utcTime(ms: number): string {
 
 export function mmss(s: number): string {
   return `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`
+}
+
+/** A recording counts as starting / ending at the pass edge within this much of the minimum elevation. */
+export const COVERAGE_TOLERANCE_DEG = 1
+
+export type CoverageKind = 'full' | 'late' | 'early' | 'partial'
+
+/** How much of the pass the record covers, from the elevation at each end. */
+export function coverage(pass: NoiseFloorPass): { kind: CoverageKind; text: string; percent: number | null } | null {
+  const start = pass.start_el_deg ?? pass.series?.[0]?.[ROW.satEl]
+  const end = pass.end_el_deg ?? pass.series?.[pass.series.length - 1]?.[ROW.satEl]
+  if (start == null || end == null) return null
+  const edge = pass.el_min_deg + COVERAGE_TOLERANCE_DEG
+  const late = start > edge
+  const early = end > edge
+  const pred = pass.predicted
+  const percent = pred && pred.los_ms > pred.aos_ms
+    ? Math.min(100, Math.round(((pass.los_ms - pass.aos_ms) / (pred.los_ms - pred.aos_ms)) * 100))
+    : null
+  if (late && early) return { kind: 'partial', text: `partial · ${start.toFixed(0)}°→${end.toFixed(0)}°`, percent }
+  if (late) return { kind: 'late', text: `late start · from ${start.toFixed(0)}°`, percent }
+  if (early) return { kind: 'early', text: `ended early · at ${end.toFixed(0)}°`, percent }
+  return { kind: 'full', text: 'full', percent }
+}
+
+export const START_CAUSE_TEXT: Record<NonNullable<NoiseFloorPass['start_cause']>, string> = {
+  aos: 'opened at AOS',
+  radio_started: 'flowgraph started mid-pass',
+  target_changed: 'tracked satellite changed mid-pass',
+}
+
+/** Display name of a pass's radio: this station's list, then the name saved in the record, then the serial. */
+export function radioName(radio: PassRadio | null | undefined, names?: Record<string, string>): string | null {
+  if (!radio?.serial) return null
+  return names?.[radio.serial] || radio.name || radio.serial
 }

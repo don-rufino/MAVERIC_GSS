@@ -53,4 +53,13 @@ describe('entryLabel for a noise floor pass record', () => {
     const e = { event_kind: 'noise_floor_pass', noise_floor_pass: { satellite: 'MAVERIC', by_gain: [{ gain_db: 27 }, { gain_db: 33 }] } } as LogEntry
     expect(entryLabel(e)).toBe('noise floor · MAVERIC · 27 → 33 dB')
   })
+
+  it('adds the radio: station name first, then the name saved in the record, then the serial', () => {
+    const pass = { satellite: 'MAVERIC', by_gain: [{ gain_db: 27 }], radio: { serial: 'TESTSN1', product: 'B210', name: 'OLD' } }
+    const e = { event_kind: 'noise_floor_pass', noise_floor_pass: pass } as LogEntry
+    expect(entryLabel(e, { TESTSN1: 'SDR-A' })).toBe('noise floor · MAVERIC · 27 dB · SDR-A')
+    expect(entryLabel(e)).toBe('noise floor · MAVERIC · 27 dB · OLD')
+    const unnamed = { event_kind: 'noise_floor_pass', noise_floor_pass: { ...pass, radio: { serial: 'TESTSN1' } } } as LogEntry
+    expect(entryLabel(unnamed)).toBe('noise floor · MAVERIC · 27 dB · TESTSN1')
+  })
 })

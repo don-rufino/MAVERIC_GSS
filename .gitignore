@@ -51,6 +51,8 @@ mav_gss_lib/gss.yml
 # are instance-specific. gss.example.yml is the tracked template, not ignored.
 mav_gss_lib/gss.*.yml
 !mav_gss_lib/gss.example.yml
+# Station radio catalog — USRP serials and their names (private station data)
+mav_gss_lib/radios.yml
 # Common local secret/config files
 .env
 .env.*
