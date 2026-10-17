@@ -118,6 +118,30 @@ def test_entries_endpoint_defaults_exclude_parameters():
         assert len(data["entries"]) == 3
 
 
+def test_entries_endpoint_includes_noise_floor_pass_records():
+    with tempfile.TemporaryDirectory() as tmp:
+        stem = _build_fixture(Path(tmp))
+        path = Path(tmp) / "json" / f"{stem}.jsonl"
+        nf = {
+            "event_id": "e9", "event_kind": "noise_floor_pass", "session_id": stem,
+            "ts_ms": 1714053700000, "ts_iso": "2026-04-23T14:01:40.000+00:00",
+            "seq": 0, "v": "5.7.0", "mission_id": "maveric", "operator": "irfan", "station": "GS-0",
+            "noise_floor_pass": {"satellite": "MAVERIC", "complete": True, "by_gain": [],
+                                 "series": [[0, 6.0, 6.0, 200, 27.0, -101.0, 0, None]]},
+        }
+        with path.open("a") as f:
+            f.write(json.dumps(nf) + "\n")
+        app = create_app()
+        app.state.runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
+        with TestClient(app) as client:
+            r = client.get(f"/api/logs/{stem}")
+        assert r.status_code == 200
+        entries = r.json()["entries"]
+        passes = [e for e in entries if e["event_kind"] == "noise_floor_pass"]
+        assert len(passes) == 1
+        assert passes[0]["noise_floor_pass"]["series"][0][5] == -101.0
+
+
 def test_entries_endpoint_opt_in_parameters():
     with tempfile.TemporaryDirectory() as tmp:
         stem = _build_fixture(Path(tmp))

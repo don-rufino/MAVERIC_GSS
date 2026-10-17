@@ -19,6 +19,8 @@ import {
 } from '@/components/shared/overlays/ContextMenu'
 import { LogFilterBar } from './LogFilterBar'
 import { SignalCard } from '@/components/rx/SignalCard'
+import { NoiseFloorPanel } from '@/components/radio/NoiseFloorPanel'
+import type { NoiseFloorPass } from '@/lib/noiseFloor'
 import { useConfig } from '@/state/sessionHooks'
 import type { SignalMeasurement } from '@/lib/types'
 
@@ -54,7 +56,7 @@ function hhmmss(ts_iso: string | undefined, ts_ms: number | undefined): string {
   return '--:--:--'
 }
 
-const SYSTEM_EVENT_KINDS = new Set(['tracking', 'radio'])
+const SYSTEM_EVENT_KINDS = new Set(['tracking', 'radio', 'noise_floor_pass'])
 
 function isSystemEvent(kind: string): boolean {
   return SYSTEM_EVENT_KINDS.has(kind)
@@ -74,6 +76,7 @@ function systemEventAction(e: LogEntry, kind: string): string {
 function systemEventState(e: LogEntry, kind: string): string {
   const block = systemEventBlock(e, kind)
   if (!block) return ''
+  if (kind === 'noise_floor_pass') return block.complete ? 'pass' : 'incomplete'
   // Tracking carries `mode`; radio carries `state`. Either way, surface the
   // post-action condition in the frame column so the row is scannable.
   const mode = block.mode
@@ -89,6 +92,11 @@ function systemEventState(e: LogEntry, kind: string): string {
 // no-op for it: entryLabel falls through to '', same as before.
 export function entryLabel(e: LogEntry): string {
   const kind = String(e.event_kind ?? '')
+  if (kind === 'noise_floor_pass') {
+    const pass = systemEventBlock(e, kind) as Partial<NoiseFloorPass> | undefined
+    const gains = (pass?.by_gain ?? []).map(g => g.gain_db).join(' → ')
+    return `noise floor · ${pass?.satellite ?? ''}${gains ? ` · ${gains} dB` : ''}`
+  }
   if (isSystemEvent(kind)) {
     const action = systemEventAction(e, kind)
     return action ? `${kind}.${action}` : kind
@@ -713,7 +721,11 @@ export function LogViewer({ open, onClose }: LogViewerProps) {
                                   </div>
                                 )}
 
-                                {isSys && sysBlock && (
+                                {kind === 'noise_floor_pass' && sysBlock && (
+                                  <NoiseFloorPanel pass={sysBlock as unknown as NoiseFloorPass} live={false} source="log" />
+                                )}
+
+                                {isSys && sysBlock && kind !== 'noise_floor_pass' && (
                                   <details open>
                                     <summary className="text-[11px] cursor-pointer select-none" style={{ color: colors.sep }}>
                                       {kind}

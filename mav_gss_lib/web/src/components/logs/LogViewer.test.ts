@@ -47,3 +47,10 @@ describe('entryLabel', () => {
     expect(entryLabel({ event_kind: 'rx_packet' })).toBe('')
   })
 })
+
+describe('entryLabel for a noise floor pass record', () => {
+  it('names the satellite and the gains it was measured at', () => {
+    const e = { event_kind: 'noise_floor_pass', noise_floor_pass: { satellite: 'MAVERIC', by_gain: [{ gain_db: 27 }, { gain_db: 33 }] } } as LogEntry
+    expect(entryLabel(e)).toBe('noise floor · MAVERIC · 27 → 33 dB')
+  })
+})

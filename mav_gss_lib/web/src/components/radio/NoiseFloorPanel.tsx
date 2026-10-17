@@ -13,6 +13,8 @@ interface NoiseFloorPanelProps {
   /** Logged passes, newest first (summaries). Omit to hide the table. */
   recent?: NoiseFloorPass[]
   nextAosMs?: number | null
+  /** Radio tab (default) or a record opened from the Logs view. */
+  source?: 'radio' | 'log'
 }
 
 const mono = 'JetBrains Mono, ui-monospace, monospace'
@@ -46,14 +48,14 @@ function currentGain(pass: NoiseFloorPass): GainStats | null {
   return pass.by_gain.find(g => last && g.gain_db === last[ROW.gain]) ?? pass.by_gain[pass.by_gain.length - 1] ?? null
 }
 
-function StateBadges({ pass, live, nextAosMs }: { pass: NoiseFloorPass | null; live: boolean; nextAosMs?: number | null }) {
+function StateBadges({ pass, live, nextAosMs, source }: { pass: NoiseFloorPass | null; live: boolean; nextAosMs?: number | null; source: 'radio' | 'log' }) {
   if (!live || !pass) {
     return (
       <span className="flex items-center gap-1.5">
         {pass && !pass.complete && (
           <Badge tone={colors.warning} dot={false} title="The flowgraph stopped before LOS; the record covers the seconds before it stopped.">INCOMPLETE</Badge>
         )}
-        <Badge tone={colors.neutral}>IDLE{nextAosMs ? ` · next AOS ${utcTime(nextAosMs)}` : ''}</Badge>
+        {source === 'radio' && <Badge tone={colors.neutral}>IDLE{nextAosMs ? ` · next AOS ${utcTime(nextAosMs)}` : ''}</Badge>}
       </span>
     )
   }
@@ -379,7 +381,7 @@ function RecentPasses({ rows }: { rows: { pass: NoiseFloorPass; current: boolean
   )
 }
 
-export function NoiseFloorPanel({ pass, live, recent, nextAosMs }: NoiseFloorPanelProps) {
+export function NoiseFloorPanel({ pass, live, recent, nextAosMs, source = 'radio' }: NoiseFloorPanelProps) {
   const rows: { pass: NoiseFloorPass; current: boolean; live: boolean }[] = []
   if (recent) {
     if (live && pass) rows.push({ pass, current: true, live: true })
@@ -394,11 +396,11 @@ export function NoiseFloorPanel({ pass, live, recent, nextAosMs }: NoiseFloorPan
           <span className="truncate text-xs font-bold uppercase tracking-wide" style={{ color: colors.value }}>Noise Floor</span>
           {pass && (
             <span className="truncate text-xs" style={{ color: colors.textMuted }}>
-              · {live ? '' : 'last pass · '}{pass.satellite} {passLabel(pass.aos_ms)}
+              · {live || source === 'log' ? '' : 'last pass · '}{pass.satellite} {passLabel(pass.aos_ms)}
             </span>
           )}
         </div>
-        <StateBadges pass={pass} live={live} nextAosMs={nextAosMs} />
+        <StateBadges pass={pass} live={live} nextAosMs={nextAosMs} source={source} />
       </div>
       {pass ? (
         <>

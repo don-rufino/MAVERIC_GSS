@@ -48,7 +48,7 @@ def _strip_nonfinite(value: Any) -> Any:
 
 router = APIRouter()
 
-_DEFAULT_KINDS = "rx_packet,tx_command,radio,tracking"
+_DEFAULT_KINDS = "rx_packet,tx_command,radio,tracking,noise_floor_pass"
 _MAX_LIMIT = 10000
 
 
@@ -198,7 +198,7 @@ async def api_log_entries(
       - ``from`` / ``to``: HH:MM or HH:MM:SS, compared against ts_ms using
         the session's calendar day as the reference midnight.
       - ``event_kind``: comma-separated whitelist. Defaults to
-        ``rx_packet,tx_command,radio,tracking`` so parameter rows do not flood
+        ``rx_packet,tx_command,radio,tracking,noise_floor_pass`` so parameter rows do not flood
         the viewer's packet list (they are fetched separately via the
         ``/parameters`` endpoint), while system audit events stay visible.
     """
